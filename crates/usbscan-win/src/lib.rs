@@ -18,6 +18,7 @@
     clippy::unnecessary_cast
 )]
 
+pub mod annotate;
 pub mod app;
 pub mod capture_host;
 pub mod config;

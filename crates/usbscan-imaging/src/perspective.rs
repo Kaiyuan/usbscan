@@ -22,7 +22,7 @@ pub fn auto_perspective(
     height: u32,
     bgra: &[u8],
 ) -> Result<Option<(u32, u32, Vec<u8>)>, ImagingError> {
-    validate(width, height, bgra)?;
+    crate::validate_bgra(width, height, bgra)?;
     let Some(corners) = detect_document_corners(width, height, bgra) else {
         return Ok(None);
     };
@@ -36,7 +36,7 @@ pub fn perspective_from_corners(
     bgra: &[u8],
     corners: &[(f64, f64); 4],
 ) -> Result<(u32, u32, Vec<u8>), ImagingError> {
-    validate(width, height, bgra)?;
+    crate::validate_bgra(width, height, bgra)?;
     let target_width = distance(corners[0], corners[1])
         .max(distance(corners[3], corners[2]))
         .round()
@@ -90,26 +90,6 @@ pub fn perspective_from_corners(
         }
     }
     Ok((target_width, target_height, out))
-}
-
-fn validate(width: u32, height: u32, bgra: &[u8]) -> Result<(), ImagingError> {
-    let expected = width as usize * height as usize * 4;
-    if width == 0 || height == 0 {
-        return Err(ImagingError::InvalidSize {
-            width,
-            height,
-            max_width: 0,
-            max_height: 0,
-        });
-    }
-    if bgra.len() < expected {
-        return Err(ImagingError::BufferSize {
-            width,
-            height,
-            len: bgra.len(),
-        });
-    }
-    Ok(())
 }
 
 /// 检测文档四角；检测不到可信四边形时返回 `None`。

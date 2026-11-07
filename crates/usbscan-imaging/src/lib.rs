@@ -12,13 +12,36 @@ use std::path::Path;
 use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 
+mod annotate;
 mod enhance;
 mod perspective;
 mod transform;
 
+pub use annotate::{colors, render_annotations, Annotation, AnnotationColor};
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
 pub use perspective::{auto_perspective, detect_document_corners, perspective_from_corners};
 pub use transform::{mirror_horizontal_bgra, rotate90_bgra};
+
+/// 校验 BGRA 缓冲区与宽高是否匹配。
+pub(crate) fn validate_bgra(width: u32, height: u32, bgra: &[u8]) -> Result<(), ImagingError> {
+    if width == 0 || height == 0 {
+        return Err(ImagingError::InvalidSize {
+            width,
+            height,
+            max_width: 0,
+            max_height: 0,
+        });
+    }
+    let expected = width as usize * height as usize * 4;
+    if bgra.len() < expected {
+        return Err(ImagingError::BufferSize {
+            width,
+            height,
+            len: bgra.len(),
+        });
+    }
+    Ok(())
+}
 
 /// 图像处理错误。
 #[derive(Debug)]

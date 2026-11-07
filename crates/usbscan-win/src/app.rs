@@ -59,18 +59,19 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CheckMenuItem, CreateWindowExW, DefWindowProcW, DestroyAcceleratorTable, DestroyMenu,
     DestroyWindow, DispatchMessageW, EnableMenuItem, GetClassNameW, GetClientRect, GetCursorPos,
-    GetMenu, GetMessageW, GetParent, GetSubMenu, GetWindowLongPtrW, GetWindowRect, KillTimer,
-    LoadCursorW, MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow,
-    SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, SystemParametersInfoW,
+    GetMessageW, GetParent, GetSubMenu, GetWindowLongPtrW, GetWindowRect, KillTimer, LoadCursorW,
+    MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, SystemParametersInfoW,
     TrackPopupMenu, TranslateAcceleratorW, TranslateMessage, CREATESTRUCTW, CS_DBLCLKS, CS_HREDRAW,
-    CS_VREDRAW, GWLP_USERDATA, GWL_STYLE, IDC_ARROW, MB_ICONERROR, MB_ICONINFORMATION,
+    CS_VREDRAW, GWLP_USERDATA, GWL_STYLE, HMENU, IDC_ARROW, MB_ICONERROR, MB_ICONINFORMATION,
     MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_YESNO, MF_BYCOMMAND, MF_CHECKED, MF_ENABLED,
     MF_GRAYED, MINMAXINFO, MSG, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE,
-    SWP_NOZORDER, SW_HIDE, SW_SHOW, SW_SHOWDEFAULT, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX,
-    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DEVICECHANGE, WM_DPICHANGED, WM_ERASEBKGND, WM_GETFONT,
-    WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE,
-    WM_SIZE, WM_TIMER, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOW, SW_SHOWDEFAULT, SW_SHOWNORMAL, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
+    WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DEVICECHANGE, WM_DPICHANGED, WM_DRAWITEM,
+    WM_ERASEBKGND, WM_GETFONT, WM_GETMINMAXINFO, WM_HSCROLL, WM_MEASUREITEM, WM_NCDESTROY,
+    WM_NOTIFY, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSW, WS_CHILD,
+    WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 use crate::capture_host::{
@@ -100,6 +101,10 @@ const CMD_CAPTURE: usize = menu::id::CAPTURE;
 const CMD_EXPORT: usize = 2008;
 /// 设备下拉框 ID。
 const CMD_DEVICE_COMBO: usize = 2300;
+/// 分辨率下拉框 ID。
+const CMD_FORMAT_COMBO: usize = 2310;
+/// 录像帧率下拉框 ID。
+const CMD_RECORD_FPS: usize = 2311;
 
 /// 扫描设置控件 ID。
 const CMD_SETTINGS_OUTPUT: usize = 2400;
@@ -124,15 +129,9 @@ const UNDO_TIMER: usize = 1;
 const COUNTDOWN_TIMER: usize = 2;
 /// 连拍间隔定时器。
 const BURST_TIMER: usize = 3;
-/// 录像取帧定时器。
-const RECORD_TIMER: usize = 4;
-/// 录像帧率。
-const RECORD_FPS: u32 = 5;
-/// 录像取帧间隔（毫秒）。
-const RECORD_INTERVAL_MS: u32 = 1_000 / RECORD_FPS;
 /// 录像最大尺寸。
-const RECORD_MAX_WIDTH: u32 = 1280;
-const RECORD_MAX_HEIGHT: u32 = 720;
+const RECORD_MAX_WIDTH: u32 = 1920;
+const RECORD_MAX_HEIGHT: u32 = 1080;
 /// 拍摄后允许撤销的时间窗口（毫秒）。
 const UNDO_WINDOW_MS: u32 = 3_000;
 /// 缩略图逻辑尺寸（96 DPI）。
@@ -242,17 +241,15 @@ struct EditSnapshot {
 }
 
 /// 正在进行的录像。
-struct Recording {
-    writer: export::AviWriter,
-    frames: u32,
-    last_tick: std::time::Instant,
-}
+type Recording = crate::recorder::Recorder;
 
 /// 应用主状态。通过 `GWLP_USERDATA` 与窗口关联。
 #[allow(clippy::struct_excessive_bools)]
 struct AppState {
     hinstance: HINSTANCE,
     hwnd: HWND,
+    menu: HMENU,
+    menu_bar: HWND,
     dpi: u32,
     dark: bool,
     font: usize,
@@ -260,6 +257,13 @@ struct AppState {
     toolbar_icons: HIMAGELIST,
     device_label: HWND,
     device_combo: HWND,
+    format_label: HWND,
+    format_combo: HWND,
+    record_label: HWND,
+    record_combo: HWND,
+    camera_formats: Vec<(u32, u32)>,
+    preferred_format: Option<(u32, u32)>,
+    record_fps: u32,
     pages: HWND,
     preview: HWND,
     preview_buffer: PreviewBuffer,
@@ -367,6 +371,7 @@ pub fn run() -> Result<(), WinError> {
 
     let hinstance = module_handle();
     let menu_bar = menu::build_main_menu()?;
+    menu::enable_owner_draw(menu_bar);
     let accelerators = menu::build_accelerators()?;
     let config = Config::load();
     let output_root = config
@@ -391,6 +396,18 @@ pub fn run() -> Result<(), WinError> {
         _ => naming::Collision::Append,
     };
     let jpeg_quality = config.jpeg_quality.unwrap_or(92).clamp(1, 100);
+    let preferred_format = match (config.capture_width, config.capture_height) {
+        (Some(width), Some(height)) if width > 0 && height > 0 => {
+            Some((u32::from(width), u32::from(height)))
+        }
+        _ => None,
+    };
+    let record_fps = match config.record_fps.unwrap_or(25) {
+        30 => 30,
+        50 => 50,
+        60 => 60,
+        _ => 25,
+    };
     let enhance = imaging::EnhanceOptions {
         auto_crop: config.auto_crop.unwrap_or(false),
         perspective: config.perspective.unwrap_or(false),
@@ -408,6 +425,8 @@ pub fn run() -> Result<(), WinError> {
     let state = Box::new(AppState {
         hinstance,
         hwnd: ptr::null_mut(),
+        menu: menu_bar,
+        menu_bar: ptr::null_mut(),
         dpi: dpi::BASE_DPI,
         dark,
         font: 0,
@@ -415,6 +434,13 @@ pub fn run() -> Result<(), WinError> {
         toolbar_icons: 0,
         device_label: ptr::null_mut(),
         device_combo: ptr::null_mut(),
+        format_label: ptr::null_mut(),
+        format_combo: ptr::null_mut(),
+        record_label: ptr::null_mut(),
+        record_combo: ptr::null_mut(),
+        camera_formats: Vec::new(),
+        preferred_format,
+        record_fps,
         pages: ptr::null_mut(),
         preview: ptr::null_mut(),
         preview_buffer: PreviewBuffer::default(),
@@ -501,7 +527,7 @@ pub fn run() -> Result<(), WinError> {
             dpi::scale(1280, initial_dpi),
             dpi::scale(800, initial_dpi),
             ptr::null_mut(),
-            menu_bar,
+            ptr::null_mut(),
             hinstance,
             state_ptr.cast(),
         )
@@ -571,8 +597,9 @@ fn register_window_classes() -> Result<(), WinError> {
     // SAFETY: 加载系统光标，参数为标准 IDC_ARROW。
     let cursor = unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) };
 
-    let classes: [(&str, WndprocAlias); 10] = [
+    let classes: [(&str, WndprocAlias); 11] = [
         (MAIN_CLASS, wndproc),
+        (crate::menubar::MENU_BAR_CLASS, crate::menubar::wndproc),
         (PREVIEW_CLASS, preview_proc),
         (crate::corners::CORNER_CLASS, crate::corners::wndproc),
         (crate::crop::CROP_CLASS, crate::crop::wndproc),
@@ -738,8 +765,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             refresh_status(s);
                         }
                     }
-                } else if wparam == RECORD_TIMER {
-                    record_tick(hwnd);
                 }
                 0
             }
@@ -858,6 +883,22 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 };
                 0
             }
+            WM_MEASUREITEM => {
+                menu::measure_item(
+                    lparam as *mut windows_sys::Win32::UI::Controls::MEASUREITEMSTRUCT,
+                );
+                1
+            }
+            WM_DRAWITEM => {
+                let state = state_ptr(hwnd);
+                let dark = if state.is_null() {
+                    false
+                } else {
+                    (*state).dark
+                };
+                let item = lparam as *const windows_sys::Win32::UI::Controls::DRAWITEMSTRUCT;
+                isize::from(menu::draw_item(item, dark))
+            }
             WM_COMMAND => {
                 let id = (wparam & 0xFFFF) as usize;
                 let code = ((wparam >> 16) & 0xFFFF) as u32;
@@ -912,6 +953,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     // 正常退出：标记会话已收尾，下次启动不再提示“未完成会话”。
                     (*state).session.closed_cleanly = true;
                     let _ = (*state).store.save(&(*state).session);
+                    if !(*state).menu.is_null() {
+                        DestroyMenu((*state).menu);
+                        (*state).menu = ptr::null_mut();
+                    }
                 }
                 PostQuitMessage(0);
                 0
@@ -1079,6 +1124,8 @@ fn create_children(state: *mut AppState) {
 
         let scale = |v: i32| dpi::scale(v, s.dpi);
 
+        s.menu_bar = crate::menubar::create(s.hwnd, s.hinstance, s.menu);
+
         s.toolbar = controls::create_toolbar(
             s.hwnd,
             s.hinstance,
@@ -1156,6 +1203,23 @@ fn create_children(state: *mut AppState) {
 
         s.device_label = controls::create_label(s.hwnd, s.hinstance, "设备");
         s.device_combo = controls::create_combo_box(s.hwnd, s.hinstance, CMD_DEVICE_COMBO);
+        s.format_label = controls::create_label(s.hwnd, s.hinstance, "分辨率");
+        s.format_combo = controls::create_combo_box(s.hwnd, s.hinstance, CMD_FORMAT_COMBO);
+        controls::set_combo_items(s.format_combo, &["自动".to_string()], Some(0));
+        s.record_label = controls::create_label(s.hwnd, s.hinstance, "录像");
+        s.record_combo = controls::create_combo_box(s.hwnd, s.hinstance, CMD_RECORD_FPS);
+        let fps_items = ["25 fps", "30 fps", "50 fps", "60 fps"];
+        let fps_index = match s.record_fps {
+            30 => 1,
+            50 => 2,
+            60 => 3,
+            _ => 0,
+        };
+        controls::set_combo_items(
+            s.record_combo,
+            &fps_items.map(str::to_string),
+            Some(fps_index),
+        );
 
         s.pages = controls::create_page_list(s.hwnd, s.hinstance);
         s.thumb_width = scale(THUMB_WIDTH);
@@ -1273,6 +1337,7 @@ fn create_children(state: *mut AppState) {
         restore_session(state);
 
         // 采集线程在子窗口就绪后启动，避免它的第一条通知落空。
+        s.capture.select_format(s.preferred_format);
         s.capture
             .select(s.selected_id.clone(), s.selected_name.clone());
         s.capture.start(s.hwnd as isize);
@@ -1291,6 +1356,10 @@ fn apply_font_to_children(state: &AppState) {
             state.toolbar,
             state.device_label,
             state.device_combo,
+            state.format_label,
+            state.format_combo,
+            state.record_label,
+            state.record_combo,
             state.pages,
             state.status,
             state.settings_group,
@@ -1341,6 +1410,7 @@ fn rebuild_toolbar_icons(s: &mut AppState) {
     controls::autosize_toolbar(s.toolbar);
 }
 
+#[allow(clippy::too_many_lines)]
 fn apply_theme(state: *mut AppState) {
     // SAFETY: state 有效；主题应用为纯 Win32 调用。
     unsafe {
@@ -1362,6 +1432,10 @@ fn apply_theme(state: *mut AppState) {
             s.toolbar,
             s.device_label,
             s.device_combo,
+            s.format_label,
+            s.format_combo,
+            s.record_label,
+            s.record_combo,
             s.pages,
             s.status,
             s.settings_group,
@@ -1382,13 +1456,17 @@ fn apply_theme(state: *mut AppState) {
             s.settings_apply,
             s.enhance_group,
             s.enhance_heading,
+            s.enhance_preset_label,
+            s.enhance_preset,
             s.enhance_checks[0],
             s.enhance_checks[1],
             s.enhance_checks[2],
+            s.enhance_checks[3],
             s.enhance_checks[4],
             s.enhance_label,
             s.enhance_value,
             s.enhance_track,
+            s.settings_track,
         ] {
             if !child.is_null() {
                 crate::theme::apply_control(child, s.dark);
@@ -1409,16 +1487,21 @@ fn apply_theme(state: *mut AppState) {
             // DarkMode_Explorer 的支持不一致，CFD 主题更稳定。
             for control in [
                 s.device_combo,
+                s.format_combo,
+                s.record_combo,
                 s.settings_output,
                 s.settings_file,
                 s.settings_folder,
                 s.settings_collision,
+                s.enhance_preset,
             ] {
                 crate::theme::apply_named(control, "DarkMode_CFD");
             }
         }
 
-        let bar = GetMenu(s.hwnd);
+        crate::menu::refresh_theme(s.menu, s.dark);
+        crate::menubar::set_dark(s.menu_bar, s.dark);
+        let bar = s.menu;
         if !bar.is_null() {
             let view = GetSubMenu(bar, 3);
             if !view.is_null() {
@@ -1441,6 +1524,8 @@ fn apply_theme(state: *mut AppState) {
         if !s.preview.is_null() {
             InvalidateRect(s.preview, ptr::null(), 1);
         }
+        // TB_AUTOSIZE 会把工具栏移回 (0,0)，重新应用布局让它回到菜单栏下方。
+        layout(state);
     }
 }
 
@@ -1493,26 +1578,50 @@ fn layout(state: *mut AppState) {
         let height = rc.bottom;
         let scale = |v: i32| dpi::scale(v, s.dpi);
 
+        let menu_h = scale(28);
         let toolbar_h = scale(40);
         SetWindowPos(
-            s.toolbar,
+            s.menu_bar,
             ptr::null_mut(),
             0,
             0,
             width,
+            menu_h,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        SetWindowPos(
+            s.toolbar,
+            ptr::null_mut(),
+            0,
+            menu_h,
+            width,
             toolbar_h,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
+        // 工具栏在 WM_SIZE 时会把自身贴回父窗口顶部；尺寸确定后再单独移动一次。
+        SetWindowPos(
+            s.toolbar,
+            ptr::null_mut(),
+            0,
+            menu_h,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
 
         let param_h = scale(32);
-        let param_y = toolbar_h + scale(5);
+        let param_y = menu_h + toolbar_h + scale(5);
         place(s.device_label, scale(8), param_y, scale(36), scale(22));
         // 下拉列表的高度由窗口高度决定，闭合时只显示一行。
-        place(s.device_combo, scale(48), param_y, scale(280), scale(200));
+        place(s.device_combo, scale(48), param_y, scale(220), scale(200));
+        place(s.format_label, scale(280), param_y, scale(52), scale(22));
+        place(s.format_combo, scale(336), param_y, scale(140), scale(200));
+        place(s.record_label, scale(486), param_y, scale(40), scale(22));
+        place(s.record_combo, scale(530), param_y, scale(90), scale(200));
 
         SendMessageW(s.status, WM_SIZE, 0, 0);
         let status_h = window_height(s.status);
-        let body_top = toolbar_h + param_h;
+        let body_top = menu_h + toolbar_h + param_h;
         let body_h = (height - body_top - status_h).max(0);
 
         let left_w = if s.show_pages { scale(190) } else { 0 };
@@ -1696,7 +1805,7 @@ fn toggle_panel(hwnd: HWND, left: bool) {
             };
         }
         layout(state);
-        let bar = GetMenu(hwnd);
+        let bar = s.menu;
         if !bar.is_null() {
             let view = GetSubMenu(bar, 3);
             if !view.is_null() {
@@ -1833,6 +1942,13 @@ fn persist_config(s: &AppState) {
         timer_seconds: Some(u8::try_from(s.timer_seconds).unwrap_or(3)),
         burst_count: Some(u8::try_from(s.burst_count).unwrap_or(5)),
         burst_interval_ms: Some(u16::try_from(s.burst_interval_ms).unwrap_or(800)),
+        capture_width: s
+            .preferred_format
+            .and_then(|(width, _)| u16::try_from(width).ok()),
+        capture_height: s
+            .preferred_format
+            .and_then(|(_, height)| u16::try_from(height).ok()),
+        record_fps: Some(u8::try_from(s.record_fps).unwrap_or(25)),
     }
     .save();
 }
@@ -2114,6 +2230,7 @@ fn update_camera_status(state: *mut AppState) {
                 name,
                 width,
                 height,
+                formats,
             } => {
                 if s.camera_name.as_deref() != Some(name.as_str())
                     || s.camera_error.is_some()
@@ -2132,6 +2249,8 @@ fn update_camera_status(state: *mut AppState) {
                 controls::set_combo_index(s.device_combo, index);
                 s.camera_name = Some(name);
                 s.camera_size = Some((width, height));
+                s.camera_formats = formats;
+                refresh_format_combo(s);
                 s.camera_error = None;
                 s.camera_waiting = None;
                 s.active_id = Some(id);
@@ -2224,6 +2343,59 @@ fn on_device_selected(hwnd: HWND) {
 }
 
 /// 默认输出根目录：`%USERPROFILE%\Pictures\usbscan`。
+fn on_format_selected(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；分辨率列表来自采集线程。
+    unsafe {
+        let s = &mut *state;
+        let Some(index) = controls::combo_selection(s.format_combo) else {
+            return;
+        };
+        let format = if index == 0 {
+            None
+        } else {
+            s.camera_formats.get(index - 1).copied()
+        };
+        if s.preferred_format == format {
+            return;
+        }
+        s.preferred_format = format;
+        s.capture.select_format(format);
+        s.status_msg = format.map_or_else(
+            || "分辨率：自动".to_string(),
+            |(width, height)| format!("分辨率：{width} × {height}"),
+        );
+        persist_config(s);
+        refresh_status(s);
+    }
+}
+
+fn on_record_fps_selected(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；帧率只影响下一次录像。
+    unsafe {
+        let s = &mut *state;
+        let Some(index) = controls::combo_selection(s.record_combo) else {
+            return;
+        };
+        s.record_fps = match index {
+            1 => 30,
+            2 => 50,
+            3 => 60,
+            _ => 25,
+        };
+        s.status_msg = format!("录像帧率：{} fps", s.record_fps);
+        persist_config(s);
+        refresh_status(s);
+    }
+}
+
 fn default_output_root() -> PathBuf {
     let home = std::env::var_os("USERPROFILE")
         .map(PathBuf::from)
@@ -2267,6 +2439,20 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
     if id == CMD_DEVICE_COMBO {
         if code == CBN_SELCHANGE {
             on_device_selected(hwnd);
+        }
+        return;
+    }
+
+    if id == CMD_FORMAT_COMBO {
+        if code == CBN_SELCHANGE {
+            on_format_selected(hwnd);
+        }
+        return;
+    }
+
+    if id == CMD_RECORD_FPS {
+        if code == CBN_SELCHANGE {
+            on_record_fps_selected(hwnd);
         }
         return;
     }
@@ -2462,6 +2648,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::DEVICE_PROPERTIES {
+        open_camera_settings(hwnd);
+        return;
+    }
+
     if id == menu::id::FILE_EXIT {
         // SAFETY: 标准销毁流程。
         unsafe {
@@ -2482,12 +2673,18 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
     if id == menu::id::VIEW_DARK {
         let state = state_ptr(hwnd);
         if !state.is_null() {
+            let dark = crate::theme::system_uses_dark_mode();
             // SAFETY: state 有效。
             unsafe {
-                (*state).dark = !(*state).dark;
+                (*state).dark = dark;
             }
             apply_theme(state);
         }
+        return;
+    }
+
+    if id == menu::id::HELP_MANUAL {
+        show_manual(hwnd);
         return;
     }
 
@@ -2572,15 +2769,34 @@ fn set_redo_enabled(hwnd: HWND, enabled: bool) {
 }
 
 fn set_menu_enabled(hwnd: HWND, id: usize, enabled: bool) {
-    // SAFETY: 主窗口菜单由系统持有；菜单项 ID 固定。
+    // SAFETY: 菜单项 ID 固定；菜单句柄来自主窗口状态。
     unsafe {
-        let menu = GetMenu(hwnd);
+        let state = state_ptr(hwnd);
+        if state.is_null() {
+            return;
+        }
+        let menu = (*state).menu;
         if menu.is_null() {
             return;
         }
         let flags = MF_BYCOMMAND | if enabled { MF_ENABLED } else { MF_GRAYED };
         EnableMenuItem(menu, id as u32, flags);
     }
+}
+
+fn refresh_format_combo(s: &mut AppState) {
+    let mut items = vec!["自动".to_string()];
+    items.extend(
+        s.camera_formats
+            .iter()
+            .map(|(width, height)| format!("{width} × {height}")),
+    );
+    let selected = s
+        .preferred_format
+        .or(s.camera_size)
+        .and_then(|format| s.camera_formats.iter().position(|item| *item == format))
+        .map_or(0, |index| index + 1);
+    controls::set_combo_items(s.format_combo, &items, Some(selected));
 }
 
 /// 启动时恢复上次会话。
@@ -2674,6 +2890,9 @@ fn show_page_context_menu(hwnd: HWND) {
     let Ok(menu) = menu::build_page_menu() else {
         return;
     };
+    menu::enable_owner_draw_popup(menu);
+    let dark = DARK_MODE.load(Ordering::Relaxed);
+    menu::apply_popup_theme(menu, dark);
     // SAFETY: 菜单句柄由本函数创建并销毁；命令通过主窗口统一分发。
     unsafe {
         let mut point: POINT = std::mem::zeroed();
@@ -4764,7 +4983,7 @@ fn toggle_burst(hwnd: HWND) {
     }
 }
 
-/// 录像使用的尺寸（不超过 1280×720）。
+/// 录像使用的尺寸（不超过 1920×1080）。
 fn recording_size(width: u32, height: u32) -> (u32, u32) {
     let scale = (f64::from(RECORD_MAX_WIDTH) / f64::from(width.max(1)))
         .min(f64::from(RECORD_MAX_HEIGHT) / f64::from(height.max(1)))
@@ -4775,13 +4994,13 @@ fn recording_size(width: u32, height: u32) -> (u32, u32) {
     )
 }
 
-/// 切换录像（Motion-JPEG AVI）。
+/// 切换录像（MP4 / H.264）。
 fn toggle_recording(hwnd: HWND) {
     let state = state_ptr(hwnd);
     if state.is_null() {
         return;
     }
-    // SAFETY: state 有效；文件写入逐项检查。
+    // SAFETY: state 有效；文件与线程创建逐项检查。
     unsafe {
         let s = &mut *state;
         if s.recording.is_some() {
@@ -4801,128 +5020,36 @@ fn toggle_recording(hwnd: HWND) {
             return;
         }
         let name = format!(
-            "录像_{}.avi",
+            "录像_{}.mp4",
             naming::TimeStamp::now().format("yyyyMMdd_HHmmss")
         );
         let path = unique_path(&directory.join(name));
         let (record_width, record_height) = recording_size(frame.width, frame.height);
-        let writer = match export::AviWriter::create(&path, record_width, record_height, RECORD_FPS)
-        {
-            Ok(writer) => writer,
-            Err(err) => {
-                show_error(hwnd, &format!("无法创建录像文件：{err}"));
-                return;
-            }
-        };
-        s.recording = Some(Recording {
-            writer,
-            frames: 0,
-            last_tick: std::time::Instant::now(),
-        });
-        SetTimer(hwnd, RECORD_TIMER, RECORD_INTERVAL_MS, None);
-        s.status_msg = "录像中… 再次点击“录像”停止".to_string();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(4);
+        let recorder = crate::recorder::Recorder::start(
+            path,
+            record_width,
+            record_height,
+            s.record_fps,
+            receiver,
+        );
+        s.capture.set_record_sink(Some(sender));
+        s.recording = Some(recorder);
+        s.status_msg = format!(
+            "录像中… {}×{} @ {} fps，再次点击“录像”停止",
+            record_width, record_height, s.record_fps
+        );
         refresh_status(s);
     }
 }
 
-fn stop_recording(hwnd: HWND, s: &mut AppState) -> Option<String> {
-    // SAFETY: 标准定时器 API。
-    unsafe {
-        KillTimer(hwnd, RECORD_TIMER);
-    }
+fn stop_recording(_hwnd: HWND, s: &mut AppState) -> Option<String> {
+    s.capture.set_record_sink(None);
     let recording = s.recording.take()?;
-    let frames = recording.frames;
-    match recording.writer.finish() {
+    let frames = recording.frames();
+    match recording.stop() {
         Ok(path) => Some(format!("录像已保存：{}（{frames} 帧）", path.display())),
         Err(err) => Some(format!("录像保存失败：{err}")),
-    }
-}
-
-fn record_tick(hwnd: HWND) {
-    let state = state_ptr(hwnd);
-    if state.is_null() {
-        return;
-    }
-    // SAFETY: state 有效；帧编码与 AVI 追加逐项检查。
-    let (frame, quality) = unsafe {
-        let s = &*state;
-        if s.recording.is_none() {
-            return;
-        }
-        (s.capture.latest_frame(), s.jpeg_quality.min(70))
-    };
-    let Some(frame) = frame else {
-        let s = unsafe { &mut *state };
-        let message =
-            stop_recording(hwnd, s).unwrap_or_else(|| "录像已停止：未取得画面".to_string());
-        s.status_msg = message;
-        refresh_status(s);
-        return;
-    };
-    let scaled = (frame.width > RECORD_MAX_WIDTH || frame.height > RECORD_MAX_HEIGHT)
-        .then(|| {
-            imaging::thumbnail_bgra(
-                frame.width,
-                frame.height,
-                &frame.data,
-                RECORD_MAX_WIDTH,
-                RECORD_MAX_HEIGHT,
-            )
-            .ok()
-        })
-        .flatten();
-    let (width, height, data) = scaled.as_ref().map_or(
-        (frame.width, frame.height, frame.data.as_slice()),
-        |(width, height, data)| (*width, *height, data.as_slice()),
-    );
-    let mut jpeg = Vec::new();
-    if let Err(err) = imaging::encode_jpeg_bgra(width, height, data, quality, &mut jpeg) {
-        let s = unsafe { &mut *state };
-        let message = stop_recording(hwnd, s).map_or_else(
-            || format!("录像已停止：{err}"),
-            |stop| format!("{stop}（{err}）"),
-        );
-        s.status_msg = message;
-        refresh_status(s);
-        return;
-    }
-    // SAFETY: state 有效；只在 Some 分支访问 writer。
-    unsafe {
-        let s = &mut *state;
-        let add_result = {
-            let Some(recording) = &mut s.recording else {
-                return;
-            };
-            let now = std::time::Instant::now();
-            let elapsed = now.duration_since(recording.last_tick).as_secs_f64();
-            let slots = ((elapsed * f64::from(RECORD_FPS)).round() as u32).clamp(1, 20);
-            let mut result = Ok(());
-            for _ in 0..slots {
-                if let Err(err) = recording.writer.add_frame(&jpeg) {
-                    result = Err(err);
-                    break;
-                }
-                recording.frames = recording.frames.saturating_add(1);
-            }
-            recording.last_tick = now;
-            result.map(|()| recording.frames)
-        };
-        match add_result {
-            Ok(frames) => {
-                if frames % 10 == 0 {
-                    s.status_msg = format!("录像中… {frames} 帧");
-                    refresh_status(s);
-                }
-            }
-            Err(err) => {
-                let message = stop_recording(hwnd, s).map_or_else(
-                    || format!("录像已停止：{err}"),
-                    |stop| format!("{stop}（{err}）"),
-                );
-                s.status_msg = message;
-                refresh_status(s);
-            }
-        }
     }
 }
 
@@ -5098,6 +5225,48 @@ fn show_error(hwnd: HWND, message: &str) {
     // SAFETY: 字符串在调用期间有效。
     unsafe {
         MessageBoxW(hwnd, text.as_ptr(), caption.as_ptr(), MB_OK | MB_ICONERROR);
+    }
+}
+
+fn show_manual(hwnd: HWND) {
+    let text = wide(
+        "usbscan 快速使用说明\n\n\
+         1. 顶部选择摄像头、采集分辨率与录像帧率。\n\
+         2. F9 或工具栏“拍照”保存当前画面；F10 连拍，F11 定时，F12 录像。\n\
+         3. 右侧可设置输出目录、命名模板与 JPEG 质量；图像增强支持自动裁边、纠偏、透视、去阴影和白底净化。\n\
+         4. 页面列表右键可旋转、镜像、裁剪、透视校正、批注、OCR、导出和打印。\n\
+         5. 文件菜单可导出 PDF、Word、图片、OCR 文本，或导入图片、PDF、剪贴板。\n\
+         6. Ctrl+Z / Ctrl+Y 撤销与重做；Ctrl+E 导出 PDF；Ctrl+P 打印；F5 重新检测设备。\n\n\
+         录像保存为 MP4（H.264），默认 25 fps，可选 25/30/50/60 fps。",
+    );
+    let caption = wide("使用说明");
+    // SAFETY: 字符串在调用期间有效。
+    unsafe {
+        MessageBoxW(
+            hwnd,
+            text.as_ptr(),
+            caption.as_ptr(),
+            MB_OK | MB_ICONINFORMATION,
+        );
+    }
+}
+
+fn open_camera_settings(hwnd: HWND) {
+    let operation = wide("open");
+    let target = wide("ms-settings:privacy-webcam");
+    // SAFETY: 标准 ShellExecuteW 调用；返回值大于 32 表示成功。
+    let result = unsafe {
+        ShellExecuteW(
+            hwnd,
+            operation.as_ptr(),
+            target.as_ptr(),
+            ptr::null(),
+            ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result as isize <= 32 {
+        show_error(hwnd, "无法打开 Windows 摄像头设置。");
     }
 }
 

@@ -38,6 +38,8 @@ pub enum Status {
         name: String,
         width: u32,
         height: u32,
+        /// 设备支持的分辨率。
+        formats: Vec<(u32, u32)>,
     },
     /// 已选设备当前不在线，等待重新插入。
     Waiting { name: String },
@@ -63,6 +65,10 @@ pub struct Shared {
     pub selected: Option<String>,
     /// 用户选择的设备名，用于"等待设备"提示。
     pub selected_name: Option<String>,
+    /// 用户首选分辨率；`None` 表示自动选择。
+    pub preferred_format: Option<(u32, u32)>,
+    /// 录像帧队列；`None` 表示当前没有录像。
+    pub record_sink: Option<std::sync::mpsc::SyncSender<Arc<capture::Frame>>>,
     /// 重启请求：选择设备、热插拔后由 UI 置位。
     restart: bool,
 }
@@ -131,6 +137,18 @@ impl CaptureHost {
     pub fn refresh(&self) {
         self.shared().restart = true;
     }
+
+    /// 选择分辨率并重新打开摄像头。
+    pub fn select_format(&self, format: Option<(u32, u32)>) {
+        let mut shared = self.shared();
+        shared.preferred_format = format;
+        shared.restart = true;
+    }
+
+    /// 设置/取消录像帧接收器。
+    pub fn set_record_sink(&self, sink: Option<std::sync::mpsc::SyncSender<Arc<capture::Frame>>>) {
+        self.shared().record_sink = sink;
+    }
 }
 
 impl Default for CaptureHost {
@@ -178,11 +196,15 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
             }
         };
 
-        let (selected, selected_name) = {
+        let (selected, selected_name, preferred_format) = {
             let guard = shared
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            (guard.selected.clone(), guard.selected_name.clone())
+            (
+                guard.selected.clone(),
+                guard.selected_name.clone(),
+                guard.preferred_format,
+            )
         };
 
         // 优先精确匹配稳定 ID；旧版配置里保存的是 `名称#序号`，
@@ -207,7 +229,7 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
         let mut first_error = None;
         for info in &candidates {
             log_line(&format!("尝试打开 {} [{}]", info.name, info.id));
-            match capture::Camera::open(info) {
+            match capture::Camera::open(info, preferred_format) {
                 Ok(camera) => {
                     opened = Some((camera, *info));
                     break;
@@ -244,6 +266,7 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
         }
 
         let (width, height) = camera.size();
+        let formats = camera.formats();
         set_status(
             shared,
             stop,
@@ -253,6 +276,7 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
                 name: info.name.clone(),
                 width,
                 height,
+                formats,
             },
         );
 
@@ -270,18 +294,24 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
 
             match camera.read_frame() {
                 Ok(frame) => {
-                    let should_post = {
+                    let frame = Arc::new(frame);
+                    let (should_post, record_sink) = {
                         let mut guard = shared
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        guard.frame = Some(Arc::new(frame));
+                        let record_sink = guard.record_sink.clone();
+                        guard.frame = Some(Arc::clone(&frame));
                         guard.sequence = guard.sequence.wrapping_add(1);
                         // 上一帧的 WM_APP_FRAME 还没处理时不再重复投递，
                         // 避免高帧率下消息队列堆积、界面来回闪。
                         let should_post = !guard.frame_pending;
                         guard.frame_pending = true;
-                        should_post
+                        (should_post, record_sink)
                     };
+                    if let Some(sink) = record_sink {
+                        // 队列满时丢弃旧帧，录像线程会重复上一帧保持时间轴。
+                        let _ = sink.try_send(frame);
+                    }
                     if should_post {
                         // SAFETY: 窗口在 CaptureHost::stop() 之前保持有效。
                         unsafe {

@@ -206,7 +206,7 @@ pub struct DShowCamera {
 
 impl DShowCamera {
     /// 打开 DirectShow 摄像头。
-    pub fn open(info: &CameraInfo) -> Result<Self, CaptureError> {
+    pub fn open(info: &CameraInfo, _preferred: Option<(u32, u32)>) -> Result<Self, CaptureError> {
         let moniker =
             find_moniker(info).ok_or_else(|| CaptureError::DeviceNotFound(info.name.clone()))?;
         // SAFETY: 标准 DirectShow 图构建流程；接口句柄由返回值持有。
@@ -309,6 +309,12 @@ impl DShowCamera {
     #[must_use]
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.height)
+    }
+
+    /// DirectShow 兜底路径只报告当前实际分辨率。
+    #[must_use]
+    pub fn formats(&self) -> Vec<(u32, u32)> {
+        vec![(self.width, self.height)]
     }
 
     /// 阻塞读取最新一帧。

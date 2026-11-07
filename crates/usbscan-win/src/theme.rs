@@ -83,6 +83,20 @@ pub fn apply_window(hwnd: HWND, dark: bool) {
             std::ptr::from_ref(&value).cast(),
             u32::try_from(std::mem::size_of::<i32>()).unwrap_or(4),
         );
+
+        // 让非客户区与菜单栏使用与系统一致的深色/浅色主题。
+        let name = if dark {
+            wide("DarkMode_Explorer")
+        } else {
+            wide("Explorer")
+        };
+        SetWindowTheme(hwnd, name.as_ptr(), std::ptr::null());
+        windows_sys::Win32::UI::WindowsAndMessaging::SendMessageW(
+            hwnd,
+            windows_sys::Win32::UI::WindowsAndMessaging::WM_THEMECHANGED,
+            0,
+            0,
+        );
     }
 }
 

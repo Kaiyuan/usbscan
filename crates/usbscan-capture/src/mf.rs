@@ -157,6 +157,9 @@ fn activation_error(err: windows::core::Error) -> CaptureError {
     }
 }
 
+/// 打开后的采集器、实际输出尺寸、步幅与设备支持的分辨率。
+type OpenReader = (IMFSourceReader, u32, u32, i32, Vec<(u32, u32)>);
+
 /// 创建 Source Reader 并协商 RGB32 输出。
 ///
 /// `advanced = false` 时启用旧版 YUV→RGB32 转换路径，用于高级视频处理
@@ -164,7 +167,8 @@ fn activation_error(err: windows::core::Error) -> CaptureError {
 fn open_reader(
     source: &IMFMediaSource,
     advanced: bool,
-) -> Result<(IMFSourceReader, u32, u32, i32), CaptureError> {
+    preferred: Option<(u32, u32)>,
+) -> Result<OpenReader, CaptureError> {
     // SAFETY: source 有效；所有 COM 调用均检查返回值。
     unsafe {
         let mut attributes: Option<IMFAttributes> = None;
@@ -195,11 +199,17 @@ fn open_reader(
         let _ = reader.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false);
         stage("选择视频流", reader.SetStreamSelection(stream, true))?;
 
-        // 逐个尝试原生格式，优先 1080p 以内的最高分辨率。
-        // 直接给 RGB32 而不指定帧尺寸，部分驱动会返回 E_INVALIDARG。
+        // 逐个尝试原生格式。用户指定分辨率时，优先精确匹配，再按面积接近程度
+        // 回退；未指定时优先 1080p 以内的最高分辨率。
         let formats = native_formats(&reader);
+        let resolutions = unique_resolutions(&formats);
+        let ordered = if let Some(preferred) = preferred {
+            preferred_format_order(&formats, preferred)
+        } else {
+            preferred_formats(&formats)
+        };
         let mut configured = false;
-        for native in preferred_formats(&formats) {
+        for native in ordered {
             let Ok(media_type) = build_rgb32_type(Some(native)) else {
                 continue;
             };
@@ -247,7 +257,7 @@ fn open_reader(
         let stride = current
             .GetUINT32(&MF_MT_DEFAULT_STRIDE)
             .map_or((width * 4) as i32, |v| v as i32);
-        Ok((reader, width, height, stride))
+        Ok((reader, width, height, stride, resolutions))
     }
 }
 
@@ -258,13 +268,14 @@ pub struct MfCamera {
     width: u32,
     height: u32,
     stride: i32,
+    formats: Vec<(u32, u32)>,
     /// 是否已跳过第一帧（传感器刚上电时常见暗帧）。
     warmup: bool,
 }
 
 impl MfCamera {
     /// 打开指定摄像头并请求 BGRA 输出。
-    pub fn open(info: &CameraInfo) -> Result<Self, CaptureError> {
+    pub fn open(info: &CameraInfo, preferred: Option<(u32, u32)>) -> Result<Self, CaptureError> {
         ensure_platform()?;
         let activates = stage("枚举摄像头", enumerate_activates())?;
         // 先按符号链接精确匹配；老设备或驱动不提供链接时按名称回退。
@@ -280,8 +291,8 @@ impl MfCamera {
 
         let source = activate_media_source(activate)?;
         // 先启用高级视频处理；失败时退回旧版 YUV→RGB32 转换路径。
-        let (reader, width, height, stride) =
-            open_reader(&source, true).or_else(|_| open_reader(&source, false))?;
+        let (reader, width, height, stride, formats) = open_reader(&source, true, preferred)
+            .or_else(|_| open_reader(&source, false, preferred))?;
 
         Ok(Self {
             info: info.clone(),
@@ -289,8 +300,14 @@ impl MfCamera {
             width,
             height,
             stride,
+            formats,
             warmup: false,
         })
+    }
+
+    #[must_use]
+    pub fn formats(&self) -> &[(u32, u32)] {
+        &self.formats
     }
 
     #[must_use]
@@ -447,6 +464,33 @@ fn preferred_formats(formats: &[NativeFormat]) -> Vec<&NativeFormat> {
 
     within.extend(over);
     within
+}
+
+/// 用户指定分辨率时的优先顺序：精确匹配 → 同宽高比最近 → 面积最近。
+fn preferred_format_order(formats: &[NativeFormat], preferred: (u32, u32)) -> Vec<&NativeFormat> {
+    let (preferred_width, preferred_height) = preferred;
+    let mut ordered: Vec<&NativeFormat> = formats.iter().collect();
+    ordered.sort_by_key(|format| {
+        let exact = format.width == preferred_width && format.height == preferred_height;
+        let same_aspect = u64::from(format.width) * u64::from(preferred_height)
+            == u64::from(format.height) * u64::from(preferred_width);
+        let area_delta = (i64::from(format.width) * i64::from(format.height)
+            - i64::from(preferred_width) * i64::from(preferred_height))
+        .unsigned_abs();
+        (!exact, !same_aspect, area_delta)
+    });
+    ordered
+}
+
+/// 去重后的分辨率列表，按面积从大到小排列。
+fn unique_resolutions(formats: &[NativeFormat]) -> Vec<(u32, u32)> {
+    let mut resolutions: Vec<(u32, u32)> = formats
+        .iter()
+        .map(|format| (format.width, format.height))
+        .collect();
+    resolutions.sort_by_key(|&(width, height)| Reverse(u64::from(width) * u64::from(height)));
+    resolutions.dedup();
+    resolutions
 }
 
 /// 构造 RGB32 输出类型；`native` 提供帧尺寸与帧率。

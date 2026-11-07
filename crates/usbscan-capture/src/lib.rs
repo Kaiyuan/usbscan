@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 usbscan contributors
 
 //! `usbscan` 摄像头采集抽象层。
@@ -12,10 +12,12 @@ mod dshow;
 mod error;
 mod frame;
 mod mf;
+mod mp4;
 
 pub use error::CaptureError;
 pub use frame::{Frame, PixelFormat};
 pub use mf::{ensure_platform, guid_eq, init_thread, CameraInfo, ComGuard, MfCamera};
+pub use mp4::Mp4Writer;
 
 /// 统一摄像头后端。
 pub enum Camera {
@@ -25,19 +27,28 @@ pub enum Camera {
 
 impl Camera {
     /// 打开摄像头：先尝试 MF，失败后自动降级到 DirectShow。
-    pub fn open(info: &CameraInfo) -> Result<Self, CaptureError> {
+    pub fn open(info: &CameraInfo, preferred: Option<(u32, u32)>) -> Result<Self, CaptureError> {
         if info.id.starts_with("dshow:") {
-            return dshow::DShowCamera::open(info).map(Self::DirectShow);
+            return dshow::DShowCamera::open(info, preferred).map(Self::DirectShow);
         }
-        match MfCamera::open(info) {
+        match MfCamera::open(info, preferred) {
             Ok(camera) => Ok(Self::MediaFoundation(camera)),
-            Err(mf_error) => match dshow::DShowCamera::open(info) {
+            Err(mf_error) => match dshow::DShowCamera::open(info, preferred) {
                 Ok(camera) => Ok(Self::DirectShow(camera)),
                 Err(dshow_error) => Err(CaptureError::BackendFailure {
                     media_foundation: Box::new(mf_error),
                     direct_show: Box::new(dshow_error),
                 }),
             },
+        }
+    }
+
+    /// 当前设备原生支持的分辨率（去重、按面积降序）。
+    #[must_use]
+    pub fn formats(&self) -> Vec<(u32, u32)> {
+        match self {
+            Self::MediaFoundation(camera) => camera.formats().to_vec(),
+            Self::DirectShow(camera) => camera.formats(),
         }
     }
 

@@ -48,6 +48,12 @@ pub struct Config {
     pub burst_count: Option<u8>,
     /// 连拍间隔（毫秒）。
     pub burst_interval_ms: Option<u16>,
+    /// 首选采集宽度。
+    pub capture_width: Option<u16>,
+    /// 首选采集高度。
+    pub capture_height: Option<u16>,
+    /// 录像帧率：25 / 30 / 50 / 60。
+    pub record_fps: Option<u8>,
 }
 
 impl Config {
@@ -98,6 +104,12 @@ impl Config {
                 config.burst_count = Some(value.clamp(2, 20));
             } else if let Some(value) = toml_u16(line, "burst_interval_ms") {
                 config.burst_interval_ms = Some(value.clamp(200, 5000));
+            } else if let Some(value) = toml_u16(line, "capture_width") {
+                config.capture_width = Some(value);
+            } else if let Some(value) = toml_u16(line, "capture_height") {
+                config.capture_height = Some(value);
+            } else if let Some(value) = toml_u8(line, "record_fps") {
+                config.record_fps = Some(value);
             }
         }
         config
@@ -156,6 +168,9 @@ impl Config {
             ("timer_seconds", self.timer_seconds.map(u16::from)),
             ("burst_count", self.burst_count.map(u16::from)),
             ("burst_interval_ms", self.burst_interval_ms),
+            ("capture_width", self.capture_width),
+            ("capture_height", self.capture_height),
+            ("record_fps", self.record_fps.map(u16::from)),
         ] {
             if let Some(value) = value {
                 text.push_str(key);

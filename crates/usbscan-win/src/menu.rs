@@ -3,12 +3,27 @@
 
 //! 原生菜单栏构建。
 
+use std::sync::atomic::Ordering;
+
+use windows_sys::Win32::Graphics::Gdi::{
+    CreateSolidBrush, DeleteObject, DrawTextW, FillRect, GetDC, GetStockObject, GetSysColor,
+    GetSysColorBrush, GetTextExtentPoint32W, ReleaseDC, SelectObject, SetBkMode, SetTextColor,
+    COLOR_GRAYTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_MENU, COLOR_MENUTEXT,
+    DEFAULT_GUI_FONT, DT_CENTER, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, HGDIOBJ,
+    TRANSPARENT,
+};
+use windows_sys::Win32::UI::Controls::{
+    DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_DISABLED, ODS_SELECTED, ODT_MENU,
+};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     VK_E, VK_F10, VK_F11, VK_F12, VK_F5, VK_F9, VK_N, VK_O, VK_P, VK_V, VK_Y, VK_Z,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu, ACCEL, HACCEL, HMENU,
-    MF_POPUP, MF_SEPARATOR, MF_STRING,
+    AppendMenuW, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu, GetMenuItemCount,
+    GetMenuItemID, GetMenuState, GetMenuStringW, GetSubMenu, GetSystemMetrics, ModifyMenuW,
+    SetMenuInfo, ACCEL, HACCEL, HMENU, MENUINFO, MF_BYCOMMAND, MF_BYPOSITION, MF_CHECKED,
+    MF_DISABLED, MF_GRAYED, MF_OWNERDRAW, MF_POPUP, MF_SEPARATOR, MF_STRING, MIM_APPLYTOSUBMENUS,
+    MIM_BACKGROUND, SM_CYMENU,
 };
 
 use crate::error::WinError;
@@ -144,14 +159,19 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         )?;
         append(device, MF_STRING, id::DEVICE_RESET, "重置设备(&S)")?;
         append(device, MF_SEPARATOR, 0, "")?;
-        append(device, MF_STRING, id::DEVICE_PROPERTIES, "摄像头属性(&P)…")?;
+        append(
+            device,
+            MF_STRING,
+            id::DEVICE_PROPERTIES,
+            "系统摄像头设置(&P)…",
+        )?;
         append(bar, MF_POPUP, device as usize, "设备(&D)")?;
 
         let view = CreatePopupMenu();
         append(view, MF_STRING, id::VIEW_THUMBS, "页面面板(&T)")?;
         append(view, MF_STRING, id::VIEW_ENHANCE, "增强面板(&E)")?;
         append(view, MF_SEPARATOR, 0, "")?;
-        append(view, MF_STRING, id::VIEW_DARK, "深色模式(&D)")?;
+        append(view, MF_STRING, id::VIEW_DARK, "跟随系统主题(&D)")?;
         append(bar, MF_POPUP, view as usize, "视图(&V)")?;
 
         let tools = CreatePopupMenu();
@@ -289,4 +309,375 @@ unsafe fn append(menu: HMENU, flags: u32, id: usize, text: &str) -> Result<(), W
     } else {
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// 自绘菜单
+// ---------------------------------------------------------------------------
+//
+// Win32 的 HMENU 在系统深色主题下仍由系统按浅色绘制。这里把所有菜单项改成
+// owner-draw，用与界面一致的颜色绘制背景、文字、快捷键和勾选标记。
+
+const MENU_TOP_LEVEL: usize = 1 << 31;
+const MENU_GUTTER: i32 = 28;
+const MENU_RIGHT_PADDING: i32 = 16;
+
+fn item_size(width: i32, height: i32) -> usize {
+    (width.clamp(0, 0xFFFF) as usize) | ((height.clamp(0, 0x3FFF) as usize) << 16)
+}
+
+fn item_width(data: usize) -> i32 {
+    (data & 0xFFFF) as i32
+}
+
+fn item_height(data: usize) -> i32 {
+    ((data >> 16) & 0x3FFF) as i32
+}
+
+/// 把主菜单栏及其下拉菜单改成自绘。
+pub fn enable_owner_draw(bar: HMENU) {
+    if bar.is_null() {
+        return;
+    }
+    let height = unsafe { GetSystemMetrics(SM_CYMENU).max(20) + 6 };
+    // SAFETY: 菜单句柄有效；只修改菜单项属性。
+    unsafe {
+        let count = GetMenuItemCount(bar);
+        for index in 0..count {
+            let submenu = GetSubMenu(bar, index);
+            if submenu.is_null() {
+                continue;
+            }
+            let popup_width = measure_popup_width(submenu) + MENU_GUTTER + MENU_RIGHT_PADDING;
+            let items = GetMenuItemCount(submenu);
+            for position in 0..items {
+                let state = GetMenuState(submenu, position as u32, MF_BYPOSITION);
+                if state & MF_SEPARATOR != 0 {
+                    continue;
+                }
+                let id = GetMenuItemID(submenu, position);
+                let data = item_size(popup_width, height);
+                let _ = id;
+                set_owner_draw(submenu, position as u32, data);
+            }
+            // 系统不绘制 owner-draw 的顶层菜单项；菜单栏交给
+            // SetWindowTheme(DarkMode_Explorer) 与系统主题处理。
+            let _ = submenu;
+        }
+    }
+}
+
+/// 把右键菜单改成自绘。
+pub fn enable_owner_draw_popup(menu: HMENU) {
+    if menu.is_null() {
+        return;
+    }
+    let height = unsafe { GetSystemMetrics(SM_CYMENU).max(20) + 6 };
+    // SAFETY: 菜单句柄有效；只修改菜单项属性。
+    unsafe {
+        let width = measure_popup_width(menu) + MENU_GUTTER + MENU_RIGHT_PADDING;
+        let count = GetMenuItemCount(menu);
+        for position in 0..count {
+            let state = GetMenuState(menu, position as u32, MF_BYPOSITION);
+            if state & MF_SEPARATOR != 0 {
+                continue;
+            }
+            let id = GetMenuItemID(menu, position);
+            let data = item_size(width, height);
+            let _ = id;
+            set_owner_draw(menu, position as u32, data);
+        }
+    }
+}
+
+/// 把普通菜单项改成 owner-draw，同时保留命令 ID。
+fn set_owner_draw(menu: HMENU, position: u32, data: usize) {
+    let id = unsafe { GetMenuItemID(menu, i32::try_from(position).unwrap_or(0)) };
+    // SAFETY: 菜单句柄有效；data 作为应用数据传给 WM_DRAWITEM。
+    unsafe {
+        ModifyMenuW(
+            menu,
+            position,
+            MF_BYPOSITION | MF_OWNERDRAW,
+            id as usize,
+            data as *const u16,
+        );
+    }
+}
+
+/// 应用菜单背景色。
+pub fn refresh_theme(menu: HMENU, dark: bool) {
+    if menu.is_null() {
+        return;
+    }
+    // SAFETY: 菜单句柄有效。
+    unsafe {
+        apply_menu_background(menu, dark);
+    }
+}
+
+/// 为右键菜单设置与当前主题一致的背景色。
+pub fn apply_popup_theme(menu: HMENU, dark: bool) {
+    if menu.is_null() {
+        return;
+    }
+    // SAFETY: 菜单句柄有效。
+    unsafe {
+        apply_menu_background(menu, dark);
+    }
+}
+
+unsafe fn apply_menu_background(menu: HMENU, dark: bool) {
+    let brush = if dark {
+        let existing = MENU_BRUSH.load(Ordering::Relaxed);
+        if existing != 0 {
+            existing as windows_sys::Win32::Graphics::Gdi::HBRUSH
+        } else {
+            let created = unsafe { CreateSolidBrush(rgb(0x1e, 0x1f, 0x22)) };
+            MENU_BRUSH.store(created as usize, Ordering::Relaxed);
+            created
+        }
+    } else {
+        unsafe { GetSysColorBrush(COLOR_MENU) }
+    };
+    let mut info: MENUINFO = unsafe { std::mem::zeroed() };
+    info.cbSize = u32::try_from(std::mem::size_of::<MENUINFO>()).unwrap_or(0);
+    info.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
+    info.hbrBack = brush;
+    // SAFETY: info 在调用期间有效。
+    unsafe {
+        let _ = SetMenuInfo(menu, &info);
+    }
+}
+
+static MENU_BRUSH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn measure_popup_width(menu: HMENU) -> i32 {
+    // SAFETY: 菜单句柄有效。
+    unsafe {
+        let dc = GetDC(std::ptr::null_mut());
+        if dc.is_null() {
+            return 160;
+        }
+        let old = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+        let count = GetMenuItemCount(menu);
+        let mut width = 0;
+        for position in 0..count {
+            let state = GetMenuState(menu, position as u32, MF_BYPOSITION);
+            if state & MF_SEPARATOR != 0 {
+                continue;
+            }
+            let text = menu_text(menu, position as u32, true);
+            let (label, shortcut) = split_shortcut(&text);
+            width = width.max(text_width_with(dc, &label) + text_width_with(dc, &shortcut) + 24);
+        }
+        SelectObject(dc, old);
+        ReleaseDC(std::ptr::null_mut(), dc);
+        width
+    }
+}
+
+fn menu_text(menu: HMENU, id: u32, by_position: bool) -> String {
+    let mut buffer = [0u16; 256];
+    // SAFETY: 缓冲区在调用期间有效。
+    let len = unsafe {
+        GetMenuStringW(
+            menu,
+            id,
+            buffer.as_mut_ptr(),
+            i32::try_from(buffer.len()).unwrap_or(256),
+            if by_position {
+                MF_BYPOSITION
+            } else {
+                MF_BYCOMMAND
+            },
+        )
+    };
+    if len <= 0 {
+        String::new()
+    } else {
+        String::from_utf16_lossy(&buffer[..(len as usize).min(buffer.len())])
+    }
+}
+
+fn split_shortcut(text: &str) -> (String, String) {
+    if let Some((label, shortcut)) = text.split_once('\t') {
+        (label.to_string(), shortcut.to_string())
+    } else {
+        (text.to_string(), String::new())
+    }
+}
+
+fn text_width_with(dc: windows_sys::Win32::Graphics::Gdi::HDC, text: &str) -> i32 {
+    if text.is_empty() {
+        return 0;
+    }
+    let text = wide(text);
+    let mut size: windows_sys::Win32::Foundation::SIZE = unsafe { std::mem::zeroed() };
+    // SAFETY: 字符串与输出结构在调用期间有效。
+    unsafe {
+        GetTextExtentPoint32W(
+            dc,
+            text.as_ptr(),
+            i32::try_from(text.len().saturating_sub(1)).unwrap_or(0),
+            &mut size,
+        );
+    }
+    size.cx
+}
+
+/// 处理 `WM_MEASUREITEM`；不是菜单项时返回 false。
+pub fn measure_item(item: *mut MEASUREITEMSTRUCT) -> bool {
+    if item.is_null() {
+        return false;
+    }
+    // SAFETY: 指针由系统在 WM_MEASUREITEM 中传入。
+    unsafe {
+        if (*item).CtlType != ODT_MENU {
+            return false;
+        }
+        let data = (*item).itemData;
+        let (width, height) = if data == 0 {
+            (120, 28)
+        } else {
+            (item_width(data), item_height(data))
+        };
+        (*item).itemWidth = u32::try_from(width).unwrap_or(0);
+        (*item).itemHeight = u32::try_from(height).unwrap_or(0);
+        true
+    }
+}
+
+/// 处理菜单的 `WM_DRAWITEM`；不是菜单项时返回 false。
+#[allow(clippy::too_many_lines)]
+pub fn draw_item(item: *const DRAWITEMSTRUCT, dark: bool) -> bool {
+    if item.is_null() {
+        return false;
+    }
+    // SAFETY: 指针由系统在 WM_DRAWITEM 中传入。
+    unsafe {
+        let item = &*item;
+        if item.CtlType != ODT_MENU {
+            return false;
+        }
+        let data = item.itemData;
+        let top_level = data & MENU_TOP_LEVEL != 0;
+        let id = item.itemID as u32;
+        let flags = if top_level {
+            MF_BYPOSITION
+        } else {
+            MF_BYCOMMAND
+        };
+        let state = GetMenuState(item.hwndItem, id, flags);
+        let selected = item.itemState & ODS_SELECTED as u32 != 0;
+        let disabled =
+            item.itemState & ODS_DISABLED as u32 != 0 || state & (MF_DISABLED | MF_GRAYED) != 0;
+
+        let (bg, fg) = if selected {
+            let bg = if dark {
+                rgb(0x2d, 0x62, 0xc4)
+            } else {
+                GetSysColor(COLOR_HIGHLIGHT)
+            };
+            let fg = if dark {
+                rgb(0xff, 0xff, 0xff)
+            } else {
+                GetSysColor(COLOR_HIGHLIGHTTEXT)
+            };
+            (bg, fg)
+        } else {
+            let bg = if dark {
+                rgb(0x1e, 0x1f, 0x22)
+            } else {
+                GetSysColor(COLOR_MENU)
+            };
+            let fg = if disabled {
+                GetSysColor(COLOR_GRAYTEXT)
+            } else if dark {
+                rgb(0xe6, 0xe8, 0xeb)
+            } else {
+                GetSysColor(COLOR_MENUTEXT)
+            };
+            (bg, fg)
+        };
+
+        let brush = CreateSolidBrush(bg);
+        FillRect(item.hDC, &item.rcItem, brush);
+        DeleteObject(brush as HGDIOBJ);
+        SetBkMode(item.hDC, TRANSPARENT as i32);
+        SetTextColor(item.hDC, fg);
+
+        let text = menu_text(item.hwndItem, id, top_level);
+        let (label, shortcut) = split_shortcut(&text);
+        let label_w = wide(&label);
+        let shortcut_w = wide(&shortcut);
+        let old_font = SelectObject(item.hDC, GetStockObject(DEFAULT_GUI_FONT));
+        if !top_level && state & MF_CHECKED != 0 {
+            let center_x = item.rcItem.left + 14;
+            let center_y = (item.rcItem.top + item.rcItem.bottom) / 2;
+            let pen = windows_sys::Win32::Graphics::Gdi::CreatePen(
+                windows_sys::Win32::Graphics::Gdi::PS_SOLID,
+                2,
+                fg,
+            );
+            let old_pen = SelectObject(item.hDC, pen);
+            let _ = windows_sys::Win32::Graphics::Gdi::MoveToEx(
+                item.hDC,
+                center_x - 4,
+                center_y,
+                std::ptr::null_mut(),
+            );
+            let _ = windows_sys::Win32::Graphics::Gdi::LineTo(item.hDC, center_x - 1, center_y + 4);
+            let _ = windows_sys::Win32::Graphics::Gdi::LineTo(item.hDC, center_x + 5, center_y - 4);
+            SelectObject(item.hDC, old_pen);
+            DeleteObject(pen as HGDIOBJ);
+        }
+
+        let mut text_rect = item.rcItem;
+        if top_level {
+            DrawTextW(
+                item.hDC,
+                label_w.as_ptr(),
+                i32::try_from(label_w.len().saturating_sub(1)).unwrap_or(0),
+                &mut text_rect,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+            );
+        } else {
+            text_rect.left += MENU_GUTTER;
+            text_rect.right -= MENU_RIGHT_PADDING;
+            if shortcut.is_empty() {
+                DrawTextW(
+                    item.hDC,
+                    label_w.as_ptr(),
+                    i32::try_from(label_w.len().saturating_sub(1)).unwrap_or(0),
+                    &mut text_rect,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+                );
+            } else {
+                let mut left_rect = text_rect;
+                left_rect.right -= text_width_with(item.hDC, &shortcut) + 24;
+                DrawTextW(
+                    item.hDC,
+                    label_w.as_ptr(),
+                    i32::try_from(label_w.len().saturating_sub(1)).unwrap_or(0),
+                    &mut left_rect,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+                );
+                DrawTextW(
+                    item.hDC,
+                    shortcut_w.as_ptr(),
+                    i32::try_from(shortcut_w.len().saturating_sub(1)).unwrap_or(0),
+                    &mut text_rect,
+                    DT_RIGHT | DT_VCENTER | DT_SINGLELINE,
+                );
+            }
+        }
+
+        SelectObject(item.hDC, old_font);
+        true
+    }
+}
+
+fn rgb(r: u8, g: u8, b: u8) -> u32 {
+    u32::from(r) | (u32::from(g) << 8) | (u32::from(b) << 16)
 }

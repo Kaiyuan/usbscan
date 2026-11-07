@@ -17,7 +17,7 @@ mod perspective;
 mod transform;
 
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
-pub use perspective::auto_perspective;
+pub use perspective::{auto_perspective, detect_document_corners, perspective_from_corners};
 pub use transform::{mirror_horizontal_bgra, rotate90_bgra};
 
 /// 图像处理错误。
@@ -32,6 +32,8 @@ pub enum ImagingError {
         max_width: u32,
         max_height: u32,
     },
+    /// 几何变换失败。
+    Geometry(String),
     /// 编码或写入失败。
     Jpeg(image::ImageError),
     /// 输出目标写入失败。
@@ -53,6 +55,7 @@ impl std::fmt::Display for ImagingError {
                 f,
                 "图像尺寸无效：{width}×{height}，缩略图上限 {max_width}×{max_height}"
             ),
+            Self::Geometry(message) => write!(f, "几何变换失败：{message}"),
             Self::Jpeg(err) => write!(f, "图像编解码失败：{err}"),
             Self::Io(err) => write!(f, "写入失败：{err}"),
         }
@@ -64,7 +67,7 @@ impl std::error::Error for ImagingError {
         match self {
             Self::Jpeg(err) => Some(err),
             Self::Io(err) => Some(err),
-            Self::BufferSize { .. } | Self::InvalidSize { .. } => None,
+            Self::BufferSize { .. } | Self::InvalidSize { .. } | Self::Geometry(_) => None,
         }
     }
 }

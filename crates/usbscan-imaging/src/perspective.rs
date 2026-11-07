@@ -22,25 +22,21 @@ pub fn auto_perspective(
     height: u32,
     bgra: &[u8],
 ) -> Result<Option<(u32, u32, Vec<u8>)>, ImagingError> {
-    let expected = width as usize * height as usize * 4;
-    if width == 0 || height == 0 {
-        return Err(ImagingError::InvalidSize {
-            width,
-            height,
-            max_width: 0,
-            max_height: 0,
-        });
-    }
-    if bgra.len() < expected {
-        return Err(ImagingError::BufferSize {
-            width,
-            height,
-            len: bgra.len(),
-        });
-    }
-    let Some(corners) = detect_corners(width, height, bgra) else {
+    validate(width, height, bgra)?;
+    let Some(corners) = detect_document_corners(width, height, bgra) else {
         return Ok(None);
     };
+    perspective_from_corners(width, height, bgra, &corners).map(Some)
+}
+
+/// 用指定四角点执行透视校正。角点顺序为左上、右上、右下、左下。
+pub fn perspective_from_corners(
+    width: u32,
+    height: u32,
+    bgra: &[u8],
+    corners: &[(f64, f64); 4],
+) -> Result<(u32, u32, Vec<u8>), ImagingError> {
+    validate(width, height, bgra)?;
     let target_width = distance(corners[0], corners[1])
         .max(distance(corners[3], corners[2]))
         .round()
@@ -50,7 +46,12 @@ pub fn auto_perspective(
         .round()
         .max(16.0) as u32;
     if target_width > width * 4 || target_height > height * 4 {
-        return Ok(None);
+        return Err(ImagingError::InvalidSize {
+            width: target_width,
+            height: target_height,
+            max_width: width * 4,
+            max_height: height * 4,
+        });
     }
 
     let destination = [
@@ -59,9 +60,8 @@ pub fn auto_perspective(
         (f64::from(target_width - 1), f64::from(target_height - 1)),
         (0.0, f64::from(target_height - 1)),
     ];
-    let Some(homography) = solve_homography(&destination, &corners) else {
-        return Ok(None);
-    };
+    let homography = solve_homography(&destination, corners)
+        .ok_or_else(|| ImagingError::Geometry("透视四角点退化，无法求解".to_string()))?;
 
     let mut out = vec![255u8; target_width as usize * target_height as usize * 4];
     let source_width = width as usize;
@@ -89,10 +89,31 @@ pub fn auto_perspective(
             }
         }
     }
-    Ok(Some((target_width, target_height, out)))
+    Ok((target_width, target_height, out))
 }
 
-fn detect_corners(width: u32, height: u32, bgra: &[u8]) -> Option<[(f64, f64); 4]> {
+fn validate(width: u32, height: u32, bgra: &[u8]) -> Result<(), ImagingError> {
+    let expected = width as usize * height as usize * 4;
+    if width == 0 || height == 0 {
+        return Err(ImagingError::InvalidSize {
+            width,
+            height,
+            max_width: 0,
+            max_height: 0,
+        });
+    }
+    if bgra.len() < expected {
+        return Err(ImagingError::BufferSize {
+            width,
+            height,
+            len: bgra.len(),
+        });
+    }
+    Ok(())
+}
+
+/// 检测文档四角；检测不到可信四边形时返回 `None`。
+pub fn detect_document_corners(width: u32, height: u32, bgra: &[u8]) -> Option<[(f64, f64); 4]> {
     let width_usize = width as usize;
     let height_usize = height as usize;
     if width_usize < 16 || height_usize < 16 {

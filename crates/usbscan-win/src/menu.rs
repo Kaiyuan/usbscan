@@ -32,6 +32,7 @@ pub mod id {
     pub const EDIT_ROTATE_LEFT: usize = 1105;
     pub const EDIT_MIRROR: usize = 1106;
     pub const EDIT_REPROCESS: usize = 1107;
+    pub const EDIT_PERSPECTIVE: usize = 1108;
 
     pub const DEVICE_REFRESH: usize = 1201;
     pub const DEVICE_RESET: usize = 1202;
@@ -91,6 +92,7 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(edit, MF_STRING, id::EDIT_MIRROR, "水平镜像(&M)")?;
         append(edit, MF_SEPARATOR, 0, "")?;
         append(edit, MF_STRING, id::EDIT_REPROCESS, "重新处理增强(&P)")?;
+        append(edit, MF_STRING, id::EDIT_PERSPECTIVE, "四角透视校正(&C)…")?;
         append(bar, MF_POPUP, edit as usize, "编辑(&E)")?;
 
         let device = CreatePopupMenu();

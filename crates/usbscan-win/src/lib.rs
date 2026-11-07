@@ -22,6 +22,7 @@ pub mod app;
 pub mod capture_host;
 pub mod config;
 pub mod controls;
+pub mod corners;
 pub mod dpi;
 pub mod error;
 pub mod icons;

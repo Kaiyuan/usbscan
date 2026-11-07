@@ -893,7 +893,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 };
                 let info = &mut *(lparam as *mut MINMAXINFO);
                 info.ptMinTrackSize = POINT {
-                    x: dpi::scale(1024, dpi_now),
+                    x: dpi::scale(1180, dpi_now),
                     y: dpi::scale(640, dpi_now),
                 };
                 0
@@ -1762,6 +1762,7 @@ fn layout(state: *mut AppState) {
 
         let menu_h = scale(28);
         let toolbar_h = scale(40);
+        let toolbar_w = crate::toolbar::content_width(s.toolbar).max(scale(420));
         SetWindowPos(
             s.menu_bar,
             ptr::null_mut(),
@@ -1776,7 +1777,7 @@ fn layout(state: *mut AppState) {
             ptr::null_mut(),
             0,
             menu_h,
-            width,
+            toolbar_w,
             toolbar_h,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
@@ -1791,19 +1792,24 @@ fn layout(state: *mut AppState) {
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
 
-        let param_h = scale(32);
-        let param_y = menu_h + toolbar_h + scale(5);
-        place(s.device_label, scale(8), param_y, scale(36), scale(22));
+        let param_y = menu_h + (toolbar_h - scale(24)) / 2;
+        let mut param_x = toolbar_w + scale(8);
+        place(s.device_label, param_x, param_y, scale(32), scale(22));
+        param_x += scale(36);
         // 下拉列表的高度由窗口高度决定，闭合时只显示一行。
-        place(s.device_combo, scale(48), param_y, scale(220), scale(200));
-        place(s.format_label, scale(280), param_y, scale(52), scale(22));
-        place(s.format_combo, scale(336), param_y, scale(140), scale(200));
-        place(s.record_label, scale(486), param_y, scale(40), scale(22));
-        place(s.record_combo, scale(530), param_y, scale(90), scale(200));
+        place(s.device_combo, param_x, param_y, scale(160), scale(200));
+        param_x += scale(168);
+        place(s.format_label, param_x, param_y, scale(48), scale(22));
+        param_x += scale(52);
+        place(s.format_combo, param_x, param_y, scale(112), scale(200));
+        param_x += scale(120);
+        place(s.record_label, param_x, param_y, scale(32), scale(22));
+        param_x += scale(36);
+        place(s.record_combo, param_x, param_y, scale(76), scale(200));
 
         SendMessageW(s.status, WM_SIZE, 0, 0);
         let status_h = window_height(s.status);
-        let body_top = menu_h + toolbar_h + param_h;
+        let body_top = menu_h + toolbar_h;
         let body_h = (height - body_top - status_h).max(0);
 
         let left_w = if s.show_pages { scale(190) } else { 0 };

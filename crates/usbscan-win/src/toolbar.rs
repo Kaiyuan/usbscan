@@ -214,6 +214,12 @@ fn layout(hwnd: HWND) -> Vec<(RECT, Option<(usize, usize)>)> {
     }
 }
 
+/// 工具栏中按钮占用的实际宽度，用于把设备/分辨率/帧率放在同一行。
+#[must_use]
+pub fn content_width(hwnd: HWND) -> i32 {
+    layout(hwnd).last().map_or(0, |(rect, _)| rect.right)
+}
+
 fn hit_test(hwnd: HWND, x: i32) -> i32 {
     for (rect, info) in layout(hwnd) {
         if let Some((_, entry_index)) = info {

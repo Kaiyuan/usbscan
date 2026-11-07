@@ -12,8 +12,10 @@
 use std::fmt::Write as _;
 use std::io::{self, Write};
 
+mod avi;
 mod docx;
 
+pub use avi::AviWriter;
 pub use docx::{write_docx, DocxPage};
 
 /// 一页待导出的 JPEG。

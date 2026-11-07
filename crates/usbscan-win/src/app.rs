@@ -122,6 +122,15 @@ const UNDO_TIMER: usize = 1;
 const COUNTDOWN_TIMER: usize = 2;
 /// 连拍间隔定时器。
 const BURST_TIMER: usize = 3;
+/// 录像取帧定时器。
+const RECORD_TIMER: usize = 4;
+/// 录像帧率。
+const RECORD_FPS: u32 = 5;
+/// 录像取帧间隔（毫秒）。
+const RECORD_INTERVAL_MS: u32 = 1_000 / RECORD_FPS;
+/// 录像最大尺寸。
+const RECORD_MAX_WIDTH: u32 = 1280;
+const RECORD_MAX_HEIGHT: u32 = 720;
 /// 拍摄后允许撤销的时间窗口（毫秒）。
 const UNDO_WINDOW_MS: u32 = 3_000;
 /// 缩略图逻辑尺寸（96 DPI）。
@@ -230,6 +239,13 @@ struct EditSnapshot {
     height: u32,
 }
 
+/// 正在进行的录像。
+struct Recording {
+    writer: export::AviWriter,
+    frames: u32,
+    last_tick: std::time::Instant,
+}
+
 /// 应用主状态。通过 `GWLP_USERDATA` 与窗口关联。
 struct AppState {
     hinstance: HINSTANCE,
@@ -320,6 +336,8 @@ struct AppState {
     edit_undo: Vec<EditSnapshot>,
     /// 页面编辑重做栈。
     edit_redo: Vec<EditSnapshot>,
+    /// 正在进行的录像。
+    recording: Option<Recording>,
 }
 
 /// 启动应用：创建窗口并进入消息循环。
@@ -453,6 +471,7 @@ pub fn run() -> Result<(), WinError> {
         show_enhance: true,
         edit_undo: Vec::new(),
         edit_redo: Vec::new(),
+        recording: None,
     });
     let state_ptr = Box::into_raw(state);
 
@@ -709,6 +728,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             refresh_status(s);
                         }
                     }
+                } else if wparam == RECORD_TIMER {
+                    record_tick(hwnd);
                 }
                 0
             }
@@ -876,6 +897,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let state = state_ptr(hwnd);
                 if !state.is_null() {
                     // 先停采集线程，确保它不再向即将销毁的窗口发消息。
+                    stop_recording(hwnd, &mut *state);
                     (*state).capture.stop();
                     // 正常退出：标记会话已收尾，下次启动不再提示“未完成会话”。
                     (*state).session.closed_cleanly = true;
@@ -1884,6 +1906,7 @@ fn apply_settings(hwnd: HWND) {
             s.session = doc::Session::default();
             reset_page_list(s);
             stop_delayed(hwnd, s);
+            let _ = stop_recording(hwnd, s);
         }
 
         s.store = doc::SessionStore::new(root.clone());
@@ -2288,9 +2311,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         if !state.is_null() {
             // SAFETY: state 有效；refresh 只写入共享控制位。
             unsafe {
-                (*state).capture.refresh();
-                (*state).status_msg = "正在重新检测设备…".to_string();
-                refresh_status(&*state);
+                let s = &mut *state;
+                let _ = stop_recording(hwnd, s);
+                s.capture.refresh();
+                s.status_msg = "正在重新检测设备…".to_string();
+                refresh_status(s);
             }
         }
         return;
@@ -2336,6 +2361,10 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
     }
     if id == 2003 {
         toggle_countdown(hwnd);
+        return;
+    }
+    if id == 2004 {
+        toggle_recording(hwnd);
         return;
     }
 
@@ -4122,6 +4151,7 @@ fn new_document(hwnd: HWND) {
             let _ = s.store.archive();
         }
         stop_delayed(hwnd, s);
+        let _ = stop_recording(hwnd, s);
 
         s.session = doc::Session::default();
         reset_page_list(s);
@@ -4155,6 +4185,7 @@ fn open_document(hwnd: HWND) {
             let _ = s.store.archive();
         }
         stop_delayed(hwnd, s);
+        let _ = stop_recording(hwnd, s);
         let Some(directory) = choose_folder(hwnd, "选择包含 .usbscan\\session.json 的文件夹")
         else {
             return;
@@ -4511,6 +4542,168 @@ fn toggle_burst(hwnd: HWND) {
             s.status_msg = format!("连拍中… 剩余 {} 张", s.burst);
         }
         refresh_status(s);
+    }
+}
+
+/// 录像使用的尺寸（不超过 1280×720）。
+fn recording_size(width: u32, height: u32) -> (u32, u32) {
+    let scale = (f64::from(RECORD_MAX_WIDTH) / f64::from(width.max(1)))
+        .min(f64::from(RECORD_MAX_HEIGHT) / f64::from(height.max(1)))
+        .min(1.0);
+    (
+        (f64::from(width) * scale).round().max(1.0) as u32,
+        (f64::from(height) * scale).round().max(1.0) as u32,
+    )
+}
+
+/// 切换录像（Motion-JPEG AVI）。
+fn toggle_recording(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；文件写入逐项检查。
+    unsafe {
+        let s = &mut *state;
+        if s.recording.is_some() {
+            let message = stop_recording(hwnd, s).unwrap_or_else(|| "录像已停止".to_string());
+            s.status_msg = message;
+            refresh_status(s);
+            return;
+        }
+        let Some(frame) = s.capture.latest_frame() else {
+            s.status_msg = "尚未取得画面，无法开始录像".to_string();
+            refresh_status(s);
+            return;
+        };
+        let directory = s.output_root.join("录像");
+        if let Err(err) = fs::create_dir_all(&directory) {
+            show_error(hwnd, &format!("无法创建录像目录：{err}"));
+            return;
+        }
+        let name = format!(
+            "录像_{}.avi",
+            naming::TimeStamp::now().format("yyyyMMdd_HHmmss")
+        );
+        let path = unique_path(&directory.join(name));
+        let (record_width, record_height) = recording_size(frame.width, frame.height);
+        let writer = match export::AviWriter::create(&path, record_width, record_height, RECORD_FPS)
+        {
+            Ok(writer) => writer,
+            Err(err) => {
+                show_error(hwnd, &format!("无法创建录像文件：{err}"));
+                return;
+            }
+        };
+        s.recording = Some(Recording {
+            writer,
+            frames: 0,
+            last_tick: std::time::Instant::now(),
+        });
+        SetTimer(hwnd, RECORD_TIMER, RECORD_INTERVAL_MS, None);
+        s.status_msg = "录像中… 再次点击“录像”停止".to_string();
+        refresh_status(s);
+    }
+}
+
+fn stop_recording(hwnd: HWND, s: &mut AppState) -> Option<String> {
+    // SAFETY: 标准定时器 API。
+    unsafe {
+        KillTimer(hwnd, RECORD_TIMER);
+    }
+    let recording = s.recording.take()?;
+    let frames = recording.frames;
+    match recording.writer.finish() {
+        Ok(path) => Some(format!("录像已保存：{}（{frames} 帧）", path.display())),
+        Err(err) => Some(format!("录像保存失败：{err}")),
+    }
+}
+
+fn record_tick(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；帧编码与 AVI 追加逐项检查。
+    let (frame, quality) = unsafe {
+        let s = &*state;
+        if s.recording.is_none() {
+            return;
+        }
+        (s.capture.latest_frame(), s.jpeg_quality.min(70))
+    };
+    let Some(frame) = frame else {
+        let s = unsafe { &mut *state };
+        let message =
+            stop_recording(hwnd, s).unwrap_or_else(|| "录像已停止：未取得画面".to_string());
+        s.status_msg = message;
+        refresh_status(s);
+        return;
+    };
+    let scaled = (frame.width > RECORD_MAX_WIDTH || frame.height > RECORD_MAX_HEIGHT)
+        .then(|| {
+            imaging::thumbnail_bgra(
+                frame.width,
+                frame.height,
+                &frame.data,
+                RECORD_MAX_WIDTH,
+                RECORD_MAX_HEIGHT,
+            )
+            .ok()
+        })
+        .flatten();
+    let (width, height, data) = scaled.as_ref().map_or(
+        (frame.width, frame.height, frame.data.as_slice()),
+        |(width, height, data)| (*width, *height, data.as_slice()),
+    );
+    let mut jpeg = Vec::new();
+    if let Err(err) = imaging::encode_jpeg_bgra(width, height, data, quality, &mut jpeg) {
+        let s = unsafe { &mut *state };
+        let message = stop_recording(hwnd, s).map_or_else(
+            || format!("录像已停止：{err}"),
+            |stop| format!("{stop}（{err}）"),
+        );
+        s.status_msg = message;
+        refresh_status(s);
+        return;
+    }
+    // SAFETY: state 有效；只在 Some 分支访问 writer。
+    unsafe {
+        let s = &mut *state;
+        let add_result = {
+            let Some(recording) = &mut s.recording else {
+                return;
+            };
+            let now = std::time::Instant::now();
+            let elapsed = now.duration_since(recording.last_tick).as_secs_f64();
+            let slots = ((elapsed * f64::from(RECORD_FPS)).round() as u32).clamp(1, 20);
+            let mut result = Ok(());
+            for _ in 0..slots {
+                if let Err(err) = recording.writer.add_frame(&jpeg) {
+                    result = Err(err);
+                    break;
+                }
+                recording.frames = recording.frames.saturating_add(1);
+            }
+            recording.last_tick = now;
+            result.map(|()| recording.frames)
+        };
+        match add_result {
+            Ok(frames) => {
+                if frames % 10 == 0 {
+                    s.status_msg = format!("录像中… {frames} 帧");
+                    refresh_status(s);
+                }
+            }
+            Err(err) => {
+                let message = stop_recording(hwnd, s).map_or_else(
+                    || format!("录像已停止：{err}"),
+                    |stop| format!("{stop}（{err}）"),
+                );
+                s.status_msg = message;
+                refresh_status(s);
+            }
+        }
     }
 }
 

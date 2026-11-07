@@ -4,7 +4,7 @@
 //! 原生菜单栏构建。
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    VK_E, VK_F10, VK_F11, VK_F5, VK_F9, VK_N, VK_O, VK_P, VK_V, VK_Y, VK_Z,
+    VK_E, VK_F10, VK_F11, VK_F12, VK_F5, VK_F9, VK_N, VK_O, VK_P, VK_V, VK_Y, VK_Z,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu, ACCEL, HACCEL, HMENU,
@@ -259,6 +259,11 @@ pub fn build_accelerators() -> Result<HACCEL, WinError> {
             fVirt: FVIRTKEY | FNOINVERT,
             key: VK_F11,
             cmd: 2003,
+        },
+        ACCEL {
+            fVirt: FVIRTKEY | FNOINVERT,
+            key: VK_F12,
+            cmd: 2004,
         },
         ACCEL {
             fVirt: FVIRTKEY | FCONTROL | FNOINVERT,

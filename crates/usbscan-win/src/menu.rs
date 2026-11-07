@@ -1,0 +1,151 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 usbscan contributors
+
+//! 原生菜单栏构建。
+
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_F9, VK_Z};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    AppendMenuW, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu, ACCEL, HACCEL, HMENU,
+    MF_POPUP, MF_SEPARATOR, MF_STRING,
+};
+
+use crate::error::WinError;
+use crate::text::wide;
+
+/// 菜单与命令 ID。
+///
+/// 取值范围避开控件的 1000 以下区段与工具栏的 2000 段。
+pub mod id {
+    pub const FILE_NEW: usize = 1001;
+    pub const FILE_OPEN: usize = 1002;
+    pub const FILE_IMPORT: usize = 1003;
+    pub const FILE_EXPORT: usize = 1004;
+    pub const FILE_PRINT: usize = 1005;
+    pub const FILE_EXIT: usize = 1009;
+
+    pub const EDIT_UNDO: usize = 1101;
+    pub const EDIT_REDO: usize = 1102;
+    pub const EDIT_DELETE_PAGE: usize = 1103;
+
+    pub const DEVICE_REFRESH: usize = 1201;
+    pub const DEVICE_RESET: usize = 1202;
+    pub const DEVICE_PROPERTIES: usize = 1203;
+
+    pub const VIEW_THUMBS: usize = 1301;
+    pub const VIEW_ENHANCE: usize = 1302;
+    pub const VIEW_DARK: usize = 1303;
+
+    pub const TOOL_OCR: usize = 1401;
+    pub const TOOL_SETTINGS: usize = 1402;
+
+    pub const HELP_MANUAL: usize = 1501;
+    pub const HELP_ABOUT: usize = 1502;
+
+    /// 快捷键"拍照"，与工具栏按钮共用同一命令 ID。
+    pub const CAPTURE: usize = 2001;
+}
+
+// 加速键标志
+const FVIRTKEY: u8 = 0x01;
+const FNOINVERT: u8 = 0x02;
+const FCONTROL: u8 = 0x08;
+
+/// 构建主窗口菜单栏。
+///
+/// 调用方负责在窗口销毁时由系统回收菜单句柄。
+pub fn build_main_menu() -> Result<HMENU, WinError> {
+    // SAFETY: 全部为标准菜单 API，返回值逐一检查。
+    unsafe {
+        let bar = CreateMenu();
+        if bar.is_null() {
+            return Err(WinError::last());
+        }
+
+        let file = CreatePopupMenu();
+        append(file, MF_STRING, id::FILE_NEW, "新建文档(&N)\tCtrl+N")?;
+        append(file, MF_STRING, id::FILE_OPEN, "打开工程(&O)…\tCtrl+O")?;
+        append(file, MF_STRING, id::FILE_IMPORT, "导入图片(&I)…")?;
+        append(file, MF_SEPARATOR, 0, "")?;
+        append(file, MF_STRING, id::FILE_EXPORT, "导出(&E)…\tCtrl+E")?;
+        append(file, MF_STRING, id::FILE_PRINT, "打印(&P)…\tCtrl+P")?;
+        append(file, MF_SEPARATOR, 0, "")?;
+        append(file, MF_STRING, id::FILE_EXIT, "退出(&X)")?;
+        append(bar, MF_POPUP, file as usize, "文件(&F)")?;
+
+        let edit = CreatePopupMenu();
+        append(edit, MF_STRING, id::EDIT_UNDO, "撤销(&U)\tCtrl+Z")?;
+        append(edit, MF_STRING, id::EDIT_REDO, "重做(&R)\tCtrl+Y")?;
+        append(edit, MF_SEPARATOR, 0, "")?;
+        append(edit, MF_STRING, id::EDIT_DELETE_PAGE, "删除当前页(&D)\tDel")?;
+        append(bar, MF_POPUP, edit as usize, "编辑(&E)")?;
+
+        let device = CreatePopupMenu();
+        append(
+            device,
+            MF_STRING,
+            id::DEVICE_REFRESH,
+            "重新检测设备(&R)\tF5",
+        )?;
+        append(device, MF_STRING, id::DEVICE_RESET, "重置设备(&S)")?;
+        append(device, MF_SEPARATOR, 0, "")?;
+        append(device, MF_STRING, id::DEVICE_PROPERTIES, "摄像头属性(&P)…")?;
+        append(bar, MF_POPUP, device as usize, "设备(&D)")?;
+
+        let view = CreatePopupMenu();
+        append(view, MF_STRING, id::VIEW_THUMBS, "页面面板(&T)")?;
+        append(view, MF_STRING, id::VIEW_ENHANCE, "增强面板(&E)")?;
+        append(view, MF_SEPARATOR, 0, "")?;
+        append(view, MF_STRING, id::VIEW_DARK, "深色模式(&D)")?;
+        append(bar, MF_POPUP, view as usize, "视图(&V)")?;
+
+        let tools = CreatePopupMenu();
+        append(tools, MF_STRING, id::TOOL_OCR, "OCR 识别(&O)\tCtrl+Shift+T")?;
+        append(tools, MF_SEPARATOR, 0, "")?;
+        append(tools, MF_STRING, id::TOOL_SETTINGS, "设置(&S)…")?;
+        append(bar, MF_POPUP, tools as usize, "工具(&T)")?;
+
+        let help = CreatePopupMenu();
+        append(help, MF_STRING, id::HELP_MANUAL, "使用说明(&H)\tF1")?;
+        append(help, MF_SEPARATOR, 0, "")?;
+        append(help, MF_STRING, id::HELP_ABOUT, "关于 usbscan(&A)…")?;
+        append(bar, MF_POPUP, help as usize, "帮助(&H)")?;
+
+        Ok(bar)
+    }
+}
+
+/// 构建键盘加速键表。
+///
+/// 使用加速键而不是 `WM_KEYDOWN`，这样焦点落在工具栏或列表上也照样生效。
+pub fn build_accelerators() -> Result<HACCEL, WinError> {
+    let keys = [
+        ACCEL {
+            fVirt: FVIRTKEY | FNOINVERT,
+            key: VK_F9,
+            cmd: id::CAPTURE as u16,
+        },
+        ACCEL {
+            fVirt: FVIRTKEY | FCONTROL | FNOINVERT,
+            key: VK_Z,
+            cmd: id::EDIT_UNDO as u16,
+        },
+    ];
+    // SAFETY: 数组在调用期间有效，数量与指针一致。
+    let table =
+        unsafe { CreateAcceleratorTableW(keys.as_ptr(), i32::try_from(keys.len()).unwrap_or(0)) };
+    if table.is_null() {
+        Err(WinError::last())
+    } else {
+        Ok(table)
+    }
+}
+
+unsafe fn append(menu: HMENU, flags: u32, id: usize, text: &str) -> Result<(), WinError> {
+    let text = wide(text);
+    let ok = unsafe { AppendMenuW(menu, flags, id, text.as_ptr()) };
+    if ok == 0 {
+        Err(WinError::last())
+    } else {
+        Ok(())
+    }
+}

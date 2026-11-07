@@ -1,0 +1,15 @@
+[package]
+name = "usbscan-imaging"
+description = "图像编解码与处理"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg"] }

@@ -1,0 +1,5 @@
+/target
+**/*.pdb
+/data
+.vs/
+*.user

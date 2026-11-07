@@ -4,7 +4,7 @@
 //! 原生菜单栏构建。
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    VK_E, VK_F10, VK_F11, VK_F5, VK_F9, VK_N, VK_O, VK_P, VK_V, VK_Z,
+    VK_E, VK_F10, VK_F11, VK_F5, VK_F9, VK_N, VK_O, VK_P, VK_V, VK_Y, VK_Z,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu, ACCEL, HACCEL, HMENU,
@@ -29,6 +29,7 @@ pub mod id {
     pub const FILE_EXPORT_JPG: usize = 1011;
     pub const FILE_EXPORT_TEXT: usize = 1012;
     pub const FILE_EXPORT_IMAGES: usize = 1013;
+    pub const FILE_COPY_IMAGE: usize = 1015;
 
     pub const EDIT_UNDO: usize = 1101;
     pub const EDIT_REDO: usize = 1102;
@@ -94,6 +95,7 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(file, MF_SEPARATOR, 0, "")?;
         append(file, MF_STRING, id::FILE_EXPORT, "导出 PDF(&E)…\tCtrl+E")?;
         append(file, MF_STRING, id::FILE_EXPORT_JPG, "导出当前页 JPG(&J)…")?;
+        append(file, MF_STRING, id::FILE_COPY_IMAGE, "复制当前页图片(&C)")?;
         append(
             file,
             MF_STRING,
@@ -185,6 +187,7 @@ pub fn build_page_menu() -> Result<HMENU, WinError> {
         append(menu, MF_STRING, id::TOOL_OCR, "OCR 识别(&O)")?;
         append(menu, MF_STRING, id::TOOL_OCR_EDIT, "编辑 OCR 文本(&E)…")?;
         append(menu, MF_STRING, id::FILE_EXPORT_JPG, "导出当前页 JPG(&J)…")?;
+        append(menu, MF_STRING, id::FILE_COPY_IMAGE, "复制图片(&C)")?;
         append(menu, MF_STRING, id::FILE_PRINT, "打印(&P)…")?;
         append(menu, MF_SEPARATOR, 0, "")?;
         append(menu, MF_STRING, id::EDIT_DELETE_PAGE, "删除(&D)")?;
@@ -206,6 +209,11 @@ pub fn build_accelerators() -> Result<HACCEL, WinError> {
             fVirt: FVIRTKEY | FCONTROL | FNOINVERT,
             key: VK_Z,
             cmd: id::EDIT_UNDO as u16,
+        },
+        ACCEL {
+            fVirt: FVIRTKEY | FCONTROL | FNOINVERT,
+            key: VK_Y,
+            cmd: id::EDIT_REDO as u16,
         },
         ACCEL {
             fVirt: FVIRTKEY | FNOINVERT,

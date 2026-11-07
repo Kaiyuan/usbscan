@@ -30,6 +30,7 @@ pub mod error;
 pub mod export_dialog;
 pub mod icons;
 pub mod menu;
+pub mod ocr_viewer;
 pub mod settings_dialog;
 pub mod text;
 pub mod text_edit;

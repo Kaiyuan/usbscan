@@ -42,6 +42,12 @@ pub struct Config {
     pub tesseract_path: Option<String>,
     /// OCR 语言，例如 `chi_sim+eng`。
     pub ocr_language: Option<String>,
+    /// 定时拍摄倒计时秒数。
+    pub timer_seconds: Option<u8>,
+    /// 连拍张数。
+    pub burst_count: Option<u8>,
+    /// 连拍间隔（毫秒）。
+    pub burst_interval_ms: Option<u16>,
 }
 
 impl Config {
@@ -86,6 +92,12 @@ impl Config {
                 config.tesseract_path = Some(value);
             } else if let Some(value) = toml_string(line, "ocr_language") {
                 config.ocr_language = Some(value);
+            } else if let Some(value) = toml_u8(line, "timer_seconds") {
+                config.timer_seconds = Some(value.clamp(1, 30));
+            } else if let Some(value) = toml_u8(line, "burst_count") {
+                config.burst_count = Some(value.clamp(2, 20));
+            } else if let Some(value) = toml_u16(line, "burst_interval_ms") {
+                config.burst_interval_ms = Some(value.clamp(200, 5000));
             }
         }
         config
@@ -139,6 +151,20 @@ impl Config {
         push_option_string(&mut text, "tesseract_path", self.tesseract_path.as_deref());
         push_option_string(&mut text, "ocr_language", self.ocr_language.as_deref());
 
+        text.push_str("\n[capture]\n");
+        for (key, value) in [
+            ("timer_seconds", self.timer_seconds.map(u16::from)),
+            ("burst_count", self.burst_count.map(u16::from)),
+            ("burst_interval_ms", self.burst_interval_ms),
+        ] {
+            if let Some(value) = value {
+                text.push_str(key);
+                text.push_str(" = ");
+                text.push_str(&value.to_string());
+                text.push('\n');
+            }
+        }
+
         let path = config_path();
         if let Some(dir) = path.parent() {
             let _ = fs::create_dir_all(dir);
@@ -189,6 +215,14 @@ fn toml_string(line: &str, key: &str) -> Option<String> {
 
 /// 从一行 `key = 42` 中取出整数。
 fn toml_u8(line: &str, key: &str) -> Option<u8> {
+    let (name, value) = line.split_once('=')?;
+    if name.trim() != key {
+        return None;
+    }
+    value.trim().parse().ok()
+}
+
+fn toml_u16(line: &str, key: &str) -> Option<u16> {
     let (name, value) = line.split_once('=')?;
     if name.trim() != key {
         return None;

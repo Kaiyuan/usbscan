@@ -157,6 +157,191 @@ pub fn recognize_with_fallback(
     Err(last_error.unwrap_or(OcrError::Empty))
 }
 
+/// OCR 识别出的一行文字及其像素包围盒。
+#[derive(Debug, Clone, PartialEq)]
+pub struct OcrLine {
+    pub text: String,
+    pub left: u32,
+    pub top: u32,
+    pub width: u32,
+    pub height: u32,
+    pub confidence: f32,
+}
+
+/// 一次 OCR 的完整结果。
+#[derive(Debug, Clone, PartialEq)]
+pub struct OcrDocument {
+    pub text: String,
+    pub lines: Vec<OcrLine>,
+    pub language: String,
+}
+
+/// 识别图片并返回带坐标的文本行。
+pub fn recognize_document(
+    executable: &Path,
+    image: &Path,
+    language: &str,
+) -> Result<OcrDocument, OcrError> {
+    validate_language(language)?;
+    let mut command = Command::new(executable);
+    command
+        .arg(image)
+        .arg("stdout")
+        .arg("-l")
+        .arg(language)
+        .arg("--psm")
+        .arg("3")
+        .arg("tsv");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = command.output()?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(OcrError::Failed(if message.is_empty() {
+            format!("退出码 {}", output.status.code().unwrap_or(-1))
+        } else {
+            message
+        }));
+    }
+    let tsv = String::from_utf8_lossy(&output.stdout);
+    let lines = parse_tsv(&tsv);
+    let text = lines
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\r\n");
+    if text.trim().is_empty() {
+        return Err(OcrError::Empty);
+    }
+    Ok(OcrDocument {
+        text,
+        lines,
+        language: language.to_string(),
+    })
+}
+
+/// 依次尝试语言列表，返回第一个成功的带坐标结果。
+pub fn recognize_document_with_fallback(
+    executable: &Path,
+    image: &Path,
+    languages: &[&str],
+) -> Result<OcrDocument, OcrError> {
+    let mut last_error = None;
+    for language in languages {
+        match recognize_document(executable, image, language) {
+            Ok(document) => return Ok(document),
+            Err(err) => last_error = Some(err),
+        }
+    }
+    Err(last_error.unwrap_or(OcrError::Empty))
+}
+
+/// 解析 Tesseract TSV 输出，把单词合并为文本行。
+#[must_use]
+pub fn parse_tsv(text: &str) -> Vec<OcrLine> {
+    struct Accumulator {
+        text: String,
+        left: u32,
+        top: u32,
+        right: u32,
+        bottom: u32,
+        confidence_sum: f64,
+        words: u32,
+    }
+
+    let mut groups: Vec<Accumulator> = Vec::new();
+    let mut keys: Vec<(u32, u32, u32)> = Vec::new();
+    for row in text.lines().skip(1) {
+        let columns: Vec<&str> = row.split('\t').collect();
+        if columns.len() < 12 || columns[0].trim() != "5" {
+            continue;
+        }
+        let word = columns[11].trim();
+        if word.is_empty() {
+            continue;
+        }
+        let Ok(left) = columns[6].trim().parse::<u32>() else {
+            continue;
+        };
+        let Ok(top) = columns[7].trim().parse::<u32>() else {
+            continue;
+        };
+        let Ok(width) = columns[8].trim().parse::<u32>() else {
+            continue;
+        };
+        let Ok(height) = columns[9].trim().parse::<u32>() else {
+            continue;
+        };
+        let confidence = columns[10].trim().parse::<f64>().unwrap_or(0.0);
+        let key = (
+            columns[2].trim().parse::<u32>().unwrap_or(0),
+            columns[3].trim().parse::<u32>().unwrap_or(0),
+            columns[4].trim().parse::<u32>().unwrap_or(0),
+        );
+        let right = left.saturating_add(width);
+        let bottom = top.saturating_add(height);
+        if let Some(index) = keys.iter().position(|existing| *existing == key) {
+            let group = &mut groups[index];
+            append_word(&mut group.text, word);
+            group.left = group.left.min(left);
+            group.top = group.top.min(top);
+            group.right = group.right.max(right);
+            group.bottom = group.bottom.max(bottom);
+            group.confidence_sum += confidence;
+            group.words += 1;
+        } else {
+            keys.push(key);
+            groups.push(Accumulator {
+                text: word.to_string(),
+                left,
+                top,
+                right,
+                bottom,
+                confidence_sum: confidence,
+                words: 1,
+            });
+        }
+    }
+
+    groups
+        .into_iter()
+        .map(|group| OcrLine {
+            text: group.text,
+            left: group.left,
+            top: group.top,
+            width: group.right.saturating_sub(group.left),
+            height: group.bottom.saturating_sub(group.top),
+            confidence: if group.words == 0 {
+                0.0
+            } else {
+                (group.confidence_sum / f64::from(group.words)) as f32
+            },
+        })
+        .collect()
+}
+
+fn append_word(target: &mut String, word: &str) {
+    if target.is_empty() {
+        target.push_str(word);
+        return;
+    }
+    let previous = target.chars().last();
+    let next = word.chars().next();
+    if !previous.is_some_and(is_cjk) && !next.is_some_and(is_cjk) {
+        target.push(' ');
+    }
+    target.push_str(word);
+}
+
+fn is_cjk(ch: char) -> bool {
+    matches!(ch as u32, 0x3000..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,5 +360,37 @@ mod tests {
     fn explicit_missing_path_falls_back_to_none_when_not_installed() {
         // 不假设机器上安装了 Tesseract；只验证传入不存在的路径不会 panic。
         let _ = find_tesseract(Some(Path::new("Z:\\definitely-missing\\tesseract.exe")));
+    }
+
+    #[test]
+    fn parses_tsv_lines_and_bounding_boxes() {
+        let tsv = concat!(
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n",
+            "5\t1\t1\t1\t1\t1\t10\t20\t40\t18\t95.5\tHello\n",
+            "5\t1\t1\t1\t1\t2\t60\t20\t40\t18\t90.0\tWorld\n",
+            "5\t1\t1\t1\t2\t1\t10\t50\t40\t20\t88.0\t中文\n",
+            "5\t1\t1\t1\t2\t2\t52\t50\t40\t20\t92.0\t字符\n",
+        );
+        let lines = parse_tsv(tsv);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "Hello World");
+        assert_eq!((lines[0].left, lines[0].top), (10, 20));
+        assert_eq!((lines[0].width, lines[0].height), (90, 18));
+        assert_eq!(lines[1].text, "中文字符");
+        assert_eq!(lines[1].width, 82);
+        assert!(lines[0].confidence > 90.0 && lines[0].confidence < 96.0);
+    }
+
+    #[test]
+    fn ignores_non_word_rows_and_bad_numbers() {
+        let tsv = concat!(
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n",
+            "4\t1\t1\t1\t1\t0\t0\t0\t100\t50\t-1\t\n",
+            "5\t1\t1\t1\t1\t1\tbad\t20\t40\t18\t95\tWord\n",
+            "5\t1\t1\t1\t1\t1\t10\t20\t40\t18\t95\tReal\n",
+        );
+        let lines = parse_tsv(tsv);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].text, "Real");
     }
 }

@@ -5,7 +5,30 @@
 //!
 //! 支持最常见的 24/32 位未压缩位图；行序既可以是自下而上，也可以是自上而下。
 
-use crate::ImagingError;
+use crate::{validate_bgra, ImagingError};
+
+/// 把 BGRA 图像编码为 Windows `CF_DIB`（32 位、自下而上，符合剪贴板惯例）。
+pub fn encode_dib_bgra(width: u32, height: u32, bgra: &[u8]) -> Result<Vec<u8>, ImagingError> {
+    validate_bgra(width, height, bgra)?;
+    let pixel_bytes = width as usize * height as usize * 4;
+    let mut out = Vec::with_capacity(40 + pixel_bytes);
+    out.extend_from_slice(&40u32.to_le_bytes());
+    out.extend_from_slice(&(width as i32).to_le_bytes());
+    out.extend_from_slice(&(height as i32).to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&32u16.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&(pixel_bytes as u32).to_le_bytes());
+    for _ in 0..4 {
+        out.extend_from_slice(&0u32.to_le_bytes());
+    }
+    let stride = width as usize * 4;
+    for row in (0..height as usize).rev() {
+        let start = row * stride;
+        out.extend_from_slice(&bgra[start..start + stride]);
+    }
+    Ok(out)
+}
 
 /// 解码 `CF_DIB` 数据为自上而下的 BGRA。
 pub fn decode_dib(data: &[u8]) -> Result<(u32, u32, Vec<u8>), ImagingError> {
@@ -126,5 +149,21 @@ mod tests {
     fn rejects_unsupported_depth() {
         let data = header(1, 1, 8);
         assert!(matches!(decode_dib(&data), Err(ImagingError::Format(_))));
+    }
+
+    #[test]
+    fn encodes_bottom_up_dib() {
+        let bytes = encode_dib_bgra(
+            2,
+            2,
+            &[1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255],
+        )
+        .expect("encode");
+        assert_eq!(bytes.len(), 40 + 16);
+        assert_eq!(&bytes[0..4], &40u32.to_le_bytes());
+        assert_eq!(&bytes[8..12], &2i32.to_le_bytes());
+        // 底行（第二行）先写入。
+        assert_eq!(&bytes[40..44], &[7, 8, 9, 255]);
+        assert_eq!(&bytes[48..52], &[1, 2, 3, 255]);
     }
 }

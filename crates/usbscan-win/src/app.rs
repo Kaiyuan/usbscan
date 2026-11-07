@@ -21,7 +21,9 @@ use usbscan_imaging as imaging;
 use usbscan_naming as naming;
 use usbscan_ocr as ocr;
 
-use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{
+    GlobalFree, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
+};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontIndirectW, CreatePen,
     CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject,
@@ -32,10 +34,13 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
 use windows_sys::Win32::System::DataExchange::{
-    CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    SetClipboardData,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+use windows_sys::Win32::System::Memory::{
+    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
+};
 use windows_sys::Win32::UI::Controls::Dialogs::{
     GetOpenFileNameW, GetSaveFileNameW, OFN_ALLOWMULTISELECT, OFN_EXPLORER, OFN_FILEMUSTEXIST,
     OFN_OVERWRITEPROMPT, OFN_PATHMUSTEXIST, OPENFILENAMEW,
@@ -116,12 +121,6 @@ const UNDO_TIMER: usize = 1;
 const COUNTDOWN_TIMER: usize = 2;
 /// 连拍间隔定时器。
 const BURST_TIMER: usize = 3;
-/// 定时拍摄倒计时秒数。
-const COUNTDOWN_SECONDS: u32 = 3;
-/// 连拍张数。
-const BURST_COUNT: u32 = 5;
-/// 连拍间隔（毫秒）。
-const BURST_INTERVAL_MS: u32 = 800;
 /// 拍摄后允许撤销的时间窗口（毫秒）。
 const UNDO_WINDOW_MS: u32 = 3_000;
 /// 缩略图逻辑尺寸（96 DPI）。
@@ -221,6 +220,15 @@ impl PreviewBuffer {
     }
 }
 
+/// 单页编辑快照，用于撤销/重做。
+struct EditSnapshot {
+    seq: u64,
+    path: PathBuf,
+    jpeg: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
 /// 应用主状态。通过 `GWLP_USERDATA` 与窗口关联。
 struct AppState {
     hinstance: HINSTANCE,
@@ -297,10 +305,20 @@ struct AppState {
     countdown: u32,
     /// 连拍剩余张数；0 表示未启用。
     burst: u32,
+    /// 定时拍摄倒计时秒数。
+    timer_seconds: u32,
+    /// 连拍张数。
+    burst_count: u32,
+    /// 连拍间隔（毫秒）。
+    burst_interval_ms: u32,
     /// 是否显示左侧页面面板。
     show_pages: bool,
     /// 是否显示右侧增强/扫描设置面板。
     show_enhance: bool,
+    /// 页面编辑撤销栈。
+    edit_undo: Vec<EditSnapshot>,
+    /// 页面编辑重做栈。
+    edit_redo: Vec<EditSnapshot>,
 }
 
 /// 启动应用：创建窗口并进入消息循环。
@@ -427,8 +445,13 @@ pub fn run() -> Result<(), WinError> {
         undo_page: None,
         countdown: 0,
         burst: 0,
+        timer_seconds: u32::from(config.timer_seconds.unwrap_or(3).clamp(1, 30)),
+        burst_count: u32::from(config.burst_count.unwrap_or(5).clamp(2, 20)),
+        burst_interval_ms: u32::from(config.burst_interval_ms.unwrap_or(800).clamp(200, 5000)),
         show_pages: true,
         show_enhance: true,
+        edit_undo: Vec::new(),
+        edit_redo: Vec::new(),
     });
     let state_ptr = Box::into_raw(state);
 
@@ -518,13 +541,17 @@ fn register_window_classes() -> Result<(), WinError> {
     // SAFETY: 加载系统光标，参数为标准 IDC_ARROW。
     let cursor = unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) };
 
-    let classes: [(&str, WndprocAlias); 8] = [
+    let classes: [(&str, WndprocAlias); 9] = [
         (MAIN_CLASS, wndproc),
         (PREVIEW_CLASS, preview_proc),
         (crate::corners::CORNER_CLASS, crate::corners::wndproc),
         (crate::crop::CROP_CLASS, crate::crop::wndproc),
         (crate::text_edit::TEXT_EDIT_CLASS, crate::text_edit::wndproc),
         (crate::annotate::ANNOTATE_CLASS, crate::annotate::wndproc),
+        (
+            crate::ocr_viewer::OCR_VIEWER_CLASS,
+            crate::ocr_viewer::wndproc,
+        ),
         (
             crate::export_dialog::EXPORT_CLASS,
             crate::export_dialog::wndproc,
@@ -612,7 +639,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     let state = state_ptr(hwnd);
                     if !state.is_null() {
                         (*state).undo_page = None;
-                        set_undo_enabled(hwnd, false);
+                        set_undo_enabled(hwnd, !(*state).edit_undo.is_empty());
                     }
                     KillTimer(hwnd, UNDO_TIMER);
                 } else if wparam == COUNTDOWN_TIMER {
@@ -1192,6 +1219,7 @@ fn create_children(state: *mut AppState) {
         apply_font_to_children(s);
         apply_theme(state);
         set_undo_enabled(s.hwnd, false);
+        set_redo_enabled(s.hwnd, false);
         set_delete_page_enabled(s.hwnd, false);
         restore_session(state);
 
@@ -1737,6 +1765,9 @@ fn persist_config(s: &AppState) {
             .as_ref()
             .map(|path| path.to_string_lossy().into_owned()),
         ocr_language: Some(s.ocr_language.clone()),
+        timer_seconds: Some(u8::try_from(s.timer_seconds).unwrap_or(3)),
+        burst_count: Some(u8::try_from(s.burst_count).unwrap_or(5)),
+        burst_interval_ms: Some(u16::try_from(s.burst_interval_ms).unwrap_or(800)),
     }
     .save();
 }
@@ -1745,6 +1776,10 @@ fn persist_config(s: &AppState) {
 fn reset_page_list(s: &mut AppState) {
     controls::clear_page_list(s.pages);
     s.thumb_cache.clear();
+    s.edit_undo.clear();
+    s.edit_redo.clear();
+    set_undo_enabled(s.hwnd, false);
+    set_redo_enabled(s.hwnd, false);
     controls::destroy_image_list(s.thumbs);
     s.thumbs = controls::create_image_list(s.thumb_width, s.thumb_height);
     if s.thumbs != 0 {
@@ -2105,7 +2140,12 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
     }
 
     if id == menu::id::EDIT_UNDO {
-        undo_capture(hwnd);
+        undo_request(hwnd);
+        return;
+    }
+
+    if id == menu::id::EDIT_REDO {
+        redo_edit(hwnd);
         return;
     }
 
@@ -2179,6 +2219,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
 
     if id == menu::id::FILE_EXPORT_JPG {
         export_selected_page(hwnd);
+        return;
+    }
+
+    if id == menu::id::FILE_COPY_IMAGE {
+        copy_selected_image(hwnd);
         return;
     }
 
@@ -2334,6 +2379,11 @@ fn set_undo_enabled(hwnd: HWND, enabled: bool) {
 /// 启用/禁用“删除当前页”菜单项。
 fn set_delete_page_enabled(hwnd: HWND, enabled: bool) {
     set_menu_enabled(hwnd, menu::id::EDIT_DELETE_PAGE, enabled);
+}
+
+/// 启用/禁用“重做”菜单项。
+fn set_redo_enabled(hwnd: HWND, enabled: bool) {
+    set_menu_enabled(hwnd, menu::id::EDIT_REDO, enabled);
 }
 
 fn set_menu_enabled(hwnd: HWND, id: usize, enabled: bool) {
@@ -2854,11 +2904,23 @@ fn ocr_selected_page(hwnd: HWND) {
             }
         }
 
-        match ocr::recognize_with_fallback(&executable, &path, &languages) {
-            Ok((text, language)) => {
-                let Some(edited) = crate::text_edit::edit_text(hwnd, "OCR 识别结果", &text)
-                else {
-                    s.status_msg = format!("OCR 完成（{language}），已取消保存");
+        match ocr::recognize_document_with_fallback(&executable, &path, &languages) {
+            Ok(document) => {
+                let edited = match imaging::load_bgra(&path) {
+                    Ok((width, height, data)) => crate::ocr_viewer::edit_result(
+                        hwnd,
+                        &document.language,
+                        width,
+                        height,
+                        &data,
+                        &document.lines,
+                        &document.text,
+                        s.dark,
+                    ),
+                    Err(_) => crate::text_edit::edit_text(hwnd, "OCR 识别结果", &document.text),
+                };
+                let Some(edited) = edited else {
+                    s.status_msg = format!("OCR 完成（{}），已取消保存", document.language);
                     refresh_status(s);
                     return;
                 };
@@ -2866,7 +2928,9 @@ fn ocr_selected_page(hwnd: HWND) {
                 match write_text_atomic(&text_path, &edited) {
                     Ok(()) => {
                         s.status_msg = format!(
-                            "OCR 完成（{language}，{} 字符）：{}",
+                            "OCR 完成（{}，{} 行，{} 字符）：{}",
+                            document.language,
+                            document.lines.len(),
                             edited.chars().count(),
                             text_path.display()
                         );
@@ -2944,13 +3008,22 @@ fn edit_ocr_settings(hwnd: HWND) {
             hwnd,
             &s.ocr_language,
             s.tesseract_path.as_deref(),
+            s.timer_seconds,
+            s.burst_count,
+            s.burst_interval_ms,
         ) else {
             return;
         };
         s.ocr_language = result.language;
         s.tesseract_path = result.tesseract_path;
+        s.timer_seconds = result.timer_seconds;
+        s.burst_count = result.burst_count;
+        s.burst_interval_ms = result.burst_interval_ms;
         persist_config(s);
-        s.status_msg = format!("OCR 设置已保存（{}）", s.ocr_language);
+        s.status_msg = format!(
+            "设置已保存（OCR {}，定时 {} 秒，连拍 {} 张）",
+            s.ocr_language, s.timer_seconds, s.burst_count
+        );
         refresh_status(s);
     }
 }
@@ -3211,6 +3284,83 @@ fn unique_path(path: &Path) -> PathBuf {
 }
 
 /// 把选中的页面复制到用户选择的目录。
+/// 把选中页以 `CF_DIB` 复制到系统剪贴板。
+fn copy_selected_image(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；剪贴板 API 按契约配对调用。
+    unsafe {
+        let s = &mut *state;
+        let Some(index) = s.selected_page else {
+            s.status_msg = "请先在左侧选择要复制的页面".to_string();
+            refresh_status(s);
+            return;
+        };
+        let Some(page) = s.session.pages.get(index) else {
+            return;
+        };
+        let path = s.output_root.join(&page.path);
+        let (width, height, data) = match imaging::load_bgra(&path) {
+            Ok(image) => image,
+            Err(err) => {
+                let message = format!("读取图片失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        let dib = match imaging::encode_dib_bgra(width, height, &data) {
+            Ok(dib) => dib,
+            Err(err) => {
+                let message = format!("生成剪贴板位图失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        if OpenClipboard(hwnd) == 0 {
+            show_error(hwnd, "无法打开剪贴板，请稍后重试");
+            return;
+        }
+        if EmptyClipboard() == 0 {
+            CloseClipboard();
+            show_error(hwnd, "无法清空剪贴板");
+            return;
+        }
+        let handle = GlobalAlloc(GMEM_MOVEABLE, dib.len());
+        if handle.is_null() {
+            CloseClipboard();
+            show_error(hwnd, "剪贴板内存分配失败");
+            return;
+        }
+        let pointer = GlobalLock(handle);
+        if pointer.is_null() {
+            GlobalFree(handle);
+            CloseClipboard();
+            show_error(hwnd, "剪贴板内存锁定失败");
+            return;
+        }
+        std::ptr::copy_nonoverlapping(dib.as_ptr(), pointer.cast::<u8>(), dib.len());
+        GlobalUnlock(handle);
+        if SetClipboardData(CLIPBOARD_DIB, handle).is_null() {
+            GlobalFree(handle);
+            CloseClipboard();
+            show_error(hwnd, "写入剪贴板失败");
+            return;
+        }
+        CloseClipboard();
+        s.status_msg = format!(
+            "已复制第 {} 页图片到剪贴板（{width}×{height}）",
+            page_number(s, index)
+        );
+        refresh_status(s);
+    }
+}
+
 fn export_selected_page(hwnd: HWND) {
     let state = state_ptr(hwnd);
     if state.is_null() {
@@ -3323,6 +3473,7 @@ fn delete_selected_page(hwnd: HWND) {
         s.session.remove_page(index);
         s.session.closed_cleanly = false;
         s.thumb_cache.remove(&page.seq);
+        forget_page_history(s, page.seq);
         let _ = s.store.save(&s.session);
         if s.session.pages.is_empty() {
             reset_page_list(s);
@@ -3477,6 +3628,7 @@ fn reprocess_selected_page(hwnd: HWND) {
             (width, height, data)
         };
 
+        remember_page_edit(s, &page);
         let path = s.output_root.join(&page.path);
         if let Err(err) = write_jpeg_atomic(&path, width, height, &data, s.jpeg_quality) {
             let message = format!("写回成品失败：{err}");
@@ -3552,6 +3704,7 @@ fn manual_perspective_selected(hwnd: HWND) {
                     return;
                 }
             };
+        remember_page_edit(s, &page);
         if let Err(err) = write_jpeg_atomic(&path, out_width, out_height, &out_data, s.jpeg_quality)
         {
             let message = format!("写回图片失败：{err}");
@@ -3624,6 +3777,7 @@ fn annotate_selected_page(hwnd: HWND) {
                 return;
             }
         };
+        remember_page_edit(s, &page);
         if let Err(err) = write_jpeg_atomic(&path, width, height, &rendered, s.jpeg_quality) {
             let message = format!("写回批注失败：{err}");
             s.status_msg.clone_from(&message);
@@ -3692,6 +3846,7 @@ fn crop_selected_page(hwnd: HWND) {
                     return;
                 }
             };
+        remember_page_edit(s, &page);
         if let Err(err) = write_jpeg_atomic(&path, out_width, out_height, &out_data, s.jpeg_quality)
         {
             let message = format!("写回裁剪结果失败：{err}");
@@ -3775,6 +3930,7 @@ fn transform_selected_page(hwnd: HWND, transform: PageTransform) {
                 return;
             }
         };
+        remember_page_edit(s, &page);
         if let Err(err) = write_jpeg_atomic(&path, width, height, &data, s.jpeg_quality) {
             let message = format!("写回图片失败：{err}");
             s.status_msg.clone_from(&message);
@@ -3931,7 +4087,7 @@ fn undo_capture(hwnd: HWND) {
         reload_page_list(s, selected);
 
         KillTimer(hwnd, UNDO_TIMER);
-        set_undo_enabled(hwnd, false);
+        set_undo_enabled(hwnd, !s.edit_undo.is_empty());
 
         let name = page.path.file_name().map_or_else(
             || page.path.display().to_string(),
@@ -3939,6 +4095,179 @@ fn undo_capture(hwnd: HWND) {
         );
         s.status_msg = format!("已撤销：{name}（序号 {} 已回收）", page.seq);
         refresh_status(s);
+    }
+}
+
+/// 记录一次单页编辑前的文件快照。
+fn remember_page_edit(s: &mut AppState, page: &doc::Page) {
+    let path = s.output_root.join(&page.path);
+    let Ok(jpeg) = fs::read(&path) else {
+        return;
+    };
+    s.edit_undo.push(EditSnapshot {
+        seq: page.seq,
+        path: page.path.clone(),
+        jpeg,
+        width: page.width,
+        height: page.height,
+    });
+    if s.edit_undo.len() > 20 {
+        s.edit_undo.remove(0);
+    }
+    s.edit_redo.clear();
+    set_undo_enabled(s.hwnd, true);
+    set_redo_enabled(s.hwnd, false);
+}
+
+fn forget_page_history(s: &mut AppState, seq: u64) {
+    s.edit_undo.retain(|snapshot| snapshot.seq != seq);
+    s.edit_redo.retain(|snapshot| snapshot.seq != seq);
+    set_undo_enabled(s.hwnd, !s.edit_undo.is_empty() || s.undo_page.is_some());
+    set_redo_enabled(s.hwnd, !s.edit_redo.is_empty());
+}
+
+fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let temp = path.with_extension("undo.tmp");
+    let mut file = fs::File::create(&temp).map_err(|err| err.to_string())?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|err| err.to_string())?;
+    drop(file);
+    fs::rename(&temp, path).map_err(|err| {
+        let _ = fs::remove_file(&temp);
+        err.to_string()
+    })
+}
+
+/// 撤销最近一次页面编辑。
+fn undo_edit(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；快照中的字节直接写回原文件。
+    unsafe {
+        let s = &mut *state;
+        let Some(action) = s.edit_undo.pop() else {
+            s.status_msg = "没有可撤销的编辑".to_string();
+            set_undo_enabled(hwnd, s.undo_page.is_some());
+            refresh_status(s);
+            return;
+        };
+        let Some(index) = s
+            .session
+            .pages
+            .iter()
+            .position(|page| page.seq == action.seq)
+        else {
+            forget_page_history(s, action.seq);
+            return;
+        };
+        let path = s.output_root.join(&action.path);
+        let current = fs::read(&path).ok();
+        let current_size = (s.session.pages[index].width, s.session.pages[index].height);
+        if let Err(err) = write_bytes_atomic(&path, &action.jpeg) {
+            s.edit_undo.push(action);
+            let message = format!("撤销失败：{err}");
+            s.status_msg.clone_from(&message);
+            refresh_status(s);
+            show_error(hwnd, &message);
+            return;
+        }
+        if let Some(current) = current {
+            s.edit_redo.push(EditSnapshot {
+                seq: action.seq,
+                path: action.path.clone(),
+                jpeg: current,
+                width: current_size.0,
+                height: current_size.1,
+            });
+        }
+        let page = &mut s.session.pages[index];
+        page.width = action.width;
+        page.height = action.height;
+        s.session.updated_at = doc::now_unix();
+        s.session.closed_cleanly = false;
+        s.thumb_cache.remove(&action.seq);
+        let _ = s.store.save(&s.session);
+        reload_page_list(s, Some(index));
+        s.status_msg = format!("已撤销第 {} 页的上一步编辑", page_number(s, index));
+        set_undo_enabled(hwnd, !s.edit_undo.is_empty() || s.undo_page.is_some());
+        set_redo_enabled(hwnd, !s.edit_redo.is_empty());
+        refresh_status(s);
+    }
+}
+
+/// 重做最近一次被撤销的页面编辑。
+fn redo_edit(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；快照中的字节直接写回原文件。
+    unsafe {
+        let s = &mut *state;
+        let Some(action) = s.edit_redo.pop() else {
+            s.status_msg = "没有可重做的编辑".to_string();
+            set_redo_enabled(hwnd, false);
+            refresh_status(s);
+            return;
+        };
+        let Some(index) = s
+            .session
+            .pages
+            .iter()
+            .position(|page| page.seq == action.seq)
+        else {
+            forget_page_history(s, action.seq);
+            return;
+        };
+        let path = s.output_root.join(&action.path);
+        let current = fs::read(&path).ok();
+        let current_size = (s.session.pages[index].width, s.session.pages[index].height);
+        if let Err(err) = write_bytes_atomic(&path, &action.jpeg) {
+            s.edit_redo.push(action);
+            let message = format!("重做失败：{err}");
+            s.status_msg.clone_from(&message);
+            refresh_status(s);
+            show_error(hwnd, &message);
+            return;
+        }
+        if let Some(current) = current {
+            s.edit_undo.push(EditSnapshot {
+                seq: action.seq,
+                path: action.path.clone(),
+                jpeg: current,
+                width: current_size.0,
+                height: current_size.1,
+            });
+        }
+        let page = &mut s.session.pages[index];
+        page.width = action.width;
+        page.height = action.height;
+        s.session.updated_at = doc::now_unix();
+        s.session.closed_cleanly = false;
+        s.thumb_cache.remove(&action.seq);
+        let _ = s.store.save(&s.session);
+        reload_page_list(s, Some(index));
+        s.status_msg = format!("已重做第 {} 页的编辑", page_number(s, index));
+        set_undo_enabled(hwnd, true);
+        set_redo_enabled(hwnd, !s.edit_redo.is_empty());
+        refresh_status(s);
+    }
+}
+
+/// Ctrl+Z：优先撤销 3 秒内的拍摄，其次撤销页面编辑。
+fn undo_request(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    let has_capture = unsafe { (*state).undo_page.is_some() };
+    if has_capture {
+        undo_capture(hwnd);
+    } else {
+        undo_edit(hwnd);
     }
 }
 
@@ -3991,9 +4320,9 @@ fn toggle_countdown(hwnd: HWND) {
             return;
         }
         stop_delayed(hwnd, s);
-        s.countdown = COUNTDOWN_SECONDS;
+        s.countdown = s.timer_seconds;
         SetTimer(hwnd, COUNTDOWN_TIMER, 1_000, None);
-        s.status_msg = format!("{COUNTDOWN_SECONDS} 秒后拍摄（再次点击“定时”可取消）");
+        s.status_msg = format!("{} 秒后拍摄（再次点击“定时”可取消）", s.timer_seconds);
         refresh_status(s);
     }
 }
@@ -4019,7 +4348,7 @@ fn toggle_burst(hwnd: HWND) {
                 false
             } else {
                 stop_delayed(hwnd, s);
-                s.burst = BURST_COUNT;
+                s.burst = s.burst_count;
                 true
             }
         };
@@ -4032,7 +4361,7 @@ fn toggle_burst(hwnd: HWND) {
         if s.burst == 0 {
             s.status_msg = "连拍完成".to_string();
         } else {
-            SetTimer(hwnd, BURST_TIMER, BURST_INTERVAL_MS, None);
+            SetTimer(hwnd, BURST_TIMER, s.burst_interval_ms, None);
             s.status_msg = format!("连拍中… 剩余 {} 张", s.burst);
         }
         refresh_status(s);

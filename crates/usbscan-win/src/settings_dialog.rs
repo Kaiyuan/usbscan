@@ -35,31 +35,46 @@ const CMD_PATH: usize = 3401;
 const CMD_BROWSE: usize = 3402;
 const CMD_SAVE: usize = 3403;
 const CMD_CANCEL: usize = 3404;
+const CMD_TIMER: usize = 3405;
+const CMD_BURST: usize = 3406;
+const CMD_INTERVAL: usize = 3407;
 
-/// 设置对话框返回的 OCR 配置。
+/// 设置对话框返回的 OCR 与拍摄配置。
 pub struct OcrSettings {
     pub language: String,
     pub tesseract_path: Option<PathBuf>,
+    pub timer_seconds: u32,
+    pub burst_count: u32,
+    pub burst_interval_ms: u32,
 }
 
 struct SettingsState {
     parent: HWND,
     language_value: String,
     path_value: String,
-    labels: [HWND; 2],
+    timer_value: String,
+    burst_value: String,
+    interval_value: String,
+    labels: [HWND; 5],
     language: HWND,
     path: HWND,
+    timer: HWND,
+    burst: HWND,
+    interval: HWND,
     browse: HWND,
     status: HWND,
     buttons: [HWND; 2],
     result: Option<OcrSettings>,
 }
 
-/// 打开模态 OCR 设置窗口。
+/// 打开模态设置窗口。
 pub fn edit_settings(
     parent: HWND,
     language: &str,
     tesseract_path: Option<&Path>,
+    timer_seconds: u32,
+    burst_count: u32,
+    burst_interval_ms: u32,
 ) -> Option<OcrSettings> {
     let state = Box::new(SettingsState {
         parent,
@@ -67,9 +82,15 @@ pub fn edit_settings(
         path_value: tesseract_path
             .map(|path| path.to_string_lossy().into_owned())
             .unwrap_or_default(),
-        labels: [ptr::null_mut(); 2],
+        timer_value: timer_seconds.to_string(),
+        burst_value: burst_count.to_string(),
+        interval_value: burst_interval_ms.to_string(),
+        labels: [ptr::null_mut(); 5],
         language: ptr::null_mut(),
         path: ptr::null_mut(),
+        timer: ptr::null_mut(),
+        burst: ptr::null_mut(),
+        interval: ptr::null_mut(),
         browse: ptr::null_mut(),
         status: ptr::null_mut(),
         buttons: [ptr::null_mut(); 2],
@@ -85,14 +106,14 @@ pub fn edit_settings(
     let parent_width = parent_rect.right - parent_rect.left;
     let parent_height = parent_rect.bottom - parent_rect.top;
     let dpi = dpi::dpi_for_window(parent);
-    let width = dpi::scale(520, dpi).min(parent_width);
-    let height = dpi::scale(270, dpi).min(parent_height);
+    let width = dpi::scale(560, dpi).min(parent_width);
+    let height = dpi::scale(430, dpi).min(parent_height);
     let x = parent_rect.left + (parent_width - width) / 2;
     let y = parent_rect.top + (parent_height - height) / 2;
 
     let hinstance = unsafe { GetModuleHandleW(ptr::null()) };
     let class = wide(SETTINGS_CLASS);
-    let title = wide("设置 — OCR");
+    let title = wide("设置 — OCR 与拍摄");
     // SAFETY: 标准窗口创建；state_ptr 由模态函数最终回收。
     let hwnd = unsafe {
         CreateWindowExW(
@@ -162,10 +183,21 @@ pub unsafe extern "system" fn wndproc(
                 let state = create.lpCreateParams.cast::<SettingsState>();
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
                 let hinstance = create.hInstance;
-                (*state).labels[0] = controls::create_label(hwnd, hinstance, "OCR 语言");
-                (*state).labels[1] = controls::create_label(hwnd, hinstance, "Tesseract 路径");
+                let names = [
+                    "OCR 语言",
+                    "Tesseract 路径",
+                    "定时拍摄秒数",
+                    "连拍张数",
+                    "连拍间隔 (ms)",
+                ];
+                for (index, name) in names.iter().enumerate() {
+                    (*state).labels[index] = controls::create_label(hwnd, hinstance, name);
+                }
                 (*state).language = controls::create_edit(hwnd, hinstance, CMD_LANGUAGE);
                 (*state).path = controls::create_edit(hwnd, hinstance, CMD_PATH);
+                (*state).timer = controls::create_edit(hwnd, hinstance, CMD_TIMER);
+                (*state).burst = controls::create_edit(hwnd, hinstance, CMD_BURST);
+                (*state).interval = controls::create_edit(hwnd, hinstance, CMD_INTERVAL);
                 (*state).browse =
                     controls::create_push_button(hwnd, hinstance, CMD_BROWSE, "浏览…");
                 (*state).status = controls::create_label(hwnd, hinstance, "");
@@ -176,13 +208,22 @@ pub unsafe extern "system" fn wndproc(
 
                 controls::set_text((*state).language, &(*state).language_value);
                 controls::set_text((*state).path, &(*state).path_value);
+                controls::set_text((*state).timer, &(*state).timer_value);
+                controls::set_text((*state).burst, &(*state).burst_value);
+                controls::set_text((*state).interval, &(*state).interval_value);
                 let font = SendMessageW((*state).parent, WM_GETFONT, 0, 0) as WPARAM;
                 if font != 0 {
                     for control in [
                         (*state).labels[0],
                         (*state).labels[1],
+                        (*state).labels[2],
+                        (*state).labels[3],
+                        (*state).labels[4],
                         (*state).language,
                         (*state).path,
+                        (*state).timer,
+                        (*state).burst,
+                        (*state).interval,
                         (*state).browse,
                         (*state).status,
                         (*state).buttons[0],
@@ -308,6 +349,17 @@ fn save(hwnd: HWND, state: *mut SettingsState) {
         }
         let path = controls::get_text((*state).path);
         let path = path.trim();
+        let Some(timer_seconds) = parse_number(hwnd, (*state).timer, "定时拍摄秒数", 1, 30)
+        else {
+            return;
+        };
+        let Some(burst_count) = parse_number(hwnd, (*state).burst, "连拍张数", 2, 20) else {
+            return;
+        };
+        let Some(burst_interval_ms) = parse_number(hwnd, (*state).interval, "连拍间隔", 200, 5000)
+        else {
+            return;
+        };
         (*state).result = Some(OcrSettings {
             language,
             tesseract_path: if path.is_empty() {
@@ -315,11 +367,38 @@ fn save(hwnd: HWND, state: *mut SettingsState) {
             } else {
                 Some(PathBuf::from(path))
             },
+            timer_seconds,
+            burst_count,
+            burst_interval_ms,
         });
         DestroyWindow(hwnd);
     }
 }
 
+fn parse_number(hwnd: HWND, control: HWND, name: &str, min: u32, max: u32) -> Option<u32> {
+    // SAFETY: control 为设置窗口内的编辑框。
+    let text = controls::get_text(control);
+    let Ok(value) = text.trim().parse::<u32>() else {
+        warn(hwnd, &format!("{name} 请输入 {min}–{max} 之间的整数。"));
+        return None;
+    };
+    if !(min..=max).contains(&value) {
+        warn(hwnd, &format!("{name} 必须在 {min}–{max} 之间。"));
+        return None;
+    }
+    Some(value)
+}
+
+fn warn(hwnd: HWND, message: &str) {
+    let title = wide("设置");
+    let body = wide(message);
+    // SAFETY: 字符串在调用期间有效。
+    unsafe {
+        MessageBoxW(hwnd, body.as_ptr(), title.as_ptr(), MB_OK | MB_ICONWARNING);
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 fn layout(hwnd: HWND, state: *mut SettingsState) {
     // SAFETY: 标准布局计算。
     unsafe {
@@ -333,7 +412,13 @@ fn layout(hwnd: HWND, state: *mut SettingsState) {
         let control_left = margin + label_width;
         let control_width = (rect.right - margin - control_left).max(1);
         let browse_width = dpi::scale(76, dpi);
-        let rows = [margin, margin + row + gap];
+        let rows = [
+            margin,
+            margin + row + gap,
+            margin + (row + gap) * 2,
+            margin + (row + gap) * 3,
+            margin + (row + gap) * 4,
+        ];
         for (index, label) in (*state).labels.iter().enumerate() {
             SetWindowPos(
                 *label,
@@ -372,11 +457,26 @@ fn layout(hwnd: HWND, state: *mut SettingsState) {
             row,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
+        for (control, top) in [
+            ((*state).timer, rows[2]),
+            ((*state).burst, rows[3]),
+            ((*state).interval, rows[4]),
+        ] {
+            SetWindowPos(
+                control,
+                ptr::null_mut(),
+                control_left,
+                top,
+                control_width,
+                row,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
         SetWindowPos(
             (*state).status,
             ptr::null_mut(),
             control_left,
-            rows[1] + row + dpi::scale(8, dpi),
+            rows[4] + row + dpi::scale(8, dpi),
             (rect.right - margin - control_left).max(1),
             dpi::scale(32, dpi),
             SWP_NOZORDER | SWP_NOACTIVATE,

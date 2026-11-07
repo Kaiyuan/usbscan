@@ -542,7 +542,7 @@ fn register_window_classes() -> Result<(), WinError> {
     // SAFETY: 加载系统光标，参数为标准 IDC_ARROW。
     let cursor = unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) };
 
-    let classes: [(&str, WndprocAlias); 9] = [
+    let classes: [(&str, WndprocAlias); 10] = [
         (MAIN_CLASS, wndproc),
         (PREVIEW_CLASS, preview_proc),
         (crate::corners::CORNER_CLASS, crate::corners::wndproc),
@@ -552,6 +552,10 @@ fn register_window_classes() -> Result<(), WinError> {
         (
             crate::ocr_viewer::OCR_VIEWER_CLASS,
             crate::ocr_viewer::wndproc,
+        ),
+        (
+            crate::print_preview::PRINT_PREVIEW_CLASS,
+            crate::print_preview::wndproc,
         ),
         (
             crate::export_dialog::EXPORT_CLASS,
@@ -2269,7 +2273,7 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
     }
 
     if id == menu::id::FILE_PRINT || id == 2009 {
-        print_selected_page(hwnd);
+        print_document(hwnd);
         return;
     }
 
@@ -3268,43 +3272,30 @@ fn export_all_images(hwnd: HWND) {
     }
 }
 
-/// 调用系统默认图片程序的打印动作。
-fn print_selected_page(hwnd: HWND) {
+/// 打开打印预览；预览窗口内可调用原生打印对话框。
+fn print_document(hwnd: HWND) {
     let state = state_ptr(hwnd);
     if state.is_null() {
         return;
     }
-    // SAFETY: state 有效；ShellExecuteW 接收的字符串在调用期间有效。
+    // SAFETY: state 有效；页面路径为本地副本。
     unsafe {
         let s = &mut *state;
-        let Some(index) = s.selected_page else {
-            s.status_msg = "请先在左侧选择要打印的页面".to_string();
+        if s.session.pages.is_empty() {
+            s.status_msg = "当前文档没有页面".to_string();
             refresh_status(s);
             return;
-        };
-        let Some(page) = s.session.pages.get(index) else {
-            return;
-        };
-        let path = s.output_root.join(&page.path);
-        if !path.exists() {
-            show_error(hwnd, "图片文件不存在或已被移动");
-            return;
         }
-        let operation = wide("print");
-        let file = wide(&path.to_string_lossy());
-        let result = ShellExecuteW(
-            hwnd,
-            operation.as_ptr(),
-            file.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null(),
-            SW_SHOWNORMAL,
-        );
-        if (result as isize) <= 32 {
-            s.status_msg = "无法调用系统打印，请先在默认图片程序中打开该文件".to_string();
-        } else {
-            s.status_msg = format!("已发送到系统打印：{}", page.path.display());
-        }
+        let files: Vec<PathBuf> = s
+            .session
+            .pages
+            .iter()
+            .map(|page| s.output_root.join(&page.path))
+            .collect();
+        s.status_msg = "正在打开打印预览…".to_string();
+        refresh_status(s);
+        crate::print_preview::show(hwnd, files, s.dark);
+        s.status_msg = "已关闭打印预览".to_string();
         refresh_status(s);
     }
 }

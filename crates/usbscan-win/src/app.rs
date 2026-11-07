@@ -2091,6 +2091,15 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::EDIT_MOVE_UP {
+        move_selected_page(hwnd, -1);
+        return;
+    }
+    if id == menu::id::EDIT_MOVE_DOWN {
+        move_selected_page(hwnd, 1);
+        return;
+    }
+
     if id == menu::id::EDIT_ROTATE_RIGHT {
         transform_selected_page(hwnd, PageTransform::RotateRight);
         return;
@@ -3268,6 +3277,49 @@ fn delete_selected_page(hwnd: HWND) {
         s.selected_page = None;
         set_delete_page_enabled(hwnd, false);
         s.status_msg = format!("已删除第 {} 页", index + 1);
+        refresh_status(s);
+    }
+}
+
+/// 调整选中页在文档中的顺序。
+fn move_selected_page(hwnd: HWND, delta: i32) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；仅调整内存中的顺序并写回清单。
+    unsafe {
+        let s = &mut *state;
+        let Some(index) = s.selected_page else {
+            s.status_msg = "请先在左侧选择要移动的页面".to_string();
+            refresh_status(s);
+            return;
+        };
+        let Some(target) = index
+            .checked_add_signed(delta as isize)
+            .filter(|target| *target < s.session.pages.len())
+        else {
+            s.status_msg = if delta < 0 {
+                "已经是第一页".to_string()
+            } else {
+                "已经是最后一页".to_string()
+            };
+            refresh_status(s);
+            return;
+        };
+        if index >= s.session.pages.len() {
+            return;
+        }
+        s.session.pages.swap(index, target);
+        s.session.updated_at = doc::now_unix();
+        s.session.closed_cleanly = false;
+        let _ = s.store.save(&s.session);
+        reload_page_list(s, Some(target));
+        s.status_msg = format!(
+            "已{}第 {} 页",
+            if delta < 0 { "上移" } else { "下移" },
+            target + 1
+        );
         refresh_status(s);
     }
 }

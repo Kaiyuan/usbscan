@@ -39,6 +39,8 @@ pub mod id {
     pub const EDIT_REPROCESS: usize = 1107;
     pub const EDIT_PERSPECTIVE: usize = 1108;
     pub const EDIT_ANNOTATE: usize = 1109;
+    pub const EDIT_MOVE_UP: usize = 1110;
+    pub const EDIT_MOVE_DOWN: usize = 1111;
     pub const DEVICE_REFRESH: usize = 1201;
     pub const DEVICE_RESET: usize = 1202;
     pub const DEVICE_PROPERTIES: usize = 1203;
@@ -105,6 +107,8 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(edit, MF_STRING, id::EDIT_REDO, "重做(&R)\tCtrl+Y")?;
         append(edit, MF_SEPARATOR, 0, "")?;
         append(edit, MF_STRING, id::EDIT_DELETE_PAGE, "删除当前页(&D)\tDel")?;
+        append(edit, MF_STRING, id::EDIT_MOVE_UP, "上移当前页(&U)")?;
+        append(edit, MF_STRING, id::EDIT_MOVE_DOWN, "下移当前页(&W)")?;
         append(edit, MF_SEPARATOR, 0, "")?;
         append(edit, MF_STRING, id::EDIT_ROTATE_RIGHT, "顺时针旋转 90°(&R)")?;
         append(edit, MF_STRING, id::EDIT_ROTATE_LEFT, "逆时针旋转 90°(&L)")?;

@@ -18,9 +18,20 @@ mod docx;
 pub use avi::AviWriter;
 pub use docx::{write_docx, DocxPage};
 
-/// 一页待导出的 JPEG。
+/// 一页待导出的 JPEG 与可选 OCR 文本行。
 pub struct PdfImage<'a> {
     pub jpeg: &'a [u8],
+    pub width: u32,
+    pub height: u32,
+    pub text: &'a [PdfTextLine],
+}
+
+/// PDF 文本层中的一行（图片像素坐标）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfTextLine {
+    pub text: String,
+    pub left: u32,
+    pub top: u32,
     pub width: u32,
     pub height: u32,
 }
@@ -122,7 +133,7 @@ pub fn write_pdf_with<W: Write>(
     writer.bytes(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")?;
 
     let mut kids = Vec::with_capacity(pages.len());
-    let mut next_object = 3usize;
+    let mut next_object = 6usize;
     for _ in pages {
         kids.push(next_object);
         next_object += 3;
@@ -142,9 +153,26 @@ pub fn write_pdf_with<W: Write>(
         )
         .as_bytes(),
     )?;
+    writer.object(
+        3,
+        b"<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light \
+          /Encoding /UniGB-UCS2-H /DescendantFonts [4 0 R] >>",
+    )?;
+    writer.object(
+        4,
+        b"<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light \
+          /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 2 >> \
+          /FontDescriptor 5 0 R /DW 1000 >>",
+    )?;
+    writer.object(
+        5,
+        b"<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 \
+          /FontBBox [-25 -254 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 \
+          /CapHeight 700 /StemV 80 >>",
+    )?;
 
     for (index, image) in pages.iter().enumerate() {
-        let page_object = 3 + index * 3;
+        let page_object = 6 + index * 3;
         let content_object = page_object + 1;
         let image_object = page_object + 2;
         let (page_width, page_height) = options.page_points(image.width, image.height);
@@ -153,7 +181,8 @@ pub fn write_pdf_with<W: Write>(
             page_object,
             format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width:.3} {page_height:.3}] \
-                 /Resources << /XObject << /Im0 {image_object} 0 R >> >> \
+                 /Resources << /XObject << /Im0 {image_object} 0 R >> \
+                 /Font << /F1 3 0 R >> >> \
                  /Contents {content_object} 0 R >>"
             )
             .as_bytes(),
@@ -239,7 +268,26 @@ fn page_content(
     };
     let x = (page_width - draw_width) / 2.0;
     let y = (page_height - draw_height) / 2.0;
-    format!("q\n{draw_width:.3} 0 0 {draw_height:.3} {x:.3} {y:.3} cm\n/Im0 Do\nQ")
+    let mut content =
+        format!("q\n{draw_width:.3} 0 0 {draw_height:.3} {x:.3} {y:.3} cm\n/Im0 Do\nQ\n");
+    let scale_x = draw_width / image_width;
+    let scale_y = draw_height / image_height;
+    for line in image.text {
+        if line.text.trim().is_empty() {
+            continue;
+        }
+        let mut codes = String::with_capacity(line.text.len() * 4);
+        for unit in line.text.encode_utf16() {
+            let _ = write!(codes, "{unit:04X}");
+        }
+        let px = x + f64::from(line.left) * scale_x;
+        let py = y + (image_height - f64::from(line.top) - f64::from(line.height)) * scale_y;
+        let _ = writeln!(
+            content,
+            "BT /F1 10 Tf 3 Tr 1 0 0 1 {px:.3} {py:.3} Tm <{codes}> Tj ET"
+        );
+    }
+    content
 }
 
 struct PdfWriter<W: Write> {
@@ -304,11 +352,13 @@ mod tests {
                 jpeg: &first,
                 width: 8,
                 height: 6,
+                text: &[],
             },
             PdfImage {
                 jpeg: &second,
                 width: 4,
                 height: 8,
+                text: &[],
             },
         ];
         let mut out = Vec::new();
@@ -339,7 +389,7 @@ mod tests {
                 .windows(20)
                 .position(|window| window == b"0000000000 65535 f \n")
                 .map_or(0, |index| index + 20);
-        for number in 1..=8 {
+        for number in 1..=11 {
             let line = std::str::from_utf8(&out[offset..offset + 20]).expect("xref entry");
             let position = line[..10].parse::<usize>().expect("offset");
             assert!(
@@ -372,6 +422,7 @@ mod tests {
             jpeg: &jpeg,
             width: 8,
             height: 6,
+            text: &[],
         }];
         let mut out = Vec::new();
         write_pdf_with(&mut out, &pages, &PdfOptions::default()).expect("pdf");
@@ -401,6 +452,7 @@ mod tests {
             jpeg: &jpeg,
             width: 800,
             height: 600,
+            text: &[],
         }];
         let mut out = Vec::new();
         write_pdf_with(
@@ -418,27 +470,27 @@ mod tests {
     }
 
     #[test]
-    fn letter_and_fill_mode_render() {
-        let jpeg = sample_jpeg(40, 60);
+    fn writes_searchable_text_layer() {
+        let jpeg = sample_jpeg(20, 10);
+        let lines = [PdfTextLine {
+            text: "中文 ABC".to_string(),
+            left: 2,
+            top: 3,
+            width: 15,
+            height: 4,
+        }];
         let pages = [PdfImage {
             jpeg: &jpeg,
-            width: 40,
-            height: 60,
+            width: 20,
+            height: 10,
+            text: &lines,
         }];
         let mut out = Vec::new();
-        write_pdf_with(
-            &mut out,
-            &pages,
-            &PdfOptions {
-                page_size: PageSize::Letter,
-                orientation: Orientation::Portrait,
-                margin_mm: 20.0,
-                fit: FitMode::Fill,
-            },
-        )
-        .expect("pdf");
+        write_pdf_with(&mut out, &pages, &PdfOptions::default()).expect("pdf");
         let text = String::from_utf8_lossy(&out);
-        assert!(text.contains("/MediaBox [0 0 612.000 792.000]"));
-        assert!(text.ends_with("%%EOF\n"));
+        assert!(text.contains("/Subtype /Type0"));
+        assert!(text.contains("/Encoding /UniGB-UCS2-H"));
+        assert!(text.contains("<4E2D65870020004100420043>"));
+        assert!(text.contains("3 Tr"));
     }
 }

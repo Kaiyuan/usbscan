@@ -2764,10 +2764,14 @@ fn export_pdf(hwnd: HWND) {
         };
 
         let mut jpeg_pages = Vec::with_capacity(s.session.pages.len());
+        let mut text_layers = Vec::with_capacity(s.session.pages.len());
         for page in &s.session.pages {
             let source = s.output_root.join(&page.path);
             match fs::read(&source) {
-                Ok(bytes) => jpeg_pages.push(bytes),
+                Ok(bytes) => {
+                    text_layers.push(load_pdf_text_lines(&source, page.width, page.height));
+                    jpeg_pages.push(bytes);
+                }
                 Err(err) => {
                     let message = format!("读取 {} 失败：{err}", source.display());
                     s.status_msg.clone_from(&message);
@@ -2780,10 +2784,12 @@ fn export_pdf(hwnd: HWND) {
         let images: Vec<export::PdfImage<'_>> = jpeg_pages
             .iter()
             .zip(&s.session.pages)
-            .map(|(jpeg, page)| export::PdfImage {
+            .zip(&text_layers)
+            .map(|((jpeg, page), text)| export::PdfImage {
                 jpeg,
                 width: page.width,
                 height: page.height,
+                text,
             })
             .collect();
 
@@ -3160,6 +3166,7 @@ fn ocr_selected_page(hwnd: HWND) {
                 let text_path = path.with_extension("txt");
                 match write_text_atomic(&text_path, &edited) {
                     Ok(()) => {
+                        let _ = save_ocr_layout(&path, &document.lines);
                         s.status_msg = format!(
                             "OCR 完成（{}，{} 行，{} 字符）：{}",
                             document.language,
@@ -3214,6 +3221,7 @@ fn edit_ocr_text(hwnd: HWND) {
         };
         match write_text_atomic(&text_path, &edited) {
             Ok(()) => {
+                let _ = fs::remove_file(text_path.with_extension("ocr.tsv"));
                 s.status_msg = format!("文本已保存：{}", text_path.display());
             }
             Err(err) => {
@@ -3818,6 +3826,76 @@ fn write_text_atomic(path: &Path, text: &str) -> Result<(), String> {
         let _ = fs::remove_file(&temp);
         err.to_string()
     })
+}
+
+/// 保存 OCR 行框，供可搜索 PDF 使用。
+fn save_ocr_layout(image_path: &Path, lines: &[ocr::OcrLine]) -> Result<(), String> {
+    let mut out = String::with_capacity(lines.len() * 48);
+    for line in lines {
+        let text = line.text.replace('\t', " ").replace(['\r', '\n'], " ");
+        let _ = writeln!(
+            out,
+            "{}\t{}\t{}\t{}\t{}",
+            line.left, line.top, line.width, line.height, text
+        );
+    }
+    let path = image_path.with_extension("ocr.tsv");
+    fs::write(path, out).map_err(|err| err.to_string())
+}
+
+/// 读取页码的 OCR 行框；没有行框时用同名文本生成一个通用文本块。
+fn load_pdf_text_lines(
+    image_path: &Path,
+    page_width: u32,
+    page_height: u32,
+) -> Vec<export::PdfTextLine> {
+    let layout = image_path.with_extension("ocr.tsv");
+    if let Ok(text) = fs::read_to_string(&layout) {
+        let mut lines = Vec::new();
+        for row in text.lines() {
+            let columns: Vec<&str> = row.splitn(5, '\t').collect();
+            if columns.len() < 5 {
+                continue;
+            }
+            let (Ok(left), Ok(top), Ok(width), Ok(height)) = (
+                columns[0].parse::<u32>(),
+                columns[1].parse::<u32>(),
+                columns[2].parse::<u32>(),
+                columns[3].parse::<u32>(),
+            ) else {
+                continue;
+            };
+            let content = columns[4].trim();
+            if content.is_empty() {
+                continue;
+            }
+            lines.push(export::PdfTextLine {
+                text: content.to_string(),
+                left,
+                top,
+                width,
+                height,
+            });
+        }
+        if !lines.is_empty() {
+            return lines;
+        }
+    }
+    let text_path = image_path.with_extension("txt");
+    let Ok(text) = fs::read_to_string(text_path) else {
+        return Vec::new();
+    };
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return Vec::new();
+    }
+    vec![export::PdfTextLine {
+        text,
+        left: 10,
+        top: 10,
+        width: page_width.saturating_sub(20),
+        height: 20.min(page_height),
+    }]
 }
 
 /// 使用当前增强设置重新处理选中页。

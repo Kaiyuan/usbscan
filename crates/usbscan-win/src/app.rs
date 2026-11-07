@@ -17,6 +17,7 @@ use usbscan_doc as doc;
 use usbscan_export as export;
 use usbscan_imaging as imaging;
 use usbscan_naming as naming;
+use usbscan_ocr as ocr;
 
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -257,6 +258,8 @@ struct AppState {
     collision: naming::Collision,
     jpeg_quality: u8,
     enhance: imaging::EnhanceOptions,
+    ocr_language: String,
+    tesseract_path: Option<PathBuf>,
     output_root: PathBuf,
     session: doc::Session,
     store: doc::SessionStore,
@@ -320,6 +323,11 @@ pub fn run() -> Result<(), WinError> {
         white_background: config.white_background.unwrap_or(false),
         strength: config.enhance_strength.unwrap_or(60).min(100),
     };
+    let ocr_language = config
+        .ocr_language
+        .clone()
+        .unwrap_or_else(|| ocr::DEFAULT_LANGUAGE.to_string());
+    let tesseract_path = config.tesseract_path.clone().map(PathBuf::from);
 
     let state = Box::new(AppState {
         hinstance,
@@ -374,6 +382,8 @@ pub fn run() -> Result<(), WinError> {
         collision,
         jpeg_quality,
         enhance,
+        ocr_language,
+        tesseract_path,
         output_root,
         session: doc::Session::default(),
         store,
@@ -1503,6 +1513,11 @@ fn persist_config(s: &AppState) {
         remove_shadow: Some(s.enhance.remove_shadow),
         white_background: Some(s.enhance.white_background),
         enhance_strength: Some(s.enhance.strength),
+        tesseract_path: s
+            .tesseract_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().into_owned()),
+        ocr_language: Some(s.ocr_language.clone()),
     }
     .save();
 }
@@ -1838,6 +1853,7 @@ fn window_height(hwnd: HWND) -> i32 {
     rc.bottom - rc.top
 }
 
+#[allow(clippy::too_many_lines)]
 fn on_command(hwnd: HWND, id: usize, code: u32) {
     if id == CMD_DEVICE_COMBO {
         if code == CBN_SELCHANGE {
@@ -1903,6 +1919,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
 
     if id == menu::id::FILE_PRINT || id == 2009 {
         print_selected_page(hwnd);
+        return;
+    }
+
+    if id == 2007 || id == menu::id::TOOL_OCR {
+        ocr_selected_page(hwnd);
         return;
     }
 
@@ -2351,6 +2372,88 @@ fn import_images(hwnd: HWND) {
             format!("已导入 {imported} 张图片，跳过 {skipped} 张")
         };
         refresh_settings_preview(s);
+        refresh_status(s);
+    }
+}
+
+/// 对选中的页面执行离线 OCR。
+fn ocr_selected_page(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；外部进程调用返回结果后统一提示。
+    unsafe {
+        let s = &mut *state;
+        let Some(index) = s.selected_page else {
+            s.status_msg = "请先在左侧选择要识别的页面".to_string();
+            refresh_status(s);
+            return;
+        };
+        let path = {
+            let Some(page) = s.session.pages.get(index) else {
+                return;
+            };
+            s.output_root.join(&page.path)
+        };
+        if !path.exists() {
+            show_error(hwnd, "图片文件不存在或已被移动");
+            return;
+        }
+        let Some(executable) = ocr::find_tesseract(s.tesseract_path.as_deref()) else {
+            show_error(hwnd, &ocr::OcrError::NotFound.to_string());
+            s.status_msg = "未找到 Tesseract 5".to_string();
+            refresh_status(s);
+            return;
+        };
+
+        let mut languages = Vec::new();
+        for language in [
+            s.ocr_language.as_str(),
+            ocr::DEFAULT_LANGUAGE,
+            "chi_sim",
+            "eng",
+        ] {
+            if !language.is_empty() && !languages.contains(&language) {
+                languages.push(language);
+            }
+        }
+
+        match ocr::recognize_with_fallback(&executable, &path, &languages) {
+            Ok((text, language)) => {
+                let text_path = path.with_extension("txt");
+                let saved = fs::write(&text_path, text.as_bytes()).is_ok();
+                let preview = if text.chars().count() > 2000 {
+                    let mut preview: String = text.chars().take(2000).collect();
+                    preview.push_str("\n\n……（结果过长，已截断）");
+                    preview
+                } else {
+                    text.clone()
+                };
+                let title = wide("OCR 识别结果");
+                let body = wide(&preview);
+                MessageBoxW(
+                    hwnd,
+                    body.as_ptr(),
+                    title.as_ptr(),
+                    MB_OK | MB_ICONINFORMATION,
+                );
+                s.status_msg = if saved {
+                    format!(
+                        "OCR 完成（{language}，{} 字符）：{}",
+                        text.chars().count(),
+                        text_path.display()
+                    )
+                } else {
+                    format!("OCR 完成（{language}），但文本文件写入失败")
+                };
+            }
+            Err(err) => {
+                let message = err.to_string();
+                s.status_msg.clone_from(&message);
+                show_error(hwnd, &message);
+            }
+        }
         refresh_status(s);
     }
 }

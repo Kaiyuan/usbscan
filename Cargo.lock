@@ -225,6 +225,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "usbscan-ocr"
+version = "0.1.0"
+
+[[package]]
 name = "usbscan-win"
 version = "0.1.0"
 dependencies = [
@@ -233,6 +237,7 @@ dependencies = [
  "usbscan-export",
  "usbscan-imaging",
  "usbscan-naming",
+ "usbscan-ocr",
  "windows-sys",
 ]
 

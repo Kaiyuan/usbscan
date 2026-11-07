@@ -36,6 +36,10 @@ pub struct Config {
     pub white_background: Option<bool>,
     /// 增强强度 0–100。
     pub enhance_strength: Option<u8>,
+    /// 自定义 Tesseract 路径。
+    pub tesseract_path: Option<String>,
+    /// OCR 语言，例如 `chi_sim+eng`。
+    pub ocr_language: Option<String>,
 }
 
 impl Config {
@@ -74,6 +78,10 @@ impl Config {
                 config.white_background = Some(value);
             } else if let Some(value) = toml_u8(line, "enhance_strength") {
                 config.enhance_strength = Some(value.min(100));
+            } else if let Some(value) = toml_string(line, "tesseract_path") {
+                config.tesseract_path = Some(value);
+            } else if let Some(value) = toml_string(line, "ocr_language") {
+                config.ocr_language = Some(value);
             }
         }
         config
@@ -121,6 +129,10 @@ impl Config {
             text.push_str(&strength.to_string());
             text.push('\n');
         }
+
+        text.push_str("\n[ocr]\n");
+        push_option_string(&mut text, "tesseract_path", self.tesseract_path.as_deref());
+        push_option_string(&mut text, "ocr_language", self.ocr_language.as_deref());
 
         let path = config_path();
         if let Some(dir) = path.parent() {

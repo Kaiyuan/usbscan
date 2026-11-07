@@ -249,6 +249,7 @@ struct Recording {
 }
 
 /// 应用主状态。通过 `GWLP_USERDATA` 与窗口关联。
+#[allow(clippy::struct_excessive_bools)]
 struct AppState {
     hinstance: HINSTANCE,
     hwnd: HWND,
@@ -342,6 +343,8 @@ struct AppState {
     edit_redo: Vec<EditSnapshot>,
     /// 正在进行的录像。
     recording: Option<Recording>,
+    /// 是否已经提示过“非系统盘无法访问摄像头”。
+    access_hint_shown: bool,
 }
 
 /// 启动应用：创建窗口并进入消息循环。
@@ -478,6 +481,7 @@ pub fn run() -> Result<(), WinError> {
         edit_undo: Vec::new(),
         edit_redo: Vec::new(),
         recording: None,
+        access_hint_shown: false,
     });
     let state_ptr = Box::into_raw(state);
 
@@ -2006,6 +2010,68 @@ fn refresh_status(s: &AppState) {
     }
 }
 
+/// 摄像头被系统按路径拒绝时，提示并启动系统盘上的已安装版本。
+fn offer_relaunch_from_system_drive(hwnd: HWND) -> bool {
+    let Ok(current) = std::env::current_exe() else {
+        return false;
+    };
+    let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+    let current_text = current.to_string_lossy().to_ascii_lowercase();
+    if current_text.starts_with(&system_drive.to_ascii_lowercase()) {
+        return false;
+    }
+    let target = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .map(|base| base.join("Programs").join("usbscan").join("usbscan.exe"));
+    let Some(target) = target else {
+        return false;
+    };
+    if target.to_string_lossy().to_ascii_lowercase() == current_text {
+        return false;
+    }
+    let text = if target.exists() {
+        format!(
+            "Windows 拒绝当前路径的程序访问摄像头。\n\n当前路径：\n{}\n\n已安装版本：\n{}\n\n是否立即启动已安装版本？",
+            current.display(),
+            target.display()
+        )
+    } else {
+        format!(
+            "Windows 拒绝当前路径的程序访问摄像头。\n\n请把 usbscan.exe 复制到系统盘用户目录后运行，例如：\n{}",
+            target.display()
+        )
+    };
+    let text = wide(&text);
+    let title = wide("摄像头访问被拒绝");
+    // SAFETY: 字符串在调用期间有效。
+    unsafe {
+        let choice = MessageBoxW(
+            hwnd,
+            text.as_ptr(),
+            title.as_ptr(),
+            if target.exists() {
+                MB_YESNO | MB_ICONWARNING
+            } else {
+                MB_OK | MB_ICONWARNING
+            },
+        );
+        if choice == IDYES {
+            let operation = wide("open");
+            let file = wide(&target.to_string_lossy());
+            let result = ShellExecuteW(
+                hwnd,
+                operation.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            );
+            return (result as isize) > 32;
+        }
+    }
+    false
+}
+
 /// 从采集线程的共享状态同步摄像头信息到界面。
 fn update_camera_status(state: *mut AppState) {
     let status = {
@@ -2086,6 +2152,12 @@ fn update_camera_status(state: *mut AppState) {
                 s.camera_waiting = None;
                 s.active_id = None;
                 s.status_msg = format!("摄像头错误：{message}");
+                if !s.access_hint_shown && message.contains("0x80070005") {
+                    s.access_hint_shown = true;
+                    if offer_relaunch_from_system_drive(s.hwnd) {
+                        s.status_msg = "已启动系统盘上的 usbscan 版本".to_string();
+                    }
+                }
             }
         }
         refresh_status(s);

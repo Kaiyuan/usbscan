@@ -17,6 +17,11 @@
     clippy::trivially_copy_pass_by_ref
 )]
 
+/// 颜色差异超过该值的像素才参与文档候选（背景估计来自画面边缘）。
+const COLOR_DISTANCE_MASK: i32 = 75;
+/// 判断单个像素是否属于文档时的颜色差异阈值，略低于掩码阈值以容忍纸张阴影。
+const COLOR_DISTANCE_PIXEL: i32 = 60;
+
 struct Component {
     label: u32,
     size: usize,
@@ -48,7 +53,7 @@ pub fn detect_document_corners(width: u32, height: u32, bgra: &[u8]) -> Option<[
     // 亮纸张候选：背景较暗时才启用。纸张通常又亮又接近中性色，
     // 用亮度 + 饱和度联合过滤，避免把木桌、橙色物体当成纸张。
     let bright_mask = if background_lum < 200 {
-        let threshold = (background_lum + 40).max(130);
+        let threshold = (background_lum + 40).max(95);
         let mut mask = vec![false; count];
         for y in 0..small_height {
             for x in 0..small_width {
@@ -57,7 +62,7 @@ pub fn detect_document_corners(width: u32, height: u32, bgra: &[u8]) -> Option<[
                 let g = bgra[offset + 1];
                 let r = bgra[offset + 2];
                 let saturation = u32::from(r.max(g).max(b)) - u32::from(r.min(g).min(b));
-                if luminance([r, g, b]) >= threshold && saturation <= 70 {
+                if luminance([r, g, b]) >= threshold && saturation <= 100 {
                     mask[y * small_width + x] = true;
                 }
             }
@@ -220,7 +225,7 @@ fn quad_paper_coverage(
             let offset = (y * width + x) * 4;
             let pixel = [bgra[offset + 2], bgra[offset + 1], bgra[offset]];
             let is_paper = if use_color {
-                distance_at(bgra, width, x, y, background) > 24
+                distance_at(bgra, width, x, y, background) > COLOR_DISTANCE_PIXEL
             } else {
                 let limit = threshold.unwrap_or(150).saturating_sub(20);
                 let saturation = u32::from(pixel[0].max(pixel[1]).max(pixel[2]))
@@ -286,7 +291,7 @@ fn color_fallback(
     let mut mask = vec![false; count];
     for y in 0..small_height {
         for x in 0..small_width {
-            if distance_at(bgra, width, x * step, y * step, background) > 30 {
+            if distance_at(bgra, width, x * step, y * step, background) > COLOR_DISTANCE_MASK {
                 mask[y * small_width + x] = true;
             }
         }
@@ -619,7 +624,7 @@ fn full_resolution_corners(
             let offset = (y * width + x) * 4;
             let pixel = [bgra[offset + 2], bgra[offset + 1], bgra[offset]];
             let keep = if use_color {
-                distance_at(bgra, width, x, y, background) > 24
+                distance_at(bgra, width, x, y, background) > COLOR_DISTANCE_PIXEL
             } else {
                 luminance(pixel) >= threshold.unwrap_or(0)
             };

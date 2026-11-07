@@ -17,6 +17,7 @@ mod crop;
 mod dib;
 mod document;
 mod enhance;
+mod letterbox;
 mod perspective;
 mod transform;
 
@@ -25,6 +26,7 @@ pub use crop::crop_bgra;
 pub use dib::{decode_dib, encode_dib_bgra};
 pub use document::detect_document_corners;
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
+pub use letterbox::trim_letterbox;
 pub use perspective::{auto_perspective, perspective_from_corners};
 pub use transform::{mirror_horizontal_bgra, rotate90_bgra};
 

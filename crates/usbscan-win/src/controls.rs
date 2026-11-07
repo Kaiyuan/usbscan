@@ -6,7 +6,7 @@
 //! 这一层只做"创建系统控件 + 发消息"，不含业务逻辑。
 //! 所有控件都是真实 Win32 控件，因此天然获得主题、无障碍与键盘导航支持。
 
-use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM};
+use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, POINT};
 use windows_sys::Win32::Graphics::Gdi::{
     CreateDIBSection, DeleteObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
 };
@@ -47,6 +47,7 @@ const LVS_SHOWSELALWAYS: u32 = 0x0008;
 const LVS_SHAREIMAGELISTS: u32 = 0x0040;
 const LVS_NOSORTHEADER: u32 = 0x8000;
 const LVM_DELETEALLITEMS: u32 = 0x1009;
+const LVM_HITTEST: u32 = 0x1012;
 const LVM_SETITEMSTATE: u32 = 0x102B;
 const LVNI_SELECTED: u32 = 0x0002;
 const LVIS_FOCUSED: u32 = 0x0001;
@@ -342,6 +343,55 @@ pub fn set_list_selected(list: HWND, index: usize) {
             index,
             std::ptr::from_ref(&item) as LPARAM,
         );
+    }
+}
+
+/// 删除页面列表中的指定行。
+pub fn delete_page_item(list: HWND, row: usize) {
+    if list.is_null() {
+        return;
+    }
+    // SAFETY: 标准列表消息。
+    unsafe {
+        SendMessageW(list, LVM_DELETEITEM, row, 0);
+    }
+}
+
+#[repr(C)]
+struct LvHitTestInfo {
+    point: POINT,
+    flags: u32,
+    item: i32,
+    sub_item: i32,
+    group: i32,
+}
+
+/// 命中测试：返回列表项行号。
+#[must_use]
+pub fn list_hit_test(list: HWND, point: POINT) -> Option<usize> {
+    if list.is_null() {
+        return None;
+    }
+    let mut info = LvHitTestInfo {
+        point,
+        flags: 0,
+        item: -1,
+        sub_item: 0,
+        group: 0,
+    };
+    // SAFETY: 结构体布局与系统 LVHITTESTINFO 一致。
+    let result = unsafe {
+        SendMessageW(
+            list,
+            LVM_HITTEST,
+            0,
+            std::ptr::from_mut(&mut info) as LPARAM,
+        )
+    };
+    if result < 0 || info.item < 0 {
+        None
+    } else {
+        usize::try_from(info.item).ok()
     }
 }
 

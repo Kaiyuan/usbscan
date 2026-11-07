@@ -6,6 +6,7 @@
 //! M0-1 骨架 + M0-2 采集链路：原生菜单栏、工具栏、状态栏、
 //! 缩略图面板、预览区与增强面板，并已接入 Media Foundation 实时取帧。
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::{BufWriter, Write};
@@ -24,10 +25,10 @@ use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RE
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontIndirectW, CreatePen,
     CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject,
-    GetSysColor, GetSysColorBrush, InvalidateRect, Rectangle, SelectObject, SetBkColor, SetBkMode,
-    SetStretchBltMode, SetTextColor, StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER,
-    COLORONCOLOR, COLOR_APPWORKSPACE, COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT,
-    DIB_RGB_COLORS, HBITMAP, HBRUSH, HDC, HGDIOBJ, PS_DOT, SRCCOPY,
+    GetSysColor, GetSysColorBrush, InvalidateRect, Rectangle, ScreenToClient, SelectObject,
+    SetBkColor, SetBkMode, SetStretchBltMode, SetTextColor, StretchDIBits, UpdateWindow,
+    BITMAPINFO, BITMAPINFOHEADER, COLORONCOLOR, COLOR_APPWORKSPACE, COLOR_BTNFACE, COLOR_BTNTEXT,
+    COLOR_WINDOW, COLOR_WINDOWTEXT, DIB_RGB_COLORS, HBITMAP, HBRUSH, HDC, HGDIOBJ, PS_DOT, SRCCOPY,
 };
 use windows_sys::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
 use windows_sys::Win32::System::DataExchange::{
@@ -50,20 +51,20 @@ use windows_sys::Win32::UI::Shell::{
     BIF_RETURNONLYFSDIRS, BROWSEINFOW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CheckMenuItem, CreateWindowExW, DefWindowProcW, DestroyAcceleratorTable, DestroyWindow,
-    DispatchMessageW, EnableMenuItem, GetClassNameW, GetClientRect, GetMenu, GetMessageW,
-    GetParent, GetSubMenu, GetWindowLongPtrW, GetWindowRect, KillTimer, LoadCursorW, MessageBoxW,
-    PostQuitMessage, RegisterClassW, SendMessageW, SetTimer, SetWindowLongPtrW, SetWindowPos,
-    SetWindowTextW, ShowWindow, SystemParametersInfoW, TranslateAcceleratorW, TranslateMessage,
-    CREATESTRUCTW, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA, GWL_STYLE, IDC_ARROW,
-    MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_YESNO,
-    MF_BYCOMMAND, MF_CHECKED, MF_ENABLED, MF_GRAYED, MINMAXINFO, MSG, NONCLIENTMETRICSW,
-    SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, SW_SHOWDEFAULT,
-    SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
-    WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DEVICECHANGE, WM_DPICHANGED,
-    WM_ERASEBKGND, WM_GETFONT, WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_PAINT,
-    WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN,
-    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    CheckMenuItem, CreateWindowExW, DefWindowProcW, DestroyAcceleratorTable, DestroyMenu,
+    DestroyWindow, DispatchMessageW, EnableMenuItem, GetClassNameW, GetClientRect, GetCursorPos,
+    GetMenu, GetMessageW, GetParent, GetSubMenu, GetWindowLongPtrW, GetWindowRect, KillTimer,
+    LoadCursorW, MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow,
+    SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, SystemParametersInfoW,
+    TrackPopupMenu, TranslateAcceleratorW, TranslateMessage, CREATESTRUCTW, CS_DBLCLKS, CS_HREDRAW,
+    CS_VREDRAW, GWLP_USERDATA, GWL_STYLE, IDC_ARROW, MB_ICONERROR, MB_ICONINFORMATION,
+    MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_YESNO, MF_BYCOMMAND, MF_CHECKED, MF_ENABLED,
+    MF_GRAYED, MINMAXINFO, MSG, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE,
+    SWP_NOZORDER, SW_HIDE, SW_SHOW, SW_SHOWDEFAULT, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX,
+    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DEVICECHANGE, WM_DPICHANGED, WM_ERASEBKGND, WM_GETFONT,
+    WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE,
+    WM_SIZE, WM_TIMER, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 use crate::capture_host::{
@@ -140,6 +141,8 @@ const DBT_DEVNODES_CHANGED: usize = 0x0007;
 const LVN_ITEMCHANGED: i32 = -101;
 /// 列表双击（`NM_DBLCLK`）。
 const NM_DBLCLK: i32 = -3;
+/// 列表右键单击。
+const NM_RCLICK: i32 = -5;
 /// 列表按键（`LVN_KEYDOWN`）。
 const LVN_KEYDOWN: i32 = -155;
 
@@ -282,6 +285,8 @@ struct AppState {
     session: doc::Session,
     store: doc::SessionStore,
     thumbs: HIMAGELIST,
+    /// 页面序号 → 缩略图图像列表索引，避免重排时重复解码。
+    thumb_cache: HashMap<u64, usize>,
     thumb_width: i32,
     thumb_height: i32,
     /// 页面列表中选中的页；`None` 表示未选中。
@@ -415,6 +420,7 @@ pub fn run() -> Result<(), WinError> {
         session: doc::Session::default(),
         store,
         thumbs: 0,
+        thumb_cache: HashMap::new(),
         thumb_width: 0,
         thumb_height: 0,
         selected_page: None,
@@ -689,6 +695,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             WM_NOTIFY => {
                 let state = state_ptr(hwnd);
+                let mut context_menu = false;
                 if !state.is_null() {
                     let s = &mut *state;
                     let header = &*(lparam as *const NMHDR);
@@ -727,6 +734,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                                 update_page_selection(s);
                                 open_selected_page(hwnd);
                             }
+                            NM_RCLICK => {
+                                let mut point: POINT = std::mem::zeroed();
+                                GetCursorPos(&mut point);
+                                ScreenToClient(s.pages, &mut point);
+                                if let Some(row) = controls::list_hit_test(s.pages, point) {
+                                    controls::set_list_selected(s.pages, row);
+                                    update_page_selection(s);
+                                    context_menu = true;
+                                }
+                            }
                             LVN_KEYDOWN => {
                                 let key = &*(lparam as *const NMLVKEYDOWN);
                                 if key.wVKey == VK_DELETE {
@@ -736,6 +753,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             _ => {}
                         }
                     }
+                }
+                if context_menu {
+                    show_page_context_menu(hwnd);
                 }
                 0
             }
@@ -1723,6 +1743,7 @@ fn persist_config(s: &AppState) {
 /// 重置页面列表与缩略图图像列表。
 fn reset_page_list(s: &mut AppState) {
     controls::clear_page_list(s.pages);
+    s.thumb_cache.clear();
     controls::destroy_image_list(s.thumbs);
     s.thumbs = controls::create_image_list(s.thumb_width, s.thumb_height);
     if s.thumbs != 0 {
@@ -2141,6 +2162,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::PAGE_OPEN {
+        open_selected_page(hwnd);
+        return;
+    }
+
     if id == CMD_EXPORT || id == menu::id::FILE_EXPORT {
         export_pdf(hwnd);
         return;
@@ -2389,6 +2415,46 @@ fn confirm_restore(hwnd: HWND, pages: usize) -> bool {
     }
 }
 
+/// 缩略图列表按最新优先显示：行 0 是最后拍摄的页面。
+fn page_index_from_row(s: &AppState, row: usize) -> Option<usize> {
+    (row < s.session.pages.len()).then(|| s.session.pages.len() - 1 - row)
+}
+
+/// 页面索引对应的列表行号。
+fn row_from_page_index(s: &AppState, index: usize) -> Option<usize> {
+    (index < s.session.pages.len()).then(|| s.session.pages.len() - 1 - index)
+}
+
+/// 面向用户的页码：最新页为第 1 页。
+fn page_number(s: &AppState, index: usize) -> usize {
+    s.session.pages.len().saturating_sub(index)
+}
+
+fn show_page_context_menu(hwnd: HWND) {
+    let Ok(menu) = menu::build_page_menu() else {
+        return;
+    };
+    // SAFETY: 菜单句柄由本函数创建并销毁；命令通过主窗口统一分发。
+    unsafe {
+        let mut point: POINT = std::mem::zeroed();
+        GetCursorPos(&mut point);
+        SetForegroundWindow(hwnd);
+        let command = TrackPopupMenu(
+            menu,
+            TPM_RIGHTBUTTON | TPM_RETURNCMD,
+            point.x,
+            point.y,
+            0,
+            hwnd,
+            ptr::null(),
+        );
+        DestroyMenu(menu);
+        if command != 0 {
+            on_command(hwnd, command as usize, 0);
+        }
+    }
+}
+
 /// 根据会话重建缩略图列表。
 fn rebuild_page_list(s: &mut AppState) {
     controls::clear_page_list(s.pages);
@@ -2396,22 +2462,31 @@ fn rebuild_page_list(s: &mut AppState) {
     let thumb_height = u32::try_from(s.thumb_height.max(1)).unwrap_or(1);
     let mut missing = 0usize;
 
-    for index in 0..s.session.pages.len() {
-        let page = &s.session.pages[index];
-        let path = s.output_root.join(&page.path);
-        let image = if let Ok((width, height, data)) =
+    for (row, index) in (0..s.session.pages.len()).rev().enumerate() {
+        let (seq, path, name) = {
+            let page = &s.session.pages[index];
+            let name = page.path.file_name().map_or_else(
+                || page.path.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            (page.seq, s.output_root.join(&page.path), name)
+        };
+        let image = if let Some(image) = s.thumb_cache.get(&seq) {
+            Some(*image)
+        } else if let Ok((width, height, data)) =
             imaging::image_thumbnail_bgra(&path, thumb_width, thumb_height)
         {
-            controls::add_image_bgra(s.thumbs, thumb_width, thumb_height, width, height, &data)
+            let image =
+                controls::add_image_bgra(s.thumbs, thumb_width, thumb_height, width, height, &data);
+            if let Some(image) = image {
+                s.thumb_cache.insert(seq, image);
+            }
+            image
         } else {
             missing += 1;
             None
         };
-        let name = page.path.file_name().map_or_else(
-            || page.path.display().to_string(),
-            |n| n.to_string_lossy().into_owned(),
-        );
-        controls::add_page_item(s.pages, index, &name, image);
+        controls::add_page_item(s.pages, row, &name, image);
     }
 
     if missing > 0 {
@@ -2419,18 +2494,9 @@ fn rebuild_page_list(s: &mut AppState) {
     }
 }
 
-/// 从最新一帧生成缩略图并加入图像列表。
-fn add_frame_thumbnail(s: &AppState, width: u32, height: u32, data: &[u8]) -> Option<usize> {
-    let thumb_width = u32::try_from(s.thumb_width.max(1)).ok()?;
-    let thumb_height = u32::try_from(s.thumb_height.max(1)).ok()?;
-    let (width, height, data) =
-        imaging::thumbnail_bgra(width, height, data, thumb_width, thumb_height).ok()?;
-    controls::add_image_bgra(s.thumbs, thumb_width, thumb_height, width, height, &data)
-}
-
 /// 刷新页面列表选中项并同步菜单状态。
 fn update_page_selection(s: &mut AppState) {
-    s.selected_page = controls::list_selected(s.pages);
+    s.selected_page = controls::list_selected(s.pages).and_then(|row| page_index_from_row(s, row));
     set_delete_page_enabled(s.hwnd, s.selected_page.is_some());
 }
 
@@ -2596,6 +2662,7 @@ fn import_images(hwnd: HWND) {
 
         let mut imported = 0usize;
         let mut skipped = 0usize;
+        let selected = s.selected_page;
         for source in files {
             let Some(stem) = source.file_stem() else {
                 skipped += 1;
@@ -2631,29 +2698,11 @@ fn import_images(hwnd: HWND) {
                 device: Some("导入".to_string()),
             });
             s.session.closed_cleanly = false;
-            let thumb_width = u32::try_from(s.thumb_width.max(1)).unwrap_or(1);
-            let thumb_height = u32::try_from(s.thumb_height.max(1)).unwrap_or(1);
-            let image = imaging::image_thumbnail_bgra(&target, thumb_width, thumb_height)
-                .ok()
-                .and_then(|(width, height, data)| {
-                    controls::add_image_bgra(
-                        s.thumbs,
-                        thumb_width,
-                        thumb_height,
-                        width,
-                        height,
-                        &data,
-                    )
-                });
-            let name = target.file_name().map_or_else(
-                || target.display().to_string(),
-                |name| name.to_string_lossy().into_owned(),
-            );
-            controls::add_page_item(s.pages, s.session.pages.len() - 1, &name, image);
             imported += 1;
         }
 
         let _ = s.store.save(&s.session);
+        reload_page_list(s, selected.filter(|index| *index < s.session.pages.len()));
         s.status_msg = if skipped == 0 {
             format!("已导入 {imported} 张图片")
         } else {
@@ -2745,19 +2794,13 @@ fn import_clipboard(hwnd: HWND) {
             device: Some("剪贴板".to_string()),
         });
         s.session.closed_cleanly = false;
-        let thumb_width = u32::try_from(s.thumb_width.max(1)).unwrap_or(1);
-        let thumb_height = u32::try_from(s.thumb_height.max(1)).unwrap_or(1);
-        let image = imaging::image_thumbnail_bgra(&target, thumb_width, thumb_height)
-            .ok()
-            .and_then(|(width, height, data)| {
-                controls::add_image_bgra(s.thumbs, thumb_width, thumb_height, width, height, &data)
-            });
         let display_name = target.file_name().map_or_else(
             || target.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
-        controls::add_page_item(s.pages, s.session.pages.len() - 1, &display_name, image);
+        let selected = s.selected_page;
         let _ = s.store.save(&s.session);
+        reload_page_list(s, selected);
         s.status_msg = format!("已从剪贴板导入：{display_name}");
         refresh_status(s);
     }
@@ -2861,7 +2904,7 @@ fn edit_ocr_text(hwnd: HWND) {
         };
         let text_path = s.output_root.join(page.path.with_extension("txt"));
         let content = fs::read_to_string(&text_path).unwrap_or_default();
-        let title = format!("OCR 文本 — 第 {} 页", index + 1);
+        let title = format!("OCR 文本 — 第 {} 页", page_number(s, index));
         let Some(edited) = crate::text_edit::edit_text(hwnd, &title, &content) else {
             s.status_msg = "已取消文本编辑".to_string();
             refresh_status(s);
@@ -3242,9 +3285,10 @@ fn delete_selected_page(hwnd: HWND) {
         let Some(page) = s.session.pages.get(index).cloned() else {
             return;
         };
+        let number = page_number(s, index);
         let text = wide(&format!(
             "确定删除第 {} 页？\n\n{}",
-            index + 1,
+            number,
             page.path.display()
         ));
         let title = wide("删除页面");
@@ -3273,12 +3317,16 @@ fn delete_selected_page(hwnd: HWND) {
 
         s.session.remove_page(index);
         s.session.closed_cleanly = false;
+        s.thumb_cache.remove(&page.seq);
         let _ = s.store.save(&s.session);
-        reset_page_list(s);
-        rebuild_page_list(s);
-        s.selected_page = None;
-        set_delete_page_enabled(hwnd, false);
-        s.status_msg = format!("已删除第 {} 页", index + 1);
+        if s.session.pages.is_empty() {
+            reset_page_list(s);
+            set_delete_page_enabled(hwnd, false);
+        } else {
+            let selected = index.saturating_sub(1).min(s.session.pages.len() - 1);
+            reload_page_list(s, Some(selected));
+        }
+        s.status_msg = format!("已删除第 {number} 页");
         refresh_status(s);
     }
 }
@@ -3297,8 +3345,9 @@ fn move_selected_page(hwnd: HWND, delta: i32) {
             refresh_status(s);
             return;
         };
+        let document_delta = -delta;
         let Some(target) = index
-            .checked_add_signed(delta as isize)
+            .checked_add_signed(document_delta as isize)
             .filter(|target| *target < s.session.pages.len())
         else {
             s.status_msg = if delta < 0 {
@@ -3312,6 +3361,7 @@ fn move_selected_page(hwnd: HWND, delta: i32) {
         if index >= s.session.pages.len() {
             return;
         }
+        let number = page_number(s, target);
         s.session.pages.swap(index, target);
         s.session.updated_at = doc::now_unix();
         s.session.closed_cleanly = false;
@@ -3320,7 +3370,7 @@ fn move_selected_page(hwnd: HWND, delta: i32) {
         s.status_msg = format!(
             "已{}第 {} 页",
             if delta < 0 { "上移" } else { "下移" },
-            target + 1
+            number
         );
         refresh_status(s);
     }
@@ -3328,11 +3378,11 @@ fn move_selected_page(hwnd: HWND, delta: i32) {
 
 /// 重新加载页面列表并恢复指定选中项。
 fn reload_page_list(s: &mut AppState, selected: Option<usize>) {
-    reset_page_list(s);
+    controls::clear_page_list(s.pages);
     rebuild_page_list(s);
     if let Some(index) = selected {
-        if index < s.session.pages.len() {
-            controls::set_list_selected(s.pages, index);
+        if let Some(row) = row_from_page_index(s, index) {
+            controls::set_list_selected(s.pages, row);
             s.selected_page = Some(index);
             set_delete_page_enabled(s.hwnd, true);
         }
@@ -3437,8 +3487,9 @@ fn reprocess_selected_page(hwnd: HWND) {
         s.session.updated_at = doc::now_unix();
         s.session.closed_cleanly = false;
         let _ = s.store.save(&s.session);
+        s.thumb_cache.remove(&page.seq);
         reload_page_list(s, Some(index));
-        s.status_msg = format!("已重新处理第 {} 页", index + 1);
+        s.status_msg = format!("已重新处理第 {} 页", page_number(s, index));
         refresh_status(s);
     }
 }
@@ -3511,8 +3562,9 @@ fn manual_perspective_selected(hwnd: HWND) {
         s.session.updated_at = doc::now_unix();
         s.session.closed_cleanly = false;
         let _ = s.store.save(&s.session);
+        s.thumb_cache.remove(&page.seq);
         reload_page_list(s, Some(index));
-        s.status_msg = format!("已透视校正第 {} 页", index + 1);
+        s.status_msg = format!("已透视校正第 {} 页", page_number(s, index));
         refresh_status(s);
     }
 }
@@ -3577,6 +3629,7 @@ fn annotate_selected_page(hwnd: HWND) {
         s.session.updated_at = doc::now_unix();
         s.session.closed_cleanly = false;
         let _ = s.store.save(&s.session);
+        s.thumb_cache.remove(&page.seq);
         reload_page_list(s, Some(index));
         s.status_msg = format!("已添加 {} 条批注", annotations.len());
         refresh_status(s);
@@ -3655,6 +3708,7 @@ fn transform_selected_page(hwnd: HWND, transform: PageTransform) {
         s.session.updated_at = doc::now_unix();
         s.session.closed_cleanly = false;
         let _ = s.store.save(&s.session);
+        s.thumb_cache.remove(&page.seq);
         reload_page_list(s, Some(index));
         s.status_msg = "页面已更新".to_string();
         refresh_status(s);
@@ -3788,8 +3842,12 @@ fn undo_capture(hwnd: HWND) {
             s.session.undo_last();
         }
         s.session.closed_cleanly = false;
-        controls::delete_last_page(s.pages, s.session.pages.len());
+        s.thumb_cache.remove(&page.seq);
         let _ = s.store.save(&s.session);
+        let selected = s
+            .selected_page
+            .filter(|index| *index < s.session.pages.len());
+        reload_page_list(s, selected);
 
         KillTimer(hwnd, UNDO_TIMER);
         set_undo_enabled(hwnd, false);
@@ -3983,7 +4041,7 @@ fn capture_photo(hwnd: HWND) {
                     || path.display().to_string(),
                     |n| n.to_string_lossy().into_owned(),
                 );
-                let image = add_frame_thumbnail(s, width, height, pixels);
+                let selected = s.selected_page;
                 let relative = path
                     .strip_prefix(&s.output_root)
                     .map_or_else(|_| path.clone(), Path::to_path_buf);
@@ -4002,9 +4060,8 @@ fn capture_photo(hwnd: HWND) {
                     device: s.camera_name.clone(),
                 });
                 s.session.closed_cleanly = false;
-                let item_index = s.session.pages.len() - 1;
-                controls::add_page_item(s.pages, item_index, &name, image);
                 s.undo_page = s.session.pages.last().cloned();
+                reload_page_list(s, selected);
                 if let Err(err) = s.store.save(&s.session) {
                     s.status_msg = format!("已保存 {name}，但会话清单写入失败：{err}");
                 } else {

@@ -56,6 +56,9 @@ pub mod id {
     pub const HELP_MANUAL: usize = 1501;
     pub const HELP_ABOUT: usize = 1502;
 
+    /// 打开选中的页面（右键菜单/双击）。
+    pub const PAGE_OPEN: usize = 1601;
+
     /// 快捷键"拍照"，与工具栏按钮共用同一命令 ID。
     pub const CAPTURE: usize = 2001;
 }
@@ -152,6 +155,37 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(bar, MF_POPUP, help as usize, "帮助(&H)")?;
 
         Ok(bar)
+    }
+}
+
+/// 构建页面缩略图右键菜单。
+pub fn build_page_menu() -> Result<HMENU, WinError> {
+    // SAFETY: 标准菜单 API；菜单句柄由调用方在 TrackPopupMenu 后销毁。
+    unsafe {
+        let menu = CreatePopupMenu();
+        if menu.is_null() {
+            return Err(WinError::last());
+        }
+        append(menu, MF_STRING, id::PAGE_OPEN, "打开(&O)")?;
+        append(menu, MF_STRING, id::FILE_REVEAL, "在资源管理器中定位(&L)")?;
+        append(menu, MF_SEPARATOR, 0, "")?;
+        append(menu, MF_STRING, id::EDIT_ROTATE_RIGHT, "顺时针旋转 90°(&R)")?;
+        append(menu, MF_STRING, id::EDIT_ROTATE_LEFT, "逆时针旋转 90°(&L)")?;
+        append(menu, MF_STRING, id::EDIT_MIRROR, "水平镜像(&M)")?;
+        append(menu, MF_STRING, id::EDIT_PERSPECTIVE, "四角透视校正(&C)…")?;
+        append(menu, MF_STRING, id::EDIT_ANNOTATE, "批注(&A)…")?;
+        append(menu, MF_STRING, id::EDIT_REPROCESS, "重新处理增强(&P)")?;
+        append(menu, MF_SEPARATOR, 0, "")?;
+        append(menu, MF_STRING, id::EDIT_MOVE_UP, "上移(&U)")?;
+        append(menu, MF_STRING, id::EDIT_MOVE_DOWN, "下移(&W)")?;
+        append(menu, MF_SEPARATOR, 0, "")?;
+        append(menu, MF_STRING, id::TOOL_OCR, "OCR 识别(&O)")?;
+        append(menu, MF_STRING, id::TOOL_OCR_EDIT, "编辑 OCR 文本(&E)…")?;
+        append(menu, MF_STRING, id::FILE_EXPORT_JPG, "导出当前页 JPG(&J)…")?;
+        append(menu, MF_STRING, id::FILE_PRINT, "打印(&P)…")?;
+        append(menu, MF_SEPARATOR, 0, "")?;
+        append(menu, MF_STRING, id::EDIT_DELETE_PAGE, "删除(&D)")?;
+        Ok(menu)
     }
 }
 

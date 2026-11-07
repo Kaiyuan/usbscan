@@ -22,6 +22,7 @@ pub mod id {
     pub const FILE_OPEN: usize = 1002;
     pub const FILE_IMPORT: usize = 1003;
     pub const FILE_IMPORT_CLIPBOARD: usize = 1014;
+    pub const FILE_IMPORT_PDF: usize = 1017;
     pub const FILE_EXPORT: usize = 1004;
     pub const FILE_PRINT: usize = 1005;
     pub const FILE_EXIT: usize = 1009;
@@ -86,6 +87,7 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(file, MF_STRING, id::FILE_NEW, "新建文档(&N)\tCtrl+N")?;
         append(file, MF_STRING, id::FILE_OPEN, "打开工程(&O)…\tCtrl+O")?;
         append(file, MF_STRING, id::FILE_IMPORT, "导入图片(&I)…")?;
+        append(file, MF_STRING, id::FILE_IMPORT_PDF, "导入 PDF(&P)…")?;
         append(
             file,
             MF_STRING,

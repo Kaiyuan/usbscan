@@ -8,6 +8,7 @@ members = [
     "crates/usbscan-imaging",
     "crates/usbscan-naming",
     "crates/usbscan-ocr",
+    "crates/usbscan-pdf",
     "crates/usbscan-win",
 ]
 

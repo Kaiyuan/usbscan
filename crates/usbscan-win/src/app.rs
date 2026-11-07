@@ -20,6 +20,7 @@ use usbscan_export as export;
 use usbscan_imaging as imaging;
 use usbscan_naming as naming;
 use usbscan_ocr as ocr;
+use usbscan_pdf as pdf;
 
 use windows_sys::Win32::Foundation::{
     GlobalFree, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
@@ -2257,6 +2258,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::FILE_IMPORT_PDF {
+        import_pdf(hwnd);
+        return;
+    }
+
     if id == menu::id::FILE_IMPORT_CLIPBOARD {
         import_clipboard(hwnd);
         return;
@@ -2766,6 +2772,58 @@ fn export_docx(hwnd: HWND) {
                 return;
             }
         }
+        refresh_status(s);
+    }
+}
+
+/// 用 Windows 自带 PDF 渲染器导入 PDF 页面。
+fn import_pdf(hwnd: HWND) {
+    let Some(path) = pick_pdf_file(hwnd) else {
+        return;
+    };
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；渲染由系统组件完成，结果逐页加入会话。
+    unsafe {
+        let s = &mut *state;
+        let directory = s.output_root.join("导入");
+        s.status_msg = "正在渲染 PDF…".to_string();
+        refresh_status(s);
+        let pages = match pdf::render_pdf(&path, &directory, s.jpeg_quality) {
+            Ok(pages) => pages,
+            Err(err) => {
+                let message = err.to_string();
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        let selected = s.selected_page;
+        let mut imported = 0usize;
+        for page in pages {
+            let relative = page
+                .path
+                .strip_prefix(&s.output_root)
+                .map_or_else(|_| page.path.clone(), Path::to_path_buf);
+            let seq = s.session.next_seq;
+            s.session.push_page(doc::Page {
+                seq,
+                path: relative,
+                raw: None,
+                width: page.width,
+                height: page.height,
+                captured_at: doc::now_unix(),
+                device: Some("PDF".to_string()),
+            });
+            imported += 1;
+        }
+        s.session.closed_cleanly = false;
+        let _ = s.store.save(&s.session);
+        reload_page_list(s, selected.filter(|index| *index < s.session.pages.len()));
+        s.status_msg = format!("已从 PDF 导入 {imported} 页");
         refresh_status(s);
     }
 }
@@ -3285,6 +3343,30 @@ fn save_file_dialog(
         .iter()
         .position(|&ch| ch == 0)
         .unwrap_or(buffer.len());
+    Some(PathBuf::from(String::from_utf16_lossy(&buffer[..len])))
+}
+
+fn pick_pdf_file(hwnd: HWND) -> Option<PathBuf> {
+    let mut buffer = vec![0u16; 1024];
+    let filter: Vec<u16> = "PDF 文件\0*.pdf\0所有文件\0*.*\0\0"
+        .encode_utf16()
+        .collect();
+    let title = wide("导入 PDF");
+    // SAFETY: 所有指针都指向调用期间存活的缓冲区。
+    unsafe {
+        let mut dialog: OPENFILENAMEW = std::mem::zeroed();
+        dialog.lStructSize = u32::try_from(std::mem::size_of::<OPENFILENAMEW>()).unwrap_or(0);
+        dialog.hwndOwner = hwnd;
+        dialog.lpstrFilter = filter.as_ptr();
+        dialog.lpstrFile = buffer.as_mut_ptr();
+        dialog.nMaxFile = u32::try_from(buffer.len()).unwrap_or(0);
+        dialog.lpstrTitle = title.as_ptr();
+        dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+        if GetOpenFileNameW(&mut dialog) == 0 {
+            return None;
+        }
+    }
+    let len = buffer.iter().position(|&ch| ch == 0).unwrap_or(0);
     Some(PathBuf::from(String::from_utf16_lossy(&buffer[..len])))
 }
 

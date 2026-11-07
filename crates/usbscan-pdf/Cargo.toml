@@ -1,0 +1,24 @@
+[package]
+name = "usbscan-pdf"
+description = "使用 Windows.Data.Pdf 将 PDF 页面渲染为图片"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+usbscan-imaging = { path = "../usbscan-imaging" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Foundation",
+    "Storage",
+    "Storage_Streams",
+    "Data_Pdf",
+    "Win32_System_Com",
+] }

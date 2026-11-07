@@ -28,11 +28,11 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontIndirectW, CreatePen,
     CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject,
-    GetSysColor, GetSysColorBrush, InvalidateRect, Rectangle, RoundRect, ScreenToClient,
-    SelectObject, SetBkColor, SetBkMode, SetStretchBltMode, SetTextColor, StretchDIBits,
-    UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, COLORONCOLOR, COLOR_APPWORKSPACE, COLOR_BTNFACE,
-    COLOR_BTNTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, DIB_RGB_COLORS, HBITMAP, HBRUSH, HDC, HGDIOBJ,
-    NULL_PEN, PS_DOT, SRCCOPY,
+    GetSysColor, GetSysColorBrush, InvalidateRect, LineTo, MoveToEx, Rectangle, RoundRect,
+    ScreenToClient, SelectObject, SetBkColor, SetBkMode, SetStretchBltMode, SetTextColor,
+    StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, COLORONCOLOR, COLOR_APPWORKSPACE,
+    COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, DIB_RGB_COLORS, HBITMAP, HBRUSH,
+    HDC, HGDIOBJ, NULL_PEN, PS_DOT, PS_SOLID, SRCCOPY,
 };
 use windows_sys::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
 use windows_sys::Win32::System::DataExchange::{
@@ -267,6 +267,12 @@ struct AppState {
     camera_formats: Vec<(u32, u32)>,
     preferred_format: Option<(u32, u32)>,
     record_fps: u32,
+    /// 实时预览中检测到的文档四角（原始帧坐标）。
+    crop_corners: Option<[(f64, f64); 4]>,
+    /// 检测所用帧尺寸。
+    crop_frame_size: Option<(u32, u32)>,
+    /// 上次检测时间，用于限频。
+    last_crop_detect: Option<std::time::Instant>,
     pages: HWND,
     preview: HWND,
     preview_buffer: PreviewBuffer,
@@ -444,6 +450,9 @@ pub fn run() -> Result<(), WinError> {
         camera_formats: Vec::new(),
         preferred_format,
         record_fps,
+        crop_corners: None,
+        crop_frame_size: None,
+        last_crop_detect: None,
         pages: ptr::null_mut(),
         preview: ptr::null_mut(),
         preview_buffer: PreviewBuffer::default(),
@@ -682,6 +691,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let state = state_ptr(hwnd);
                 if !state.is_null() {
                     (*state).capture.shared().frame_pending = false;
+                    update_crop_overlay(state);
                     InvalidateRect((*state).preview, ptr::null(), 0);
                 }
                 0
@@ -2988,6 +2998,59 @@ fn refresh_format_combo(s: &mut AppState) {
         .and_then(|format| s.camera_formats.iter().position(|item| *item == format))
         .map_or(0, |index| index + 1);
     controls::set_combo_items(s.format_combo, &items, Some(selected));
+}
+
+/// 实时检测预览帧中的文档边框，供预览遮罩和自动裁剪使用。
+fn update_crop_overlay(state: *mut AppState) {
+    // SAFETY: state 由调用方保证有效。
+    unsafe {
+        let s = &mut *state;
+        if !s.enhance.auto_crop {
+            s.crop_corners = None;
+            s.crop_frame_size = None;
+            return;
+        }
+        let now = std::time::Instant::now();
+        if s.last_crop_detect
+            .is_some_and(|last| now.duration_since(last) < std::time::Duration::from_millis(300))
+        {
+            return;
+        }
+        s.last_crop_detect = Some(now);
+        let Some(frame) = s.capture.latest_frame() else {
+            s.crop_corners = None;
+            s.crop_frame_size = None;
+            return;
+        };
+        let max_side = 480u32;
+        let scale = (f64::from(max_side) / f64::from(frame.width.max(1)))
+            .min(f64::from(max_side) / f64::from(frame.height.max(1)))
+            .min(1.0);
+        let (small_width, small_height, small_data) = if scale < 1.0 {
+            match imaging::thumbnail_bgra(
+                frame.width,
+                frame.height,
+                &frame.data,
+                max_side,
+                max_side,
+            ) {
+                Ok(image) => image,
+                Err(_) => (frame.width, frame.height, frame.data.clone()),
+            }
+        } else {
+            (frame.width, frame.height, frame.data.clone())
+        };
+        let corners = imaging::detect_document_corners(small_width, small_height, &small_data);
+        s.crop_frame_size = Some((frame.width, frame.height));
+        s.crop_corners = corners.map(|corners| {
+            corners.map(|(x, y)| {
+                (
+                    x * f64::from(frame.width) / f64::from(small_width.max(1)),
+                    y * f64::from(frame.height) / f64::from(small_height.max(1)),
+                )
+            })
+        });
+    }
 }
 
 /// 启动时恢复上次会话。
@@ -5614,9 +5677,9 @@ fn paint_preview(hwnd: HWND) {
     let parent = unsafe { GetParent(hwnd) };
     let state = state_ptr(parent);
     // SAFETY: state 可能为空；非空时由主窗口持有，绘制期间保持有效。
-    let (frame, dpi_now, error, connected) = unsafe {
+    let (frame, dpi_now, error, connected, crop_corners) = unsafe {
         if state.is_null() {
-            (None, dpi::BASE_DPI, None, false)
+            (None, dpi::BASE_DPI, None, false, None)
         } else {
             let s = &*state;
             (
@@ -5624,6 +5687,7 @@ fn paint_preview(hwnd: HWND) {
                 s.dpi,
                 s.camera_error.clone(),
                 s.camera_name.is_some(),
+                s.crop_corners,
             )
         }
     };
@@ -5665,6 +5729,9 @@ fn paint_preview(hwnd: HWND) {
 
         if let Some(frame) = frame {
             draw_frame(target, &rc, &frame, dpi_now);
+            if let Some(corners) = crop_corners {
+                draw_crop_overlay(target, &rc, &frame, &corners, dark, dpi_now);
+            }
         } else {
             draw_placeholder(
                 hwnd,
@@ -5734,6 +5801,81 @@ fn draw_frame(hdc: HDC, rc: &RECT, frame: &capture::Frame, dpi_now: u32) {
             DIB_RGB_COLORS,
             SRCCOPY,
         );
+    }
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn draw_crop_overlay(
+    hdc: HDC,
+    rc: &RECT,
+    frame: &capture::Frame,
+    corners: &[(f64, f64); 4],
+    dark: bool,
+    dpi_now: u32,
+) {
+    if frame.width == 0 || frame.height == 0 {
+        return;
+    }
+    let pad = i64::from(dpi::scale(12, dpi_now));
+    let area_w = i64::from(rc.right - rc.left) - pad * 2;
+    let area_h = i64::from(rc.bottom - rc.top) - pad * 2;
+    if area_w <= 0 || area_h <= 0 {
+        return;
+    }
+    let frame_w = i64::from(frame.width);
+    let frame_h = i64::from(frame.height);
+    let (draw_w, draw_h) = if area_w * frame_h <= area_h * frame_w {
+        (area_w, (area_w * frame_h / frame_w).max(1))
+    } else {
+        ((area_h * frame_w / frame_h).max(1), area_h)
+    };
+    let draw_x = i64::from(rc.left) + (i64::from(rc.right - rc.left) - draw_w) / 2;
+    let draw_y = i64::from(rc.top) + (i64::from(rc.bottom - rc.top) - draw_h) / 2;
+    let accent = if dark {
+        rgb(0x0a, 0x84, 0xff)
+    } else {
+        rgb(0x00, 0x7a, 0xff)
+    };
+    let points: Vec<POINT> = corners
+        .iter()
+        .map(|(x, y)| POINT {
+            x: draw_x as i32 + (x * draw_w as f64 / frame_w as f64) as i32,
+            y: draw_y as i32 + (y * draw_h as f64 / frame_h as f64) as i32,
+        })
+        .collect();
+
+    // SAFETY: 绘制期间 GDI 对象成对创建/恢复/删除。
+    unsafe {
+        let pen = CreatePen(PS_SOLID, dpi::scale(2, dpi_now), accent);
+        let old_pen = SelectObject(hdc, pen);
+        let old_brush = SelectObject(hdc, GetStockObject(NULL_BRUSH_INDEX));
+        let mut previous = points[3];
+        for point in &points {
+            MoveToEx(hdc, previous.x, previous.y, ptr::null_mut());
+            LineTo(hdc, point.x, point.y);
+            previous = *point;
+        }
+        SelectObject(hdc, old_brush);
+        SelectObject(hdc, old_pen);
+        DeleteObject(pen as HGDIOBJ);
+
+        // 四个角点绘制小方块，方便用户确认识别范围。
+        let handle = dpi::scale(5, dpi_now);
+        let brush = CreateSolidBrush(accent);
+        let old_brush = SelectObject(hdc, brush);
+        let old_pen = SelectObject(hdc, GetStockObject(NULL_PEN));
+        for point in &points {
+            Rectangle(
+                hdc,
+                point.x - handle,
+                point.y - handle,
+                point.x + handle,
+                point.y + handle,
+            );
+        }
+        SelectObject(hdc, old_pen);
+        SelectObject(hdc, old_brush);
+        DeleteObject(brush as HGDIOBJ);
     }
 }
 

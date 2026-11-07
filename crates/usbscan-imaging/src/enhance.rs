@@ -79,8 +79,9 @@ pub fn enhance(
         return Ok(image);
     }
 
+    let wants_perspective = options.perspective || options.auto_crop;
     let mut perspective_applied = false;
-    if options.perspective {
+    if wants_perspective {
         if let Ok(Some((width, height, bgra))) =
             super::perspective::auto_perspective(image.width, image.height, &image.bgra)
         {
@@ -94,8 +95,8 @@ pub fn enhance(
     }
     if options.deskew && !perspective_applied {
         let corners = crate::detect_document_corners(image.width, image.height, &image.bgra);
-        // 开启透视但没检测到文档时，不要对整张桌面做纠偏；否则会旋转整幅画面。
-        if !(options.perspective && corners.is_none()) {
+        // 开启自动裁边/透视但没检测到文档时，不要对整张桌面做纠偏；否则会旋转整幅画面。
+        if !(wants_perspective && corners.is_none()) {
             let correction = corners
                 .and_then(|corners| document_skew(&corners))
                 .or_else(|| estimate_skew(&image));
@@ -107,9 +108,8 @@ pub fn enhance(
         }
     }
     if options.auto_crop && !perspective_applied {
-        // 同时开启透视时，检测失败说明当前画面没有可信文档边界；
-        // 此时不要退回到背景色裁剪，以免把整张桌面裁成奇怪的比例。
-        if !(options.perspective
+        // 自动裁边但检测失败时，不要退回到背景色裁剪，以免把整张桌面裁成奇怪的比例。
+        if !(wants_perspective
             && crate::detect_document_corners(image.width, image.height, &image.bgra).is_none())
         {
             image = crop_to_content(&image);

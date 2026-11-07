@@ -2,9 +2,9 @@
 
 本文件记录 usbscan 使用的全部第三方组件及其许可证，是 GPL-3.0-or-later 合规的一部分。
 
-> 当前项目处于设计阶段，下表为**规划中的依赖**。实际引入时以 `Cargo.lock` 为准，并在合并 PR 时同步更新本文件。
+> 当前项目仍在持续演进。下表以 `Cargo.lock` 与实际构建结果为准，并在合并 PR 时同步更新。
 >
-> 最后更新：2026-11-07
+> 最后更新：2026-11-08
 
 ---
 
@@ -32,6 +32,8 @@ CI 通过 `cargo deny check licenses` 强制校验，白名单配置见 `deny.to
 | 组件 | 用途 | 许可证 | 分发形式 |
 |---|---|---|---|
 | `windows` / `windows-sys` | Win32、COM、Media Foundation 绑定 | MIT OR Apache-2.0 | 编译期内联 |
+| **Slint**（`slint`、`slint-build`） | 界面渲染与声明式 UI | GPL-3.0-only；本项目按 GPL-3.0 使用（Slint 另有商业 / Royalty-free 授权） | 编译期内联 |
+| `rfd` | 系统文件选择 / 保存对话框 | MIT OR Apache-2.0 | 编译期内联 |
 | `serde` / `serde_derive` | 配置与清单序列化 | MIT OR Apache-2.0 | 编译期内联 |
 | `toml` | 配置文件解析 | MIT OR Apache-2.0 | 编译期内联 |
 | `thiserror` | 错误类型定义 | MIT OR Apache-2.0 | 编译期内联 |

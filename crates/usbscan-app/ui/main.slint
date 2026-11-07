@@ -1,0 +1,615 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 usbscan contributors
+
+import { LineEdit, Palette, ScrollView, Slider } from "std-widgets.slint";
+
+export global Theme {
+    in-out property <bool> dark: true;
+    out property <color> bg: dark ? #1c1c1e : #f2f2f7;
+    out property <color> panel: dark ? #232326 : #ffffff;
+    out property <color> card: dark ? #2c2c2e : #ffffff;
+    out property <color> text: dark ? #f5f5f7 : #1c1c1e;
+    out property <color> muted: dark ? #9a9fa8 : #6e6e73;
+    out property <color> accent: dark ? #0a84ff : #007aff;
+    out property <color> accent-pressed: dark ? #0060d2 : #0060d2;
+    out property <color> border: dark ? #3a3a3c : #d1d1d6;
+    out property <color> hover: dark ? #3a3a3c : #e5e5ea;
+}
+
+export struct PageItem {
+    seq: int,
+    title: string,
+    thumb: image,
+}
+
+component PillButton inherits TouchArea {
+    in property <string> text;
+    in property <bool> primary: false;
+
+    height: 32px;
+    min-width: 64px;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 8px;
+        background: !root.enabled ? Theme.border : (primary ? (root.pressed ? Theme.accent-pressed : Theme.accent) : (root.has-hover ? Theme.hover : Theme.card));
+        border-width: primary ? 0px : 1px;
+        border-color: Theme.border;
+
+        Text {
+            width: 100%;
+            height: 100%;
+            text: root.text;
+            color: root.primary ? #ffffff : Theme.text;
+            font-size: 13px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            opacity: root.enabled ? 1.0 : 0.5;
+        }
+    }
+}
+
+component IconPill inherits TouchArea {
+    in property <string> glyph;
+    in property <string> text;
+    in property <bool> primary: false;
+
+    height: 34px;
+    min-width: 78px;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 9px;
+        background: !root.enabled ? Theme.border : (primary ? (root.pressed ? Theme.accent-pressed : Theme.accent) : (root.has-hover ? Theme.hover : Theme.card));
+        border-width: primary ? 0px : 1px;
+        border-color: Theme.border;
+
+        HorizontalLayout {
+            width: 100%;
+            height: 100%;
+            padding-left: 9px;
+            padding-right: 11px;
+            spacing: 6px;
+            alignment: center;
+            Text {
+                text: root.glyph;
+                color: root.primary ? #ffffff : Theme.accent;
+                font-size: 14px;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.text;
+                color: root.primary ? #ffffff : Theme.text;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+component Section inherits Rectangle {
+    in property <string> title;
+    in property <length> content-height: 0px;
+
+    background: Theme.card;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border;
+    height: content-height + 46px;
+
+    Text {
+        x: 14px;
+        y: 11px;
+        text: root.title;
+        color: Theme.text;
+        font-size: 14px;
+        font-weight: 600;
+    }
+}
+
+component FieldLabel inherits Text {
+    color: Theme.muted;
+    font-size: 12px;
+    vertical-alignment: center;
+}
+
+component ToggleRow inherits TouchArea {
+    in property <string> label;
+    in-out property <bool> checked;
+    callback toggled(bool);
+
+    height: 26px;
+
+    HorizontalLayout {
+        width: 100%;
+        height: 100%;
+        spacing: 8px;
+
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            border-radius: 5px;
+            background: root.checked ? Theme.accent : transparent;
+            border-width: 1px;
+            border-color: root.checked ? Theme.accent : Theme.border;
+            Text {
+                width: 100%;
+                height: 100%;
+                text: root.checked ? "✓" : "";
+                color: #ffffff;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.label;
+            color: Theme.text;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+    }
+    clicked => {
+        root.checked = !root.checked;
+        root.toggled(root.checked);
+    }
+}
+
+component Dropdown inherits Rectangle {
+    in property <[string]> model;
+    in-out property <int> current-index: 0;
+    in property <bool> enabled: true;
+    callback selected(int);
+
+    height: 32px;
+    border-radius: 8px;
+    background: root.enabled ? Theme.card : Theme.bg;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 4px;
+        Text {
+            text: (root.current-index >= 0 && root.current-index < root.model.length) ? root.model[root.current-index] : "";
+            color: root.enabled ? Theme.text : Theme.muted;
+            font-size: 13px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+        Text {
+            text: "▾";
+            color: Theme.muted;
+            font-size: 10px;
+            vertical-alignment: center;
+        }
+    }
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        enabled: root.enabled;
+        clicked => { popup.show(); }
+    }
+
+    popup := PopupWindow {
+        x: 0px;
+        y: root.height + 4px;
+        width: max(root.width, 160px);
+        height: min(root.model.length, 8) * 30px + 12px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Theme.card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000066;
+            drop-shadow-offset-y: 4px;
+
+            VerticalLayout {
+                padding: 6px;
+                spacing: 0px;
+                for item[index] in root.model : Rectangle {
+                    height: 30px;
+                    border-radius: 5px;
+                    background: index == root.current-index ? (Theme.dark ? #2f3b4d : #e8f1ff) : (ta.has-hover ? Theme.hover : transparent);
+                    Text {
+                        x: 8px;
+                        width: parent.width - 16px;
+                        text: item;
+                        color: Theme.text;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    ta := TouchArea {
+                        clicked => {
+                            root.current-index = index;
+                            root.selected(index);
+                            popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "usbscan — 文档扫描";
+    width: 1280px;
+    height: 800px;
+    background: Theme.bg;
+    default-font-size: 13px;
+    init => {
+        Theme.dark = root.dark;
+        Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+    changed dark => {
+        Theme.dark = root.dark;
+        Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    in-out property <bool> dark: true;
+    in property <[string]> device-options;
+    in property <[string]> format-options;
+    in property <[string]> fps-options: ["25 fps", "30 fps", "50 fps", "60 fps"];
+    in-out property <int> device-index: 0;
+    in-out property <int> format-index: 0;
+    in-out property <int> fps-index: 0;
+    in property <[PageItem]> pages;
+    in-out property <int> selected-page: -1;
+    in-out property <image> preview-source;
+    in-out property <bool> has-camera: false;
+    in-out property <string> status-text: "就绪";
+    in-out property <string> output-dir;
+    in-out property <string> file-template;
+    in-out property <string> folder-template;
+    in-out property <string> page-count-text: "0 页";
+    in-out property <bool> auto-crop: true;
+    in-out property <bool> auto-deskew: true;
+    in-out property <bool> perspective: true;
+    in-out property <bool> remove-shadow: false;
+    in-out property <bool> white-background: false;
+    in-out property <float> strength: 60;
+    in-out property <bool> recording: false;
+    in-out property <bool> show-rename: false;
+    in-out property <string> rename-text;
+    in-out property <string> version-text: "v0.1.0";
+
+    callback capture();
+    callback toggle-record();
+    callback device-changed(int);
+    callback format-changed(int);
+    callback fps-changed(int);
+    callback page-selected(int);
+    callback rename-page(int);
+    callback delete-page(int);
+    callback rotate-page(int);
+    callback mirror-page(int);
+    callback auto-crop-page(int);
+    callback auto-deskew-page(int);
+    callback import-images();
+    callback export-pdf();
+    callback export-jpg();
+    callback ocr-page();
+    callback browse-output();
+    callback apply-settings();
+    callback rename-confirm(string);
+    callback rename-cancel();
+    callback refresh-devices();
+
+    VerticalLayout {
+        // Top command bar
+        Rectangle {
+            height: 58px;
+            background: Theme.panel;
+            Rectangle { y: parent.height - 1px; height: 1px; width: 100%; background: Theme.border; }
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 12px;
+                padding-bottom: 12px;
+                spacing: 10px;
+
+                Text {
+                    text: "usbscan";
+                    color: Theme.text;
+                    font-size: 19px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                Rectangle { width: 1px; height: 24px; background: Theme.border; }
+
+                Text { text: "设备"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Dropdown {
+                    width: 170px;
+                    model: root.device-options;
+                    current-index <=> root.device-index;
+                    selected(index) => { root.device-changed(index); }
+                }
+                Text { text: "分辨率"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Dropdown {
+                    width: 126px;
+                    model: root.format-options;
+                    current-index <=> root.format-index;
+                    selected(index) => { root.format-changed(index); }
+                }
+                Text { text: "录像"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Dropdown {
+                    width: 86px;
+                    model: root.fps-options;
+                    current-index <=> root.fps-index;
+                    selected(index) => { root.fps-changed(index); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                IconPill {
+                    glyph: "↻";
+                    text: "刷新";
+                    clicked => { root.refresh-devices(); }
+                }
+                IconPill {
+                    glyph: root.recording ? "■" : "●";
+                    text: root.recording ? "停止" : "录像";
+                    clicked => { root.toggle-record(); }
+                }
+                IconPill {
+                    glyph: "◎";
+                    text: "拍照";
+                    primary: true;
+                    clicked => { root.capture(); }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            // Pages sidebar
+            Rectangle {
+                width: 228px;
+                background: Theme.panel;
+                Rectangle { x: parent.width - 1px; width: 1px; height: 100%; background: Theme.border; }
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        Text { text: "页面"; color: Theme.text; font-size: 14px; font-weight: 600; }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text { text: root.page-count-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                    }
+                    Section {
+                        title: "页面操作";
+                        content-height: 200px;
+                        VerticalLayout {
+                            padding: 12px;
+                            padding-top: 34px;
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                IconPill {
+                                    glyph: "✎"; text: "重命名";
+                                    enabled: root.selected-page >= 0;
+                                    horizontal-stretch: 1;
+                                    clicked => { if (root.selected-page >= 0) { root.rename-page(root.selected-page); } }
+                                }
+                                IconPill {
+                                    glyph: "⌫"; text: "删除";
+                                    enabled: root.selected-page >= 0;
+                                    horizontal-stretch: 1;
+                                    clicked => { if (root.selected-page >= 0) { root.delete-page(root.selected-page); } }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                IconPill {
+                                    glyph: "✂"; text: "自动裁边";
+                                    enabled: root.selected-page >= 0;
+                                    horizontal-stretch: 1;
+                                    clicked => { if (root.selected-page >= 0) { root.auto-crop-page(root.selected-page); } }
+                                }
+                                IconPill {
+                                    glyph: "⟳"; text: "自动纠偏";
+                                    enabled: root.selected-page >= 0;
+                                    horizontal-stretch: 1;
+                                    clicked => { if (root.selected-page >= 0) { root.auto-deskew-page(root.selected-page); } }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                IconPill { glyph: "＋"; text: "导入"; horizontal-stretch: 1; clicked => { root.import-images(); } }
+                                IconPill { glyph: "◇"; text: "OCR"; horizontal-stretch: 1; clicked => { root.ocr-page(); } }
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                IconPill { glyph: "⇩"; text: "导出 PDF"; horizontal-stretch: 1; clicked => { root.export-pdf(); } }
+                                IconPill { glyph: "⇩"; text: "导出 JPG"; horizontal-stretch: 1; clicked => { root.export-jpg(); } }
+                            }
+                        }
+                    }
+                    ScrollView {
+                        horizontal-scrollbar-policy: always-off;
+                        VerticalLayout {
+                            spacing: 8px;
+                            for page[index] in root.pages : Rectangle {
+                                height: 92px;
+                                border-radius: 10px;
+                                background: root.selected-page == index ? (Theme.dark ? #2f3b4d : #e8f1ff) : Theme.card;
+                                border-width: root.selected-page == index ? 2px : 1px;
+                                border-color: root.selected-page == index ? Theme.accent : Theme.border;
+                                HorizontalLayout {
+                                    padding: 8px;
+                                    spacing: 9px;
+                                    Rectangle {
+                                        width: 72px;
+                                        height: 72px;
+                                        border-radius: 6px;
+                                        clip: true;
+                                        Image {
+                                            width: 100%;
+                                            height: 100%;
+                                            source: page.thumb;
+                                            image-fit: contain;
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        spacing: 3px;
+                                        alignment: center;
+                                        horizontal-stretch: 1;
+                                        Text {
+                                            text: "第 \{page.seq} 页";
+                                            color: Theme.text;
+                                            font-size: 13px;
+                                        }
+                                        Text {
+                                            text: page.title;
+                                            color: Theme.muted;
+                                            font-size: 11px;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+                                TouchArea {
+                                    width: 100%;
+                                    height: 100%;
+                                    clicked => {
+                                        root.selected-page = index;
+                                        root.page-selected(index);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                background: Theme.dark ? #111113 : #d9d9de;
+                Image {
+                    source: root.preview-source;
+                    image-fit: contain;
+                    width: 100%;
+                    height: 100%;
+                }
+                if (!root.has-camera) : Rectangle {
+                    background: Theme.dark ? #111113 : #d9d9de;
+                    Text {
+                        text: "等待摄像头\n插上任一 USB 摄像头即可开始";
+                        color: Theme.muted;
+                        font-size: 16px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Settings sidebar
+            Rectangle {
+                width: 330px;
+                background: Theme.panel;
+                Rectangle { x: 0px; width: 1px; height: 100%; background: Theme.border; }
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 10px;
+
+                    Section {
+                        title: "扫描设置";
+                            content-height: 178px;
+                            VerticalLayout {
+                                padding: 12px;
+                                padding-top: 34px;
+                                spacing: 7px;
+                                FieldLabel { text: "输出目录"; }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    LineEdit {
+                                        text: root.output-dir;
+                                        edited(text) => { root.output-dir = text; }
+                                        horizontal-stretch: 1;
+                                    }
+                                    PillButton { text: "浏览…"; width: 62px; clicked => { root.browse-output(); } }
+                                }
+                                FieldLabel { text: "文件名模板"; }
+                                LineEdit { text: root.file-template; edited(text) => { root.file-template = text; } }
+                                FieldLabel { text: "子目录模板"; }
+                                LineEdit { text: root.folder-template; edited(text) => { root.folder-template = text; } }
+                                PillButton { text: "应用设置"; primary: true; width: 96px; clicked => { root.apply-settings(); } }
+                            }
+                        }
+
+                        Section {
+                            title: "图像增强";
+                            content-height: 214px;
+                            VerticalLayout {
+                                padding: 12px;
+                                padding-top: 34px;
+                                spacing: 5px;
+                                ToggleRow { label: "自动裁边（实时显示裁剪框）"; checked <=> root.auto-crop; }
+                                ToggleRow { label: "自动纠偏"; checked <=> root.auto-deskew; }
+                                ToggleRow { label: "透视校正"; checked <=> root.perspective; }
+                                ToggleRow { label: "去阴影"; checked <=> root.remove-shadow; }
+                                ToggleRow { label: "白底净化"; checked <=> root.white-background; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    FieldLabel { text: "强度"; width: 34px; }
+                                    Slider { minimum: 0; maximum: 100; value <=> root.strength; horizontal-stretch: 1; }
+                                    Text { text: root.strength; color: Theme.text; width: 28px; horizontal-alignment: right; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+        // Status bar
+        Rectangle {
+            height: 28px;
+            background: Theme.panel;
+            Rectangle { y: 0px; height: 1px; width: 100%; background: Theme.border; }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 8px;
+                Text { text: root.status-text; color: Theme.text; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: root.page-count-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Text { text: root.version-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+            }
+        }
+    }
+
+    // Rename dialog
+    if (root.show-rename) : Rectangle {
+        background: #00000066;
+        width: 100%;
+        height: 100%;
+        Rectangle {
+            width: 430px;
+            height: 150px;
+            border-radius: 14px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.border;
+            VerticalLayout {
+                padding: 16px;
+                spacing: 10px;
+                Text { text: "重命名页面"; color: Theme.text; font-size: 15px; font-weight: 600; }
+                LineEdit { text: root.rename-text; edited(text) => { root.rename-text = text; } }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PillButton { text: "取消"; width: 72px; clicked => { root.rename-cancel(); } }
+                    PillButton {
+                        text: "保存";
+                        primary: true;
+                        width: 72px;
+                        clicked => { root.rename-confirm(root.rename-text); }
+                    }
+                }
+            }
+        }
+    }
+}

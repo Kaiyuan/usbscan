@@ -1,6 +1,6 @@
 [package]
 name = "usbscan-app"
-description = "usbscan 主程序"
+description = "usbscan 主程序（Slint UI）"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,7 +12,23 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+usbscan-capture = { path = "../usbscan-capture" }
+usbscan-doc = { path = "../usbscan-doc" }
+usbscan-export = { path = "../usbscan-export" }
+usbscan-imaging = { path = "../usbscan-imaging" }
+usbscan-naming = { path = "../usbscan-naming" }
+usbscan-ocr = { path = "../usbscan-ocr" }
 usbscan-win = { path = "../usbscan-win" }
+slint = { version = "1.18", default-features = false, features = [
+    "std",
+    "backend-winit",
+    "renderer-software",
+    "compat-1-18",
+] }
+rfd = { version = "0.15", default-features = false }
+
+[build-dependencies]
+slint-build = "1.18"
 
 [[bin]]
 name = "usbscan"

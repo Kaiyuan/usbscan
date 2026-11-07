@@ -2,7 +2,7 @@
 
 > 把任意 USB 摄像头变成文档扫描仪。
 
-Windows 10 / 11 · Rust · 原生 Win32 界面 · 完全离线 · 开源
+Windows 10 / 11 · Rust · Slint 界面 · 完全离线 · 开源
 
 ---
 
@@ -33,7 +33,8 @@ usbscan 是一款面向 Windows 的文档采集软件。插上任一 UVC 摄像�
 | 增强预设 | 内置“文字文档 / 票据 / 照片”预设，一键切换增强选项与强度 |
 | 离线 OCR | 调用本机 Tesseract 5，结果窗口叠加识别行框可点击定位，并按版面段落分组；支持便携 `tesseract\` 目录 |
 | 命名规则 | 模板化文件名与目录规则，拍摄瞬间即确定落盘路径 |
-| 原生界面 | 系统控件、系统字体、系统对话框；macOS 风格配色与圆角按钮，12px 顶部菜单栏，图标和文字启用抗锯齿，界面跟随系统亮色/暗色主题 |
+| 界面 | Slint 自绘界面（cupertino 风格）：圆角卡片、跟随系统亮/暗主题；设备、分辨率与录像帧率同处顶栏；图像处理集中在页面操作卡与图片右键菜单；预览实时绘制文档裁剪框 |
+| 视频裁剪 | 自动识别并裁掉部分 UVC 驱动补出的上下黑边，预览、拍照与录像都不再带黑边 |
 | 图标 | 使用 [Tabler Icons](https://github.com/tabler/tabler-icons)（MIT），并随包保留许可证 |
 | 零依赖 | 静态链接 CRT，不需要 .NET / VC++ 运行时 / WebView2 |
 | 开源 | 代码可审计，可自行构建，可二次开发 |
@@ -54,13 +55,13 @@ usbscan 是一款面向 Windows 的文档采集软件。插上任一 UVC 摄像�
 
 ## 构建
 
-> 当前已可构建运行 M1 部分里程碑：Win32 原生外壳、Media Foundation 实时预览、
+> 当前 `usbscan-app` 已使用 Slint 重写界面，默认提供：Media Foundation 实时预览、
 > 设备切换与热插拔、DirectShow 兜底采集、按命名规则拍照落盘、会话恢复、
-> 缩略图列表、3 秒撤销、扫描设置面板、页面删除/查看、页面旋转/镜像、
-> 原图保留与重新处理、JPEG/PDF 导出、图片导入、打印、自动裁边/透视校正/纠偏/
-> 去阴影/白底净化、四角点手动透视校正、采集分辨率选择、MP4/H.264 录像，
-> 以及基于本机 Tesseract 5 的离线 OCR。
-> 批注、OCR 结果编辑与完整 PDF 版式仍在开发中。
+> 页面缩略图与选择、重命名/删除/自动裁边/自动纠偏、扫描设置、JPEG/PDF 导出、
+> 图片导入、自动裁边/透视校正/纠偏/去阴影/白底净化、采集分辨率选择、
+> MP4/H.264 录像，以及基于本机 Tesseract 5 的离线 OCR。
+> 旧 Win32 界面保留在 `usbscan-win` 中作为参考，打印、批注、Word 导出等能力
+> 仍在逐步迁移到 Slint 界面。
 
 前置条件：Rust stable + Visual Studio Build Tools（“使用 C++ 的桌面开发”负载）。
 
@@ -111,12 +112,12 @@ cargo fmt --all -- --check
 ```
 usbscan/
 ├─ crates/
-│  ├─ usbscan-app/      # 程序入口与生命周期
-│  ├─ usbscan-capture/  # Media Foundation 采集后端
-│  ├─ usbscan-doc/      # 会话、页面、撤销与 session.json 持久化
-│  ├─ usbscan-imaging/  # JPEG 编解码与缩略图
+│  ├─ usbscan-app/      # Slint 界面（ui/main.slint）与控制器
+│  ├─ usbscan-capture/  # Media Foundation / DirectShow 采集后端
+│  ├─ usbscan-doc/      # 会话、页面与 session.json 持久化
+│  ├─ usbscan-imaging/  # JPEG 编解码、文档检测、增强、黑边裁剪
 │  ├─ usbscan-naming/   # 文件名/目录命名规则引擎
-│  └─ usbscan-win/      # Win32 原生界面与消息循环
+│  └─ usbscan-win/      # 录像、配置、主题与旧 Win32 界面参考
 ├─ docs/                # 设计文档
 ├─ build.ps1            # 一键构建、检查与打包
 ├─ dist/                # 构建产物（git 忽略）

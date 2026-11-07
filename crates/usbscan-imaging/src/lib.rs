@@ -13,11 +13,13 @@ use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 
 mod annotate;
+mod dib;
 mod enhance;
 mod perspective;
 mod transform;
 
 pub use annotate::{colors, render_annotations, Annotation, AnnotationColor};
+pub use dib::decode_dib;
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
 pub use perspective::{auto_perspective, detect_document_corners, perspective_from_corners};
 pub use transform::{mirror_horizontal_bgra, rotate90_bgra};
@@ -57,6 +59,8 @@ pub enum ImagingError {
     },
     /// 几何变换失败。
     Geometry(String),
+    /// 输入格式不支持或已损坏。
+    Format(String),
     /// 编码或写入失败。
     Jpeg(image::ImageError),
     /// 输出目标写入失败。
@@ -79,6 +83,7 @@ impl std::fmt::Display for ImagingError {
                 "图像尺寸无效：{width}×{height}，缩略图上限 {max_width}×{max_height}"
             ),
             Self::Geometry(message) => write!(f, "几何变换失败：{message}"),
+            Self::Format(message) => write!(f, "图像格式不支持：{message}"),
             Self::Jpeg(err) => write!(f, "图像编解码失败：{err}"),
             Self::Io(err) => write!(f, "写入失败：{err}"),
         }
@@ -90,7 +95,10 @@ impl std::error::Error for ImagingError {
         match self {
             Self::Jpeg(err) => Some(err),
             Self::Io(err) => Some(err),
-            Self::BufferSize { .. } | Self::InvalidSize { .. } | Self::Geometry(_) => None,
+            Self::BufferSize { .. }
+            | Self::InvalidSize { .. }
+            | Self::Geometry(_)
+            | Self::Format(_) => None,
         }
     }
 }

@@ -30,7 +30,11 @@ use windows_sys::Win32::Graphics::Gdi::{
     DIB_RGB_COLORS, HBITMAP, HBRUSH, HDC, HGDIOBJ, PS_DOT, SRCCOPY,
 };
 use windows_sys::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
+use windows_sys::Win32::System::DataExchange::{
+    CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 use windows_sys::Win32::UI::Controls::Dialogs::{
     GetOpenFileNameW, GetSaveFileNameW, OFN_ALLOWMULTISELECT, OFN_EXPLORER, OFN_FILEMUSTEXIST,
     OFN_OVERWRITEPROMPT, OFN_PATHMUSTEXIST, OPENFILENAMEW,
@@ -54,11 +58,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA, GWL_STYLE, IDC_ARROW,
     MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_YESNO,
     MF_BYCOMMAND, MF_CHECKED, MF_ENABLED, MF_GRAYED, MINMAXINFO, MSG, NONCLIENTMETRICSW,
-    SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOWDEFAULT, SW_SHOWNORMAL, WM_CLOSE,
-    WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC,
-    WM_DESTROY, WM_DEVICECHANGE, WM_DPICHANGED, WM_ERASEBKGND, WM_GETFONT, WM_GETMINMAXINFO,
-    WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER,
-    WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, SW_SHOWDEFAULT,
+    SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
+    WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DEVICECHANGE, WM_DPICHANGED,
+    WM_ERASEBKGND, WM_GETFONT, WM_GETMINMAXINFO, WM_HSCROLL, WM_NCDESTROY, WM_NOTIFY, WM_PAINT,
+    WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN,
+    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 use crate::capture_host::{
@@ -103,6 +108,8 @@ const CMD_ENHANCE_CHECK: usize = 2700;
 const CMD_ENHANCE_TRACK: usize = 2800;
 
 /// 撤销拍摄的计时器 ID。
+/// 剪贴板 DIB 格式（`CF_DIB`）。
+const CLIPBOARD_DIB: u32 = 8;
 const UNDO_TIMER: usize = 1;
 /// 定时拍摄倒计时定时器。
 const COUNTDOWN_TIMER: usize = 2;
@@ -285,6 +292,10 @@ struct AppState {
     countdown: u32,
     /// 连拍剩余张数；0 表示未启用。
     burst: u32,
+    /// 是否显示左侧页面面板。
+    show_pages: bool,
+    /// 是否显示右侧增强/扫描设置面板。
+    show_enhance: bool,
 }
 
 /// 启动应用：创建窗口并进入消息循环。
@@ -410,6 +421,8 @@ pub fn run() -> Result<(), WinError> {
         undo_page: None,
         countdown: 0,
         burst: 0,
+        show_pages: true,
+        show_enhance: true,
     });
     let state_ptr = Box::into_raw(state);
 
@@ -1309,6 +1322,16 @@ fn apply_theme(state: *mut AppState) {
             if !view.is_null() {
                 let check = if s.dark { MF_CHECKED } else { 0 };
                 CheckMenuItem(view, menu::id::VIEW_DARK as u32, check);
+                CheckMenuItem(
+                    view,
+                    menu::id::VIEW_THUMBS as u32,
+                    if s.show_pages { MF_CHECKED } else { 0 },
+                );
+                CheckMenuItem(
+                    view,
+                    menu::id::VIEW_ENHANCE as u32,
+                    if s.show_enhance { MF_CHECKED } else { 0 },
+                );
             }
         }
 
@@ -1390,8 +1413,8 @@ fn layout(state: *mut AppState) {
         let body_top = toolbar_h + param_h;
         let body_h = (height - body_top - status_h).max(0);
 
-        let left_w = scale(190);
-        let right_w = scale(300);
+        let left_w = if s.show_pages { scale(190) } else { 0 };
+        let right_w = if s.show_enhance { scale(300) } else { 0 };
         let preview_w = (width - left_w - right_w).max(scale(200));
 
         place(s.pages, 0, body_top, left_w, body_h);
@@ -1497,6 +1520,85 @@ fn layout(state: *mut AppState) {
 }
 
 /// 当前设置控件对应的命名规则。
+fn toggle_panel(hwnd: HWND, left: bool) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；仅切换子控件可见性。
+    unsafe {
+        let s = &mut *state;
+        if left {
+            s.show_pages = !s.show_pages;
+            ShowWindow(s.pages, if s.show_pages { SW_SHOW } else { SW_HIDE });
+            s.status_msg = if s.show_pages {
+                "已显示页面面板".to_string()
+            } else {
+                "已隐藏页面面板".to_string()
+            };
+        } else {
+            s.show_enhance = !s.show_enhance;
+            let command = if s.show_enhance { SW_SHOW } else { SW_HIDE };
+            for control in [
+                s.settings_group,
+                s.settings_heading,
+                s.settings_output_label,
+                s.settings_output,
+                s.settings_browse,
+                s.settings_file_label,
+                s.settings_file,
+                s.settings_folder_label,
+                s.settings_folder,
+                s.settings_collision_label,
+                s.settings_collision,
+                s.settings_quality_label,
+                s.settings_quality_value,
+                s.settings_track,
+                s.settings_preview,
+                s.settings_apply,
+                s.enhance_group,
+                s.enhance_heading,
+                s.enhance_checks[0],
+                s.enhance_checks[1],
+                s.enhance_checks[2],
+                s.enhance_checks[3],
+                s.enhance_checks[4],
+                s.enhance_label,
+                s.enhance_value,
+                s.enhance_track,
+            ] {
+                if !control.is_null() {
+                    ShowWindow(control, command);
+                }
+            }
+            s.status_msg = if s.show_enhance {
+                "已显示增强面板".to_string()
+            } else {
+                "已隐藏增强面板".to_string()
+            };
+        }
+        layout(state);
+        let bar = GetMenu(hwnd);
+        if !bar.is_null() {
+            let view = GetSubMenu(bar, 3);
+            if !view.is_null() {
+                CheckMenuItem(
+                    view,
+                    menu::id::VIEW_THUMBS as u32,
+                    if s.show_pages { MF_CHECKED } else { 0 },
+                );
+                CheckMenuItem(
+                    view,
+                    menu::id::VIEW_ENHANCE as u32,
+                    if s.show_enhance { MF_CHECKED } else { 0 },
+                );
+            }
+        }
+        InvalidateRect(s.preview, ptr::null(), 0);
+        refresh_status(s);
+    }
+}
+
 fn settings_rule(s: &AppState) -> naming::NamingRule {
     naming::NamingRule {
         template: controls::get_text(s.settings_file).trim().to_string(),
@@ -2050,6 +2152,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::FILE_IMPORT_CLIPBOARD {
+        import_clipboard(hwnd);
+        return;
+    }
+
     if id == menu::id::FILE_PRINT || id == 2009 {
         print_selected_page(hwnd);
         return;
@@ -2078,6 +2185,15 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         unsafe {
             DestroyWindow(hwnd);
         }
+        return;
+    }
+
+    if id == menu::id::VIEW_THUMBS {
+        toggle_panel(hwnd, true);
+        return;
+    }
+    if id == menu::id::VIEW_ENHANCE {
+        toggle_panel(hwnd, false);
         return;
     }
 
@@ -2519,6 +2635,105 @@ fn import_images(hwnd: HWND) {
             format!("已导入 {imported} 张图片，跳过 {skipped} 张")
         };
         refresh_settings_preview(s);
+        refresh_status(s);
+    }
+}
+
+/// 从系统剪贴板导入 `CF_DIB` 位图。
+fn import_clipboard(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；剪贴板 API 按契约配对调用。
+    unsafe {
+        let s = &mut *state;
+        if IsClipboardFormatAvailable(CLIPBOARD_DIB) == 0 {
+            s.status_msg = "剪贴板中没有位图".to_string();
+            refresh_status(s);
+            return;
+        }
+        if OpenClipboard(hwnd) == 0 {
+            show_error(hwnd, "无法打开剪贴板，请稍后重试");
+            return;
+        }
+        let handle = GetClipboardData(CLIPBOARD_DIB);
+        let bytes = if handle.is_null() {
+            None
+        } else {
+            let pointer = GlobalLock(handle);
+            let size = GlobalSize(handle);
+            let copy = if pointer.is_null() || size == 0 {
+                None
+            } else {
+                Some(std::slice::from_raw_parts(pointer.cast::<u8>(), size).to_vec())
+            };
+            GlobalUnlock(handle);
+            copy
+        };
+        CloseClipboard();
+
+        let Some(bytes) = bytes else {
+            s.status_msg = "无法读取剪贴板位图".to_string();
+            refresh_status(s);
+            return;
+        };
+        let (width, height, pixels) = match imaging::decode_dib(&bytes) {
+            Ok(image) => image,
+            Err(err) => {
+                let message = format!("剪贴板位图无法导入：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        let directory = s.output_root.join("导入");
+        if let Err(err) = fs::create_dir_all(&directory) {
+            show_error(hwnd, &format!("无法创建导入目录：{err}"));
+            return;
+        }
+        let name = format!(
+            "剪贴板_{}_{}.jpg",
+            naming::TimeStamp::now().format("yyyyMMdd_HHmmss"),
+            s.session.next_seq
+        );
+        let target = unique_path(&directory.join(name));
+        if let Err(err) = write_jpeg_atomic(&target, width, height, &pixels, s.jpeg_quality) {
+            let message = format!("保存剪贴板图片失败：{err}");
+            s.status_msg.clone_from(&message);
+            refresh_status(s);
+            show_error(hwnd, &message);
+            return;
+        }
+        let relative = target
+            .strip_prefix(&s.output_root)
+            .map_or_else(|_| target.clone(), Path::to_path_buf);
+        let seq = s.session.next_seq;
+        s.session.push_page(doc::Page {
+            seq,
+            path: relative,
+            raw: None,
+            width,
+            height,
+            captured_at: doc::now_unix(),
+            device: Some("剪贴板".to_string()),
+        });
+        s.session.closed_cleanly = false;
+        let thumb_width = u32::try_from(s.thumb_width.max(1)).unwrap_or(1);
+        let thumb_height = u32::try_from(s.thumb_height.max(1)).unwrap_or(1);
+        let image = imaging::image_thumbnail_bgra(&target, thumb_width, thumb_height)
+            .ok()
+            .and_then(|(width, height, data)| {
+                controls::add_image_bgra(s.thumbs, thumb_width, thumb_height, width, height, &data)
+            });
+        let display_name = target.file_name().map_or_else(
+            || target.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        controls::add_page_item(s.pages, s.session.pages.len() - 1, &display_name, image);
+        let _ = s.store.save(&s.session);
+        s.status_msg = format!("已从剪贴板导入：{display_name}");
         refresh_status(s);
     }
 }

@@ -3,7 +3,9 @@
 
 //! 原生菜单栏构建。
 
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_E, VK_F5, VK_F9, VK_N, VK_P, VK_Z};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    VK_E, VK_F10, VK_F11, VK_F5, VK_F9, VK_N, VK_O, VK_P, VK_V, VK_Z,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateAcceleratorTableW, CreateMenu, CreatePopupMenu, ACCEL, HACCEL, HMENU,
     MF_POPUP, MF_SEPARATOR, MF_STRING,
@@ -19,6 +21,7 @@ pub mod id {
     pub const FILE_NEW: usize = 1001;
     pub const FILE_OPEN: usize = 1002;
     pub const FILE_IMPORT: usize = 1003;
+    pub const FILE_IMPORT_CLIPBOARD: usize = 1014;
     pub const FILE_EXPORT: usize = 1004;
     pub const FILE_PRINT: usize = 1005;
     pub const FILE_EXIT: usize = 1009;
@@ -75,6 +78,12 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(file, MF_STRING, id::FILE_NEW, "新建文档(&N)\tCtrl+N")?;
         append(file, MF_STRING, id::FILE_OPEN, "打开工程(&O)…\tCtrl+O")?;
         append(file, MF_STRING, id::FILE_IMPORT, "导入图片(&I)…")?;
+        append(
+            file,
+            MF_STRING,
+            id::FILE_IMPORT_CLIPBOARD,
+            "从剪贴板导入(&V)\tCtrl+V",
+        )?;
         append(file, MF_STRING, id::FILE_REVEAL, "打开文件位置(&L)")?;
         append(file, MF_SEPARATOR, 0, "")?;
         append(file, MF_STRING, id::FILE_EXPORT, "导出 PDF(&E)…\tCtrl+E")?;
@@ -176,6 +185,26 @@ pub fn build_accelerators() -> Result<HACCEL, WinError> {
             fVirt: FVIRTKEY | FCONTROL | FNOINVERT,
             key: VK_P,
             cmd: id::FILE_PRINT as u16,
+        },
+        ACCEL {
+            fVirt: FVIRTKEY | FCONTROL | FNOINVERT,
+            key: VK_V,
+            cmd: id::FILE_IMPORT_CLIPBOARD as u16,
+        },
+        ACCEL {
+            fVirt: FVIRTKEY | FNOINVERT,
+            key: VK_F10,
+            cmd: 2002,
+        },
+        ACCEL {
+            fVirt: FVIRTKEY | FNOINVERT,
+            key: VK_F11,
+            cmd: 2003,
+        },
+        ACCEL {
+            fVirt: FVIRTKEY | FCONTROL | FNOINVERT,
+            key: VK_O,
+            cmd: id::FILE_IMPORT as u16,
         },
     ];
     // SAFETY: 数组在调用期间有效，数量与指针一致。

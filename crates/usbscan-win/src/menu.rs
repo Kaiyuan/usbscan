@@ -7,9 +7,9 @@ use std::sync::atomic::Ordering;
 
 use windows_sys::Win32::Graphics::Gdi::{
     CreateSolidBrush, DeleteObject, DrawTextW, FillRect, GetDC, GetStockObject, GetSysColor,
-    GetSysColorBrush, GetTextExtentPoint32W, ReleaseDC, SelectObject, SetBkMode, SetTextColor,
-    COLOR_GRAYTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_MENU, COLOR_MENUTEXT,
-    DEFAULT_GUI_FONT, DT_CENTER, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, HGDIOBJ,
+    GetSysColorBrush, GetTextExtentPoint32W, ReleaseDC, RoundRect, SelectObject, SetBkMode,
+    SetTextColor, COLOR_GRAYTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_MENU, COLOR_MENUTEXT,
+    DEFAULT_GUI_FONT, DT_CENTER, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, HGDIOBJ, NULL_PEN,
     TRANSPARENT,
 };
 use windows_sys::Win32::UI::Controls::{
@@ -433,7 +433,7 @@ unsafe fn apply_menu_background(menu: HMENU, dark: bool) {
         if existing != 0 {
             existing as windows_sys::Win32::Graphics::Gdi::HBRUSH
         } else {
-            let created = unsafe { CreateSolidBrush(rgb(0x1e, 0x1f, 0x22)) };
+            let created = unsafe { CreateSolidBrush(rgb(0x1c, 0x1c, 0x1e)) };
             MENU_BRUSH.store(created as usize, Ordering::Relaxed);
             created
         }
@@ -575,7 +575,7 @@ pub fn draw_item(item: *const DRAWITEMSTRUCT, dark: bool) -> bool {
 
         let (bg, fg) = if selected {
             let bg = if dark {
-                rgb(0x2d, 0x62, 0xc4)
+                rgb(0x0a, 0x84, 0xff)
             } else {
                 GetSysColor(COLOR_HIGHLIGHT)
             };
@@ -587,14 +587,14 @@ pub fn draw_item(item: *const DRAWITEMSTRUCT, dark: bool) -> bool {
             (bg, fg)
         } else {
             let bg = if dark {
-                rgb(0x1e, 0x1f, 0x22)
+                rgb(0x1c, 0x1c, 0x1e)
             } else {
                 GetSysColor(COLOR_MENU)
             };
             let fg = if disabled {
                 GetSysColor(COLOR_GRAYTEXT)
             } else if dark {
-                rgb(0xe6, 0xe8, 0xeb)
+                rgb(0xf5, 0xf5, 0xf7)
             } else {
                 GetSysColor(COLOR_MENUTEXT)
             };
@@ -602,7 +602,23 @@ pub fn draw_item(item: *const DRAWITEMSTRUCT, dark: bool) -> bool {
         };
 
         let brush = CreateSolidBrush(bg);
-        FillRect(item.hDC, &item.rcItem, brush);
+        if selected {
+            let old_brush = SelectObject(item.hDC, brush);
+            let old_pen = SelectObject(item.hDC, GetStockObject(NULL_PEN));
+            RoundRect(
+                item.hDC,
+                item.rcItem.left + 2,
+                item.rcItem.top + 1,
+                item.rcItem.right - 2,
+                item.rcItem.bottom - 1,
+                8,
+                8,
+            );
+            SelectObject(item.hDC, old_pen);
+            SelectObject(item.hDC, old_brush);
+        } else {
+            FillRect(item.hDC, &item.rcItem, brush);
+        }
         DeleteObject(brush as HGDIOBJ);
         SetBkMode(item.hDC, TRANSPARENT as i32);
         SetTextColor(item.hDC, fg);

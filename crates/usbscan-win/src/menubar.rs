@@ -13,9 +13,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, ClientToScreen, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect,
-    GetSysColor, GetTextExtentPoint32W, InvalidateRect, SelectObject, SetBkMode, SetTextColor,
-    COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, DT_CENTER, DT_SINGLELINE,
-    DT_VCENTER, HGDIOBJ, TRANSPARENT,
+    GetStockObject, GetSysColor, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject,
+    SetBkMode, SetTextColor, COLOR_BTNTEXT, COLOR_HIGHLIGHTTEXT, DT_CENTER, DT_SINGLELINE,
+    DT_VCENTER, HGDIOBJ, NULL_PEN, TRANSPARENT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GetClientRect, GetSubMenu, GetWindowLongPtrW, SendMessageW,
@@ -34,9 +34,9 @@ pub const MENU_BAR_CLASS: &str = "UsbscanMenuBar";
 /// 菜单栏标题，顺序必须与主菜单的顶层顺序一致。
 const TITLES: [&str; 6] = ["文件", "编辑", "设备", "视图", "工具", "帮助"];
 
-const DARK_BG: u32 = 0x0022_1f1e;
-const DARK_TEXT: u32 = 0x00eb_e8e6;
-const DARK_SELECTED: u32 = 0x00c4_622d;
+const DARK_BG: u32 = 0x001e_1c1c;
+const DARK_TEXT: u32 = 0x00f7_f5f5;
+const DARK_SELECTED: u32 = 0x00ff_840a;
 
 static DARK: AtomicBool = AtomicBool::new(false);
 
@@ -215,7 +215,7 @@ pub unsafe extern "system" fn wndproc(
                 let (bg, fg) = if dark {
                     (DARK_BG, DARK_TEXT)
                 } else {
-                    (GetSysColor(COLOR_BTNFACE), GetSysColor(COLOR_BTNTEXT))
+                    (rgb(0xf2, 0xf2, 0xf7), GetSysColor(COLOR_BTNTEXT))
                 };
                 let brush = CreateSolidBrush(bg);
                 FillRect(hdc, &client, brush);
@@ -239,10 +239,22 @@ pub unsafe extern "system" fn wndproc(
                         let highlight = if dark {
                             DARK_SELECTED
                         } else {
-                            GetSysColor(COLOR_HIGHLIGHT)
+                            rgb(0x00, 0x7a, 0xff)
                         };
                         let brush = CreateSolidBrush(highlight);
-                        FillRect(hdc, &rect, brush);
+                        let old_brush = SelectObject(hdc, brush);
+                        let old_pen = SelectObject(hdc, GetStockObject(NULL_PEN));
+                        RoundRect(
+                            hdc,
+                            rect.left + 4,
+                            rect.top + 3,
+                            rect.right - 4,
+                            rect.bottom - 3,
+                            8,
+                            8,
+                        );
+                        SelectObject(hdc, old_pen);
+                        SelectObject(hdc, old_brush);
                         DeleteObject(brush as HGDIOBJ);
                     }
                     let color = if selected {

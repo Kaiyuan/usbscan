@@ -28,10 +28,11 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontIndirectW, CreatePen,
     CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject,
-    GetSysColor, GetSysColorBrush, InvalidateRect, Rectangle, ScreenToClient, SelectObject,
-    SetBkColor, SetBkMode, SetStretchBltMode, SetTextColor, StretchDIBits, UpdateWindow,
-    BITMAPINFO, BITMAPINFOHEADER, COLORONCOLOR, COLOR_APPWORKSPACE, COLOR_BTNFACE, COLOR_BTNTEXT,
-    COLOR_WINDOW, COLOR_WINDOWTEXT, DIB_RGB_COLORS, HBITMAP, HBRUSH, HDC, HGDIOBJ, PS_DOT, SRCCOPY,
+    GetSysColor, GetSysColorBrush, InvalidateRect, Rectangle, RoundRect, ScreenToClient,
+    SelectObject, SetBkColor, SetBkMode, SetStretchBltMode, SetTextColor, StretchDIBits,
+    UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, COLORONCOLOR, COLOR_APPWORKSPACE, COLOR_BTNFACE,
+    COLOR_BTNTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, DIB_RGB_COLORS, HBITMAP, HBRUSH, HDC, HGDIOBJ,
+    NULL_PEN, PS_DOT, SRCCOPY,
 };
 use windows_sys::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
 use windows_sys::Win32::System::DataExchange::{
@@ -49,7 +50,8 @@ use windows_sys::Win32::UI::Controls::Dialogs::{
 use windows_sys::Win32::UI::Controls::{
     GetWindowTheme, InitCommonControlsEx, CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_NEWFONT,
     CDRF_NOTIFYITEMDRAW, HIMAGELIST, ICC_BAR_CLASSES, ICC_LISTVIEW_CLASSES, ICC_STANDARD_CLASSES,
-    INITCOMMONCONTROLSEX, NMCUSTOMDRAW, NMHDR, NMLVKEYDOWN, NM_CUSTOMDRAW,
+    INITCOMMONCONTROLSEX, NMCUSTOMDRAW, NMHDR, NMLVKEYDOWN, NM_CUSTOMDRAW, ODS_SELECTED,
+    ODT_BUTTON,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, VK_DELETE};
 use windows_sys::Win32::UI::Shell::{
@@ -89,6 +91,7 @@ const MAIN_CLASS: &str = "UsbscanMainWindow";
 const PREVIEW_CLASS: &str = "UsbscanPreviewWindow";
 
 const DT_CENTER: u32 = 0x0000_0001;
+const DT_VCENTER: u32 = 0x0000_0004;
 const DT_SINGLELINE: u32 = 0x0000_0020;
 const DT_NOPREFIX: u32 = 0x0000_0800;
 const DT_END_ELLIPSIS: u32 = 0x0000_8000;
@@ -409,9 +412,9 @@ pub fn run() -> Result<(), WinError> {
         _ => 25,
     };
     let enhance = imaging::EnhanceOptions {
-        auto_crop: config.auto_crop.unwrap_or(false),
-        perspective: config.perspective.unwrap_or(false),
-        deskew: config.deskew.unwrap_or(false),
+        auto_crop: config.auto_crop.unwrap_or(true),
+        perspective: config.perspective.unwrap_or(true),
+        deskew: config.deskew.unwrap_or(true),
         remove_shadow: config.remove_shadow.unwrap_or(false),
         white_background: config.white_background.unwrap_or(false),
         strength: config.enhance_strength.unwrap_or(60).min(100),
@@ -801,7 +804,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         }
                         if custom.dwDrawStage == CDDS_ITEMPREPAINT {
                             let (fg, bg, brush) = if s.dark {
-                                (rgb(0xe6, 0xe8, 0xeb), rgb(0x1e, 0x1f, 0x22), s.panel_brush)
+                                (rgb(0xf5, 0xf5, 0xf7), rgb(0x1c, 0x1c, 0x1e), s.panel_brush)
                             } else {
                                 (
                                     GetSysColor(COLOR_BTNTEXT),
@@ -897,7 +900,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     (*state).dark
                 };
                 let item = lparam as *const windows_sys::Win32::UI::Controls::DRAWITEMSTRUCT;
-                isize::from(menu::draw_item(item, dark))
+                let isize_result = if menu::draw_item(item, dark) {
+                    true
+                } else if !item.is_null() && (*item).CtlType == ODT_BUTTON {
+                    draw_push_button(item, dark);
+                    true
+                } else {
+                    false
+                };
+                isize::from(isize_result)
             }
             WM_COMMAND => {
                 let id = (wparam & 0xFFFF) as usize;
@@ -1021,7 +1032,7 @@ fn control_color(hwnd: HWND, wparam: WPARAM) -> LRESULT {
         let s = &*state;
         let hdc = wparam as HDC;
         let (fg, bg) = if s.dark {
-            (rgb(0xe6, 0xe8, 0xeb), rgb(0x1e, 0x1f, 0x22))
+            (rgb(0xf5, 0xf5, 0xf7), rgb(0x1c, 0x1c, 0x1e))
         } else {
             (GetSysColor(COLOR_WINDOWTEXT), GetSysColor(COLOR_BTNFACE))
         };
@@ -1050,7 +1061,7 @@ fn edit_color(hwnd: HWND, wparam: WPARAM, control: HWND) -> LRESULT {
         let s = &*state;
         let hdc = wparam as HDC;
         let (fg, bg) = if s.dark {
-            (rgb(0xe6, 0xe8, 0xeb), rgb(0x1e, 0x1f, 0x22))
+            (rgb(0xf5, 0xf5, 0xf7), rgb(0x1c, 0x1c, 0x1e))
         } else {
             (GetSysColor(COLOR_WINDOWTEXT), GetSysColor(COLOR_WINDOW))
         };
@@ -1086,7 +1097,7 @@ fn button_color(hwnd: HWND, wparam: WPARAM, control: HWND) -> LRESULT {
         }
         let hdc = wparam as HDC;
         let (fg, bg) = if s.dark {
-            (rgb(0xe6, 0xe8, 0xeb), rgb(0x1e, 0x1f, 0x22))
+            (rgb(0xf5, 0xf5, 0xf7), rgb(0x1c, 0x1c, 0x1e))
         } else {
             (GetSysColor(COLOR_BTNTEXT), GetSysColor(COLOR_BTNFACE))
         };
@@ -1096,6 +1107,139 @@ fn button_color(hwnd: HWND, wparam: WPARAM, control: HWND) -> LRESULT {
             s.panel_brush as isize
         } else {
             GetSysColorBrush(COLOR_BTNFACE) as isize
+        }
+    }
+}
+
+/// 绘制 macOS 风格的圆角按钮（主按钮使用蓝色强调色）。
+#[allow(clippy::too_many_lines)]
+fn draw_push_button(item: *const windows_sys::Win32::UI::Controls::DRAWITEMSTRUCT, dark: bool) {
+    if item.is_null() {
+        return;
+    }
+    // SAFETY: 指针由系统在 WM_DRAWITEM 中传入。
+    unsafe {
+        let item = &*item;
+        let primary = item.CtlID as usize == CMD_SETTINGS_APPLY;
+        let pressed = item.itemState & ODS_SELECTED as u32 != 0;
+        let disabled = item.itemState & windows_sys::Win32::UI::Controls::ODS_DISABLED as u32 != 0;
+        let (bg, fg, border) = if disabled {
+            if dark {
+                (
+                    rgb(0x3a, 0x3a, 0x3c),
+                    rgb(0x8e, 0x8e, 0x93),
+                    rgb(0x3a, 0x3a, 0x3c),
+                )
+            } else {
+                (
+                    rgb(0xe5, 0xe5, 0xea),
+                    rgb(0x8e, 0x8e, 0x93),
+                    rgb(0xd1, 0xd1, 0xd6),
+                )
+            }
+        } else if primary {
+            let bg = if pressed {
+                rgb(0x00, 0x64, 0xd2)
+            } else {
+                rgb(0x0a, 0x84, 0xff)
+            };
+            (bg, rgb(0xff, 0xff, 0xff), bg)
+        } else if dark {
+            (
+                if pressed {
+                    rgb(0x3a, 0x3a, 0x3c)
+                } else {
+                    rgb(0x2c, 0x2c, 0x2e)
+                },
+                rgb(0xf5, 0xf5, 0xf7),
+                rgb(0x3a, 0x3a, 0x3c),
+            )
+        } else {
+            (
+                if pressed {
+                    rgb(0xe5, 0xe5, 0xea)
+                } else {
+                    rgb(0xff, 0xff, 0xff)
+                },
+                rgb(0x1c, 0x1c, 0x1e),
+                rgb(0xd1, 0xd1, 0xd6),
+            )
+        };
+
+        let brush = CreateSolidBrush(bg);
+        let old_brush = SelectObject(item.hDC, brush);
+        let old_pen = SelectObject(item.hDC, GetStockObject(NULL_PEN));
+        let mut rect = item.rcItem;
+        if pressed {
+            rect.top += 1;
+            rect.bottom += 1;
+        }
+        RoundRect(
+            item.hDC,
+            item.rcItem.left,
+            item.rcItem.top,
+            item.rcItem.right,
+            item.rcItem.bottom,
+            11,
+            11,
+        );
+        SelectObject(item.hDC, old_pen);
+        SelectObject(item.hDC, old_brush);
+        DeleteObject(brush as HGDIOBJ);
+
+        let border_brush = CreateSolidBrush(border);
+        let old_brush = SelectObject(item.hDC, border_brush);
+        let old_pen = SelectObject(item.hDC, GetStockObject(NULL_PEN));
+        let inner = windows_sys::Win32::Foundation::RECT {
+            left: item.rcItem.left + 1,
+            top: item.rcItem.top + 1,
+            right: item.rcItem.right - 1,
+            bottom: item.rcItem.bottom - 1,
+        };
+        RoundRect(
+            item.hDC,
+            inner.left,
+            inner.top,
+            inner.right,
+            inner.bottom,
+            10,
+            10,
+        );
+        let fill = CreateSolidBrush(bg);
+        SelectObject(item.hDC, fill);
+        RoundRect(
+            item.hDC,
+            inner.left,
+            inner.top,
+            inner.right,
+            inner.bottom,
+            10,
+            10,
+        );
+        SelectObject(item.hDC, old_pen);
+        SelectObject(item.hDC, old_brush);
+        DeleteObject(fill as HGDIOBJ);
+        DeleteObject(border_brush as HGDIOBJ);
+
+        let text = controls::get_text(item.hwndItem);
+        let font = SendMessageW(item.hwndItem, WM_GETFONT, 0, 0) as HGDIOBJ;
+        let old_font = if font.is_null() {
+            ptr::null_mut()
+        } else {
+            SelectObject(item.hDC, font)
+        };
+        SetBkMode(item.hDC, 1);
+        SetTextColor(item.hDC, fg);
+        let wide_text = wide(&text);
+        DrawTextW(
+            item.hDC,
+            wide_text.as_ptr(),
+            i32::try_from(wide_text.len().saturating_sub(1)).unwrap_or(0),
+            &mut rect,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
+        if !old_font.is_null() {
+            SelectObject(item.hDC, old_font);
         }
     }
 }
@@ -1252,6 +1396,7 @@ fn create_children(state: *mut AppState) {
         s.settings_output = controls::create_edit(s.hwnd, s.hinstance, CMD_SETTINGS_OUTPUT);
         s.settings_browse =
             controls::create_push_button(s.hwnd, s.hinstance, CMD_SETTINGS_BROWSE, "浏览…");
+        controls::make_owner_draw_button(s.settings_browse);
         s.settings_file_label = controls::create_label(s.hwnd, s.hinstance, "文件名模板");
         s.settings_file = controls::create_edit(s.hwnd, s.hinstance, CMD_SETTINGS_FILE);
         s.settings_folder_label = controls::create_label(s.hwnd, s.hinstance, "子目录模板");
@@ -1281,6 +1426,7 @@ fn create_children(state: *mut AppState) {
         s.settings_preview = controls::create_label(s.hwnd, s.hinstance, "示例：生成中…");
         s.settings_apply =
             controls::create_push_button(s.hwnd, s.hinstance, CMD_SETTINGS_APPLY, "应用设置");
+        controls::make_owner_draw_button(s.settings_apply);
 
         s.enhance_group = controls::create_group(s.hwnd, s.hinstance, "");
         s.enhance_heading = controls::create_label(s.hwnd, s.hinstance, "图像增强");
@@ -1400,7 +1546,7 @@ fn apply_font_to_children(state: &AppState) {
 fn rebuild_toolbar_icons(s: &mut AppState) {
     controls::destroy_image_list(s.toolbar_icons);
     let color = if s.dark {
-        rgb(0xe6, 0xe8, 0xeb)
+        rgb(0xf5, 0xf5, 0xf7)
     } else {
         // SAFETY: GetSysColor 是纯查询调用。
         unsafe { GetSysColor(COLOR_WINDOWTEXT) }
@@ -1421,7 +1567,7 @@ fn apply_theme(state: *mut AppState) {
             DeleteObject(s.panel_brush as HGDIOBJ);
         }
         let panel_bg = if s.dark {
-            rgb(0x1e, 0x1f, 0x22)
+            rgb(0x1c, 0x1c, 0x1e)
         } else {
             GetSysColor(COLOR_BTNFACE)
         };
@@ -1474,7 +1620,7 @@ fn apply_theme(state: *mut AppState) {
         }
 
         let text = if s.dark {
-            rgb(0xe6, 0xe8, 0xeb)
+            rgb(0xf5, 0xf5, 0xf7)
         } else {
             GetSysColor(COLOR_WINDOWTEXT)
         };
@@ -2703,6 +2849,15 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
     }
     if id == 2004 {
         toggle_recording(hwnd);
+        return;
+    }
+
+    if id == 2005 {
+        auto_fix_selected_page(hwnd, AutoFix::Crop);
+        return;
+    }
+    if id == 2006 {
+        auto_fix_selected_page(hwnd, AutoFix::Deskew);
         return;
     }
 
@@ -4190,6 +4345,110 @@ fn load_pdf_text_lines(
 }
 
 /// 使用当前增强设置重新处理选中页。
+#[derive(Clone, Copy)]
+enum AutoFix {
+    Crop,
+    Deskew,
+}
+
+/// 对当前页执行自动裁边/透视校正或自动纠偏。
+fn auto_fix_selected_page(hwnd: HWND, mode: AutoFix) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；文件与图像操作逐项检查。
+    unsafe {
+        let s = &mut *state;
+        let raw_row = controls::list_selected(s.pages);
+        let index = s
+            .selected_page
+            .or_else(|| raw_row.and_then(|row| page_index_from_row(s, row)))
+            .or_else(|| (!s.session.pages.is_empty()).then(|| s.session.pages.len() - 1));
+        let Some(index) = index else {
+            s.status_msg = "请先在左侧选择要处理的页面".to_string();
+            refresh_status(s);
+            return;
+        };
+        let Some(page) = s.session.pages.get(index).cloned() else {
+            return;
+        };
+        let path = s.output_root.join(&page.path);
+        let (width, height, data) = match imaging::load_bgra(&path) {
+            Ok(image) => image,
+            Err(err) => {
+                let message = format!("读取图片失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        if imaging::detect_document_corners(width, height, &data).is_none() {
+            s.status_msg = "未检测到可信的文档边界，已跳过自动处理".to_string();
+            refresh_status(s);
+            return;
+        }
+        let options = match mode {
+            AutoFix::Crop => imaging::EnhanceOptions {
+                auto_crop: true,
+                perspective: true,
+                deskew: false,
+                strength: 60,
+                ..imaging::EnhanceOptions::default()
+            },
+            AutoFix::Deskew => imaging::EnhanceOptions {
+                deskew: true,
+                strength: 60,
+                ..imaging::EnhanceOptions::default()
+            },
+        };
+        let fixed = match imaging::enhance(width, height, &data, options) {
+            Ok(image) => image,
+            Err(err) => {
+                let message = format!("自动处理失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        if fixed.width == width && fixed.height == height && fixed.bgra == data {
+            s.status_msg = "无需校正".to_string();
+            refresh_status(s);
+            return;
+        }
+        remember_page_edit(s, &page);
+        if let Err(err) = write_jpeg_atomic(
+            &path,
+            fixed.width,
+            fixed.height,
+            &fixed.bgra,
+            s.jpeg_quality,
+        ) {
+            let message = format!("写回成品失败：{err}");
+            s.status_msg.clone_from(&message);
+            refresh_status(s);
+            show_error(hwnd, &message);
+            return;
+        }
+        if let Some(updated) = s.session.pages.get_mut(index) {
+            updated.width = fixed.width;
+            updated.height = fixed.height;
+        }
+        s.session.updated_at = doc::now_unix();
+        s.session.closed_cleanly = false;
+        let _ = s.store.save(&s.session);
+        s.thumb_cache.remove(&page.seq);
+        reload_page_list(s, Some(index));
+        s.status_msg = match mode {
+            AutoFix::Crop => format!("已自动裁边并校正第 {} 页", page_number(s, index)),
+            AutoFix::Deskew => format!("已自动纠偏第 {} 页", page_number(s, index)),
+        };
+        refresh_status(s);
+    }
+}
+
 fn reprocess_selected_page(hwnd: HWND) {
     let state = state_ptr(hwnd);
     if state.is_null() {
@@ -5360,7 +5619,7 @@ fn paint_preview(hwnd: HWND) {
         };
 
         let background = if dark {
-            rgb(0x1e, 0x1f, 0x22)
+            rgb(0x1c, 0x1c, 0x1e)
         } else {
             GetSysColor(COLOR_APPWORKSPACE)
         };
@@ -5463,7 +5722,7 @@ fn draw_placeholder(
     unsafe {
         SetBkMode(hdc, 1);
         let text_color = if dark {
-            rgb(0xe6, 0xe8, 0xeb)
+            rgb(0xf5, 0xf5, 0xf7)
         } else {
             GetSysColor(COLOR_WINDOWTEXT)
         };

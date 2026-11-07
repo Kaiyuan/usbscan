@@ -45,36 +45,59 @@ pub fn detect_document_corners(width: u32, height: u32, bgra: &[u8]) -> Option<[
     let background = estimate_background(bgra, width, height, small_width, small_height, step)?;
     let background_lum = luminance(background);
 
-    // 亮纸张候选：背景较暗时才启用。
+    // 亮纸张候选：背景较暗时才启用。纸张通常又亮又接近中性色，
+    // 用亮度 + 饱和度联合过滤，避免把木桌、橙色物体当成纸张。
     let bright_mask = if background_lum < 200 {
-        let threshold = (background_lum + 45).max(150);
+        let threshold = (background_lum + 40).max(130);
         let mut mask = vec![false; count];
         for y in 0..small_height {
             for x in 0..small_width {
                 let offset = ((y * step) * width + x * step) * 4;
-                if luminance([bgra[offset + 2], bgra[offset + 1], bgra[offset]]) >= threshold {
+                let b = bgra[offset];
+                let g = bgra[offset + 1];
+                let r = bgra[offset + 2];
+                let saturation = u32::from(r.max(g).max(b)) - u32::from(r.min(g).min(b));
+                if luminance([r, g, b]) >= threshold && saturation <= 70 {
                     mask[y * small_width + x] = true;
                 }
             }
         }
+        // 先开运算断开细白线/手指等桥接，再闭运算填平纸张褶皱的小孔。
+        let mask = morph_open(&mask, small_width, small_height, 2);
+        let mask = morph_close(&mask, small_width, small_height, 1);
         Some((mask, threshold))
     } else {
         None
     };
 
-    let (labels, best_label, threshold, use_color) = if let Some((mask, threshold)) = bright_mask {
+    let (labels, best_label, threshold, use_color, roi) = if let Some((mask, threshold)) =
+        bright_mask
+    {
         let (labels, components) = connected_components(&mask, small_width, small_height);
+        let core_roi = core_roi(&mask, small_width, small_height, 8);
         if let Some(component) = choose_component(&components, small_width, small_height, true) {
-            (labels, component.label, Some(threshold), false)
+            let projected = refine_component_box(
+                &labels,
+                component.label,
+                small_width,
+                small_height,
+                component,
+            );
+            let roi = if component.fill >= 0.5 {
+                projected
+            } else {
+                core_roi.or(projected)
+            };
+            (labels, component.label, Some(threshold), false, roi)
         } else {
             let (labels, label) =
                 color_fallback(bgra, width, step, small_width, small_height, &background)?;
-            (labels, label, None, true)
+            (labels, label, None, true, None)
         }
     } else {
         let (labels, label) =
             color_fallback(bgra, width, step, small_width, small_height, &background)?;
-        (labels, label, None, true)
+        (labels, label, None, true, None)
     };
 
     let corners = full_resolution_corners(
@@ -88,11 +111,132 @@ pub fn detect_document_corners(width: u32, height: u32, bgra: &[u8]) -> Option<[
         threshold,
         use_color,
         &background,
+        roi,
     )?;
     if !valid_quad(&corners, width, height) {
         return None;
     }
+    let coverage = quad_paper_coverage(
+        &corners,
+        bgra,
+        width,
+        height,
+        threshold,
+        use_color,
+        &background,
+    );
+    let support = quad_edge_support(&corners, bgra, width, height);
+    let minimum_coverage = if use_color { 0.70 } else { 0.86 };
+    if coverage < minimum_coverage || support < 0.50 {
+        return None;
+    }
     Some(corners)
+}
+
+/// 采样四边形四条边，估计有多少采样点落在真实边缘上。
+fn quad_edge_support(corners: &[(f64, f64); 4], bgra: &[u8], width: usize, height: usize) -> f64 {
+    let mut supported = 0usize;
+    let mut total = 0usize;
+    for side in 0..4 {
+        let start = corners[side];
+        let end = corners[(side + 1) % 4];
+        for step in 1..64 {
+            let t = f64::from(step) / 64.0;
+            let x = start.0 + (end.0 - start.0) * t;
+            let y = start.1 + (end.1 - start.1) * t;
+            let x = x.round() as isize;
+            let y = y.round() as isize;
+            let mut best = 0i32;
+            for dy in -15..=15 {
+                for dx in -15..=15 {
+                    let px = x + dx;
+                    let py = y + dy;
+                    if px <= 0 || py <= 0 || px >= width as isize - 1 || py >= height as isize - 1 {
+                        continue;
+                    }
+                    let gx = pixel_luminance(bgra, width, px as usize + 1, py as usize)
+                        - pixel_luminance(bgra, width, px as usize - 1, py as usize);
+                    let gy = pixel_luminance(bgra, width, px as usize, py as usize + 1)
+                        - pixel_luminance(bgra, width, px as usize, py as usize - 1);
+                    best = best.max(gx.abs() + gy.abs());
+                }
+            }
+            if best > 45 {
+                supported += 1;
+            }
+            total += 1;
+        }
+    }
+    if total == 0 {
+        0.0
+    } else {
+        supported as f64 / total as f64
+    }
+}
+
+fn pixel_luminance(bgra: &[u8], width: usize, x: usize, y: usize) -> i32 {
+    let offset = (y * width + x) * 4;
+    (i32::from(bgra[offset + 2]) * 299
+        + i32::from(bgra[offset + 1]) * 587
+        + i32::from(bgra[offset]) * 114)
+        / 1000
+}
+
+/// 采样四边形内部，估计有多少比例确实属于纸张。
+///
+/// 桌面杂物、白键盘等也可能形成四边形，但它们无法让整个四边形内部都保持
+/// 纸张颜色。覆盖率不足时宁可跳过自动裁剪，也不错误裁掉页面。
+#[allow(clippy::too_many_arguments)]
+fn quad_paper_coverage(
+    corners: &[(f64, f64); 4],
+    bgra: &[u8],
+    width: usize,
+    height: usize,
+    threshold: Option<u32>,
+    use_color: bool,
+    background: &[u8; 3],
+) -> f64 {
+    const GRID: usize = 16;
+    let mut inside = 0usize;
+    let mut paper = 0usize;
+    for v in 0..=GRID {
+        for u in 0..=GRID {
+            let fu = u as f64 / GRID as f64;
+            let fv = v as f64 / GRID as f64;
+            let top_x = corners[0].0 + (corners[1].0 - corners[0].0) * fu;
+            let top_y = corners[0].1 + (corners[1].1 - corners[0].1) * fu;
+            let bottom_x = corners[3].0 + (corners[2].0 - corners[3].0) * fu;
+            let bottom_y = corners[3].1 + (corners[2].1 - corners[3].1) * fu;
+            let x = top_x + (bottom_x - top_x) * fv;
+            let y = top_y + (bottom_y - top_y) * fv;
+            if x < 0.0 || y < 0.0 {
+                continue;
+            }
+            let (x, y) = (x as usize, y as usize);
+            if x >= width || y >= height {
+                continue;
+            }
+            inside += 1;
+            let offset = (y * width + x) * 4;
+            let pixel = [bgra[offset + 2], bgra[offset + 1], bgra[offset]];
+            let is_paper = if use_color {
+                distance_at(bgra, width, x, y, background) > 24
+            } else {
+                let limit = threshold.unwrap_or(150).saturating_sub(20);
+                let saturation = u32::from(pixel[0].max(pixel[1]).max(pixel[2]))
+                    - u32::from(pixel[0].min(pixel[1]).min(pixel[2]));
+                luminance(pixel) >= limit && saturation <= 75
+            };
+            if is_paper {
+                paper += 1;
+            }
+        }
+    }
+    if inside == 0 {
+        0.0
+    } else {
+        paper as f64 / inside as f64
+    }
 }
 
 fn estimate_background(
@@ -152,6 +296,69 @@ fn color_fallback(
         .map(|component| (labels, component.label))
 }
 
+/// 3×3 腐蚀；用于断开只有少量像素宽的桥接。
+fn morph_erode(mask: &[bool], width: usize, height: usize) -> Vec<bool> {
+    let mut out = vec![false; mask.len()];
+    for y in 1..height.saturating_sub(1) {
+        for x in 1..width.saturating_sub(1) {
+            let index = y * width + x;
+            if !mask[index] {
+                continue;
+            }
+            let mut solid = true;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let neighbor = (y as isize + dy) as usize * width + (x as isize + dx) as usize;
+                    if !mask[neighbor] {
+                        solid = false;
+                        break;
+                    }
+                }
+                if !solid {
+                    break;
+                }
+            }
+            out[index] = solid;
+        }
+    }
+    out
+}
+
+/// 3×3 膨胀。
+fn morph_dilate(mask: &[bool], width: usize, height: usize) -> Vec<bool> {
+    let mut out = vec![false; mask.len()];
+    for y in 1..height.saturating_sub(1) {
+        for x in 1..width.saturating_sub(1) {
+            if !mask[y * width + x] {
+                continue;
+            }
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let neighbor = (y as isize + dy) as usize * width + (x as isize + dx) as usize;
+                    out[neighbor] = true;
+                }
+            }
+        }
+    }
+    out
+}
+
+fn morph_open(mask: &[bool], width: usize, height: usize, iterations: usize) -> Vec<bool> {
+    let mut current = mask.to_vec();
+    for _ in 0..iterations {
+        current = morph_dilate(&morph_erode(&current, width, height), width, height);
+    }
+    current
+}
+
+fn morph_close(mask: &[bool], width: usize, height: usize, iterations: usize) -> Vec<bool> {
+    let mut current = mask.to_vec();
+    for _ in 0..iterations {
+        current = morph_erode(&morph_dilate(&current, width, height), width, height);
+    }
+    current
+}
+
 fn connected_components(mask: &[bool], width: usize, height: usize) -> (Vec<u32>, Vec<Component>) {
     let count = width * height;
     let mut labels = vec![0u32; count];
@@ -208,6 +415,114 @@ fn connected_components(mask: &[bool], width: usize, height: usize) -> (Vec<u32>
     (labels, components)
 }
 
+/// 对亮区做较强腐蚀，纸张这种厚实区域会保留下来，键盘按键/细线缆会消失。
+fn core_roi(
+    mask: &[bool],
+    width: usize,
+    height: usize,
+    radius: usize,
+) -> Option<(usize, usize, usize, usize)> {
+    let mut core = mask.to_vec();
+    for _ in 0..radius {
+        core = morph_erode(&core, width, height);
+    }
+    let (_, components) = connected_components(&core, width, height);
+    let component = components
+        .iter()
+        .filter(|component| component.size >= 64)
+        .max_by_key(|component| component.size)?;
+    let expand = radius as i32 + 3;
+    let min_x = (component.min_x as i32 - expand).max(0) as usize;
+    let min_y = (component.min_y as i32 - expand).max(0) as usize;
+    let max_x = (component.max_x as i32 + expand).min(width as i32 - 1) as usize;
+    let max_y = (component.max_y as i32 + expand).min(height as i32 - 1) as usize;
+    Some((min_x, min_y, max_x, max_y))
+}
+
+/// 在一个可能混入键盘/线缆的连通域里，用行列投影找出最密实的矩形区域。
+///
+/// 高拍仪画面里的纸张通常是一块连续、各列/各行填充率都很高的区域；白键盘、
+/// 白线缆即使和纸张相连，投影上也会在列方向出现明显低谷。
+fn refine_component_box(
+    labels: &[u32],
+    label: u32,
+    width: usize,
+    height: usize,
+    component: &Component,
+) -> Option<(usize, usize, usize, usize)> {
+    let (x0, y0, x1, y1) = (
+        component.min_x,
+        component.min_y,
+        component.max_x.min(width - 1),
+        component.max_y.min(height - 1),
+    );
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+
+    let mut columns = vec![0usize; x1 - x0 + 1];
+    for y in y0..=y1 {
+        for (offset, column) in columns.iter_mut().enumerate() {
+            if labels[y * width + x0 + offset] == label {
+                *column += 1;
+            }
+        }
+    }
+    let (run_start, run_end) = best_dense_run(&columns)?;
+    let (min_x, max_x) = (x0 + run_start, x0 + run_end);
+
+    let mut rows = vec![0usize; y1 - y0 + 1];
+    for (offset, row) in rows.iter_mut().enumerate() {
+        let y = y0 + offset;
+        let mut current = 0usize;
+        for x in min_x..=max_x {
+            if labels[y * width + x] == label {
+                current += 1;
+                *row = (*row).max(current);
+            } else {
+                current = 0;
+            }
+        }
+    }
+    let (row_start, row_end) = best_dense_run(&rows)?;
+    let (min_y, max_y) = (y0 + row_start, y0 + row_end);
+
+    // 收缩后的区域必须仍然足够大，否则退回原连通域。
+    if max_x - min_x + 1 < width / 10 || max_y - min_y + 1 < height / 10 {
+        None
+    } else {
+        Some((min_x, min_y, max_x, max_y))
+    }
+}
+
+/// 找出填充量最大的连续区间；低于峰值 25% 的列为低谷。
+fn best_dense_run(counts: &[usize]) -> Option<(usize, usize)> {
+    let peak = *counts.iter().max()?;
+    if peak == 0 {
+        return None;
+    }
+    let threshold = (peak * 50 / 100).max(2);
+    let mut best: Option<(usize, usize, usize)> = None; // (sum, start, end)
+    let mut start = None;
+    for (index, &count) in counts.iter().enumerate() {
+        if count >= threshold {
+            start.get_or_insert(index);
+        } else if let Some(run_start) = start.take() {
+            let sum: usize = counts[run_start..index].iter().sum();
+            if best.is_none_or(|(best_sum, _, _)| sum > best_sum) {
+                best = Some((sum, run_start, index - 1));
+            }
+        }
+    }
+    if let Some(run_start) = start {
+        let sum: usize = counts[run_start..].iter().sum();
+        if best.is_none_or(|(best_sum, _, _)| sum > best_sum) {
+            best = Some((sum, run_start, counts.len() - 1));
+        }
+    }
+    best.map(|(_, start, end)| (start, end))
+}
+
 fn choose_component(
     components: &[Component],
     width: usize,
@@ -215,7 +530,7 @@ fn choose_component(
     bright: bool,
 ) -> Option<&Component> {
     let total = width * height;
-    let minimum = if bright { total * 3 / 100 } else { total / 20 };
+    let minimum = if bright { total * 2 / 100 } else { total / 20 };
     components
         .iter()
         .filter(|component| {
@@ -226,26 +541,43 @@ fn choose_component(
                 && component.min_y <= 1
                 && component.max_x + 2 >= width
                 && component.max_y + 2 >= height;
-            let touches_any = component.min_x <= 1
-                || component.min_y <= 1
-                || component.max_x + 2 >= width
-                || component.max_y + 2 >= height;
             component.size >= minimum
                 && component.size <= total * 80 / 100
-                && box_area <= total * 85 / 100
+                && box_area <= total * if bright { 99 } else { 85 } / 100
                 && !touches_all
-                && !(bright && touches_any)
                 && component.fill >= if bright { 0.30 } else { 0.45 }
                 && box_width >= width / 8
                 && box_height >= height / 8
-                && box_width <= width * 95 / 100
-                && box_height <= height * 95 / 100
+                && box_width <= width * if bright { 100 } else { 95 } / 100
+                && box_height <= height * if bright { 100 } else { 95 } / 100
         })
         .max_by(|a, b| {
-            let a_score = a.size as f64 * a.fill;
-            let b_score = b.size as f64 * b.fill;
-            a_score.total_cmp(&b_score)
+            component_score(a, width, height, bright)
+                .total_cmp(&component_score(b, width, height, bright))
         })
+}
+
+/// 候选评分：面积 × 填充率 × 形状 × 居中程度，并轻微惩罚贴边。
+fn component_score(component: &Component, width: usize, height: usize, bright: bool) -> f64 {
+    let box_width = (component.max_x - component.min_x + 1) as f64;
+    let box_height = (component.max_y - component.min_y + 1) as f64;
+    let aspect = box_width.min(box_height) / box_width.max(box_height).max(1.0);
+    let center_x = (component.min_x + component.max_x) as f64 / 2.0;
+    let center_y = (component.min_y + component.max_y) as f64 / 2.0;
+    let dx = (center_x - width as f64 / 2.0) / (width as f64 / 2.0).max(1.0);
+    let dy = (center_y - height as f64 / 2.0) / (height as f64 / 2.0).max(1.0);
+    let center_distance = dx.hypot(dy).min(1.5);
+    let center_score = (1.4 - center_distance * 0.5).max(0.4);
+    let shape_score = 0.5 + aspect * 0.5;
+    let mut score = component.size as f64 * component.fill * shape_score * center_score;
+    if bright {
+        let edges = usize::from(component.min_x <= 1)
+            + usize::from(component.min_y <= 1)
+            + usize::from(component.max_x + 2 >= width)
+            + usize::from(component.max_y + 2 >= height);
+        score *= 1.0 - 0.08 * edges as f64;
+    }
+    score
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -260,6 +592,7 @@ fn full_resolution_corners(
     threshold: Option<u32>,
     use_color: bool,
     background: &[u8; 3],
+    roi: Option<(usize, usize, usize, usize)>,
 ) -> Option<[(f64, f64); 4]> {
     let mut min_sum = (usize::MAX, usize::MAX);
     let mut max_sum = (0usize, 0usize);
@@ -270,12 +603,18 @@ fn full_resolution_corners(
     let mut max_diff_value = i64::MIN;
     let mut min_diff_value = i64::MAX;
     let mut promoted = 0usize;
+    let small_height = labels.len() / small_width;
     for y in 0..height {
-        let small_y = y / step;
+        let small_y = (y / step).min(small_height - 1);
         for x in 0..width {
-            let small_x = x / step;
+            let small_x = (x / step).min(small_width - 1);
             if labels[small_y * small_width + small_x] != label {
                 continue;
+            }
+            if let Some((min_x, min_y, max_x, max_y)) = roi {
+                if small_x < min_x || small_x > max_x || small_y < min_y || small_y > max_y {
+                    continue;
+                }
             }
             let offset = (y * width + x) * 4;
             let pixel = [bgra[offset + 2], bgra[offset + 1], bgra[offset]];
@@ -486,5 +825,31 @@ mod tests {
         assert!(xs.iter().copied().fold(f64::MIN, f64::max) >= 238.0);
         assert!(ys.iter().copied().fold(f64::MAX, f64::min) <= 42.0);
         assert!(ys.iter().copied().fold(f64::MIN, f64::max) >= 178.0);
+    }
+
+    #[test]
+    fn isolates_paper_connected_to_bright_clutter() {
+        let width = 600usize;
+        let height = 400usize;
+        // 木桌背景 + 中央纸张。
+        let mut data = canvas(width, height, [120, 95, 60, 255]);
+        fill_rect(&mut data, width, 150, 100, 450, 330);
+        // 右侧白色键盘，用一条细白线连到纸张，模拟真实杂物的桥接。
+        fill_rect(&mut data, width, 480, 40, 580, 130);
+        for y in 112..118 {
+            for x in 450..480 {
+                let offset = (y * width + x) * 4;
+                data[offset..offset + 4].copy_from_slice(&[245, 245, 245, 255]);
+            }
+        }
+        let corners = detect_document_corners(width as u32, height as u32, &data).expect("detect");
+        let min_x = corners.iter().map(|point| point.0).fold(f64::MAX, f64::min);
+        let max_x = corners.iter().map(|point| point.0).fold(f64::MIN, f64::max);
+        let min_y = corners.iter().map(|point| point.1).fold(f64::MAX, f64::min);
+        let max_y = corners.iter().map(|point| point.1).fold(f64::MIN, f64::max);
+        assert!((140.0..=165.0).contains(&min_x), "min_x={min_x}");
+        assert!((435.0..=465.0).contains(&max_x), "max_x={max_x}");
+        assert!((90.0..=115.0).contains(&min_y), "min_y={min_y}");
+        assert!((315.0..=340.0).contains(&max_y), "max_y={max_y}");
     }
 }

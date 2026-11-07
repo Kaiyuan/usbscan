@@ -79,6 +79,7 @@ pub fn enhance(
         return Ok(image);
     }
 
+    let mut perspective_applied = false;
     if options.perspective {
         if let Ok(Some((width, height, bgra))) =
             super::perspective::auto_perspective(image.width, image.height, &image.bgra)
@@ -88,17 +89,31 @@ pub fn enhance(
                 height,
                 bgra,
             };
+            perspective_applied = true;
         }
     }
-    if options.deskew {
-        if let Some(correction) = estimate_skew(&image) {
-            if correction.abs() >= 0.35 {
-                image = rotate(&image, correction);
+    if options.deskew && !perspective_applied {
+        let corners = crate::detect_document_corners(image.width, image.height, &image.bgra);
+        // 开启透视但没检测到文档时，不要对整张桌面做纠偏；否则会旋转整幅画面。
+        if !(options.perspective && corners.is_none()) {
+            let correction = corners
+                .and_then(|corners| document_skew(&corners))
+                .or_else(|| estimate_skew(&image));
+            if let Some(correction) = correction {
+                if correction.abs() >= 0.35 {
+                    image = rotate(&image, correction);
+                }
             }
         }
     }
-    if options.auto_crop {
-        image = crop_to_content(&image);
+    if options.auto_crop && !perspective_applied {
+        // 同时开启透视时，检测失败说明当前画面没有可信文档边界；
+        // 此时不要退回到背景色裁剪，以免把整张桌面裁成奇怪的比例。
+        if !(options.perspective
+            && crate::detect_document_corners(image.width, image.height, &image.bgra).is_none())
+        {
+            image = crop_to_content(&image);
+        }
     }
     if options.remove_shadow && options.strength > 0 {
         remove_shadow(&mut image, options.strength);
@@ -259,6 +274,19 @@ fn crop_rect(
         height: crop_height as u32,
         bgra: out,
     }
+}
+
+/// 由文档四角估计需要旋转的角度（度）。
+///
+/// 取上下两条边的平均倾角；透视校正成功后不再调用本函数，避免把已经转正的
+/// 纸张按褶皱纹理再次旋转。
+fn document_skew(corners: &[(f64, f64); 4]) -> Option<f32> {
+    let (top_left, top_right, bottom_right, bottom_left) =
+        (corners[0], corners[1], corners[2], corners[3]);
+    let top = (top_right.1 - top_left.1).atan2(top_right.0 - top_left.0);
+    let bottom = (bottom_right.1 - bottom_left.1).atan2(bottom_right.0 - bottom_left.0);
+    let average = f64::midpoint(top, bottom).to_degrees();
+    (average.abs() <= 15.0).then_some(-average as f32)
 }
 
 fn estimate_skew(image: &EnhancedImage) -> Option<f32> {

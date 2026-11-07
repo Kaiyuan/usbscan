@@ -8,7 +8,10 @@
 //! 参见 `docs/06` 与 ADR-009。
 
 use windows_sys::Win32::Foundation::{HMODULE, HWND};
-use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
+use windows_sys::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_ROUND,
+};
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows_sys::Win32::UI::Controls::SetWindowTheme;
@@ -96,6 +99,15 @@ pub fn apply_window(hwnd: HWND, dark: bool) {
             windows_sys::Win32::UI::WindowsAndMessaging::WM_THEMECHANGED,
             0,
             0,
+        );
+
+        // Windows 11：圆角窗口，接近 macOS 的窗口轮廓；旧系统会忽略。
+        let corner = DWMWCP_ROUND;
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            std::ptr::from_ref(&corner).cast(),
+            u32::try_from(std::mem::size_of::<i32>()).unwrap_or(4),
         );
     }
 }

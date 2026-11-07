@@ -18,8 +18,10 @@ use windows_sys::Win32::UI::Controls::{
     TB_ADDSTRINGW, TB_AUTOSIZE, TB_BUTTONSTRUCTSIZE, TB_SETBUTTONSIZE,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, GetWindowTextLengthW, GetWindowTextW, SendMessageW, BS_AUTOCHECKBOX,
-    BS_GROUPBOX, BS_PUSHBUTTON, WS_CHILD, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    CreateWindowExW, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, SendMessageW,
+    SetWindowLongPtrW, SetWindowPos, BS_AUTOCHECKBOX, BS_GROUPBOX, BS_PUSHBUTTON, GWL_STYLE,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_CHILD, WS_TABSTOP,
+    WS_VISIBLE, WS_VSCROLL,
 };
 
 use crate::text::wide;
@@ -513,6 +515,31 @@ pub fn create_toolbar(
         SendMessageW(bar, TB_ADDBUTTONS, raw.len(), raw.as_ptr() as LPARAM);
         SendMessageW(bar, TB_AUTOSIZE, 0, 0);
         bar
+    }
+}
+
+/// 把普通按钮改成 owner-draw（用于 macOS 风格圆角按钮）。
+pub fn make_owner_draw_button(button: HWND) {
+    if button.is_null() {
+        return;
+    }
+    // SAFETY: 按钮句柄有效；只修改窗口样式。
+    unsafe {
+        let style = GetWindowLongPtrW(button, GWL_STYLE) as u32;
+        let style = (style & !0xF) | 0x0B; // BS_OWNERDRAW
+        SetWindowLongPtrW(button, GWL_STYLE, style as isize);
+        // 去掉视觉样式，避免系统在 WM_DRAWITEM 之后又绘制一遍主题按钮。
+        let blank = wide(" ");
+        windows_sys::Win32::UI::Controls::SetWindowTheme(button, blank.as_ptr(), blank.as_ptr());
+        SetWindowPos(
+            button,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
     }
 }
 

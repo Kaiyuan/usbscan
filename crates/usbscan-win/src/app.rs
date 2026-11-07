@@ -1821,6 +1821,7 @@ fn apply_settings(hwnd: HWND) {
             let _ = s.store.archive();
             s.session = doc::Session::default();
             reset_page_list(s);
+            stop_delayed(hwnd, s);
         }
 
         s.store = doc::SessionStore::new(root.clone());
@@ -2191,6 +2192,7 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
     }
 
     if id == menu::id::DEVICE_REFRESH || id == menu::id::DEVICE_RESET {
+        cancel_delayed_capture(hwnd);
         let state = state_ptr(hwnd);
         if !state.is_null() {
             // SAFETY: state 有效；refresh 只写入共享控制位。
@@ -3682,6 +3684,7 @@ fn new_document(hwnd: HWND) {
             }
             let _ = s.store.archive();
         }
+        stop_delayed(hwnd, s);
 
         s.session = doc::Session::default();
         reset_page_list(s);
@@ -3714,6 +3717,7 @@ fn open_document(hwnd: HWND) {
             }
             let _ = s.store.archive();
         }
+        stop_delayed(hwnd, s);
         let Some(directory) = choose_folder(hwnd, "选择包含 .usbscan\\session.json 的文件夹")
         else {
             return;

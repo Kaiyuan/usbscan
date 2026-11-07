@@ -4,8 +4,8 @@
 //! 轻量 PDF 导出。
 //!
 //! 会话中的成品已经是 JPEG，因此这里直接把 JPEG 以 `/DCTDecode` 图像
-//! 嵌入 PDF，不重新编码、不依赖第三方 PDF 库。每页使用 A4 纸张并按比例
-//! 居中，适合文档扫描件的归档与打印。
+//! 嵌入 PDF，不重新编码、不依赖第三方 PDF 库。支持纸张尺寸、方向、页边距
+//! 与“适应 / 填满”两种排版方式。
 
 use std::fmt::Write as _;
 use std::io::{self, Write};
@@ -17,12 +17,95 @@ pub struct PdfImage<'a> {
     pub height: u32,
 }
 
-const PAGE_WIDTH: f64 = 595.276; // A4 210mm
-const PAGE_HEIGHT: f64 = 841.890; // A4 297mm
-const MARGIN: f64 = 36.0; // 12.7mm
+/// 纸张尺寸。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PageSize {
+    /// A4 210×297 mm。
+    #[default]
+    A4,
+    /// US Letter 8.5×11 in。
+    Letter,
+    /// 页面尺寸等于图片尺寸（按 96 DPI 换算）。
+    FitImage,
+}
 
-/// 生成 PDF 并写入 `out`。
+/// 页面方向。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Orientation {
+    /// 图片横放时自动使用横向页面。
+    #[default]
+    Auto,
+    Portrait,
+    Landscape,
+}
+
+/// 图片在页面中的缩放方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FitMode {
+    /// 完整显示，保持长宽比。
+    #[default]
+    Contain,
+    /// 铺满页面，保持长宽比（可能裁掉边缘）。
+    Fill,
+}
+
+/// PDF 排版选项。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PdfOptions {
+    pub page_size: PageSize,
+    pub orientation: Orientation,
+    /// 页边距（毫米）。
+    pub margin_mm: f64,
+    pub fit: FitMode,
+}
+
+impl Default for PdfOptions {
+    fn default() -> Self {
+        Self {
+            page_size: PageSize::A4,
+            orientation: Orientation::Auto,
+            margin_mm: 12.7,
+            fit: FitMode::Contain,
+        }
+    }
+}
+
+impl PdfOptions {
+    /// 每页的 PDF 点尺寸（1 pt = 1/72 in）。
+    #[must_use]
+    pub fn page_points(&self, image_width: u32, image_height: u32) -> (f64, f64) {
+        let margin = self.margin_mm.clamp(0.0, 50.0) * 72.0 / 25.4;
+        let (mut width, mut height) = match self.page_size {
+            PageSize::A4 => (595.276, 841.890),
+            PageSize::Letter => (612.0, 792.0),
+            PageSize::FitImage => (
+                f64::from(image_width.max(1)) * 0.75 + margin * 2.0,
+                f64::from(image_height.max(1)) * 0.75 + margin * 2.0,
+            ),
+        };
+        let landscape = match self.orientation {
+            Orientation::Auto => image_width > image_height,
+            Orientation::Portrait => false,
+            Orientation::Landscape => true,
+        };
+        if landscape && self.page_size != PageSize::FitImage && width < height {
+            std::mem::swap(&mut width, &mut height);
+        }
+        (width, height)
+    }
+}
+
+/// 使用默认排版（A4、自动方向、12.7 mm 边距、适应页面）生成 PDF。
 pub fn write_pdf<W: Write>(out: W, pages: &[PdfImage<'_>]) -> io::Result<()> {
+    write_pdf_with(out, pages, &PdfOptions::default())
+}
+
+/// 按指定排版生成 PDF 并写入 `out`。
+pub fn write_pdf_with<W: Write>(
+    out: W,
+    pages: &[PdfImage<'_>],
+    options: &PdfOptions,
+) -> io::Result<()> {
     let mut writer = PdfWriter {
         out,
         position: 0,
@@ -56,18 +139,19 @@ pub fn write_pdf<W: Write>(out: W, pages: &[PdfImage<'_>]) -> io::Result<()> {
         let page_object = 3 + index * 3;
         let content_object = page_object + 1;
         let image_object = page_object + 2;
+        let (page_width, page_height) = options.page_points(image.width, image.height);
 
         writer.object(
             page_object,
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_WIDTH:.3} {PAGE_HEIGHT:.3}] \
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width:.3} {page_height:.3}] \
                  /Resources << /XObject << /Im0 {image_object} 0 R >> >> \
                  /Contents {content_object} 0 R >>"
             )
             .as_bytes(),
         )?;
 
-        let content = page_content(image.width, image.height);
+        let content = page_content(image, options, page_width, page_height);
         writer.object(
             content_object,
             format!(
@@ -125,16 +209,28 @@ fn jpeg_color_space(jpeg: &[u8]) -> &'static str {
     "/DeviceRGB"
 }
 
-fn page_content(width: u32, height: u32) -> String {
-    let image_width = f64::from(width.max(1));
-    let image_height = f64::from(height.max(1));
-    let max_width = PAGE_WIDTH - MARGIN * 2.0;
-    let max_height = PAGE_HEIGHT - MARGIN * 2.0;
-    let scale = (max_width / image_width).min(max_height / image_height);
-    let draw_width = image_width * scale;
-    let draw_height = image_height * scale;
-    let x = (PAGE_WIDTH - draw_width) / 2.0;
-    let y = (PAGE_HEIGHT - draw_height) / 2.0;
+fn page_content(
+    image: &PdfImage<'_>,
+    options: &PdfOptions,
+    page_width: f64,
+    page_height: f64,
+) -> String {
+    let image_width = f64::from(image.width.max(1));
+    let image_height = f64::from(image.height.max(1));
+    let margin = options.margin_mm.clamp(0.0, 50.0) * 72.0 / 25.4;
+    let (draw_width, draw_height) = if options.page_size == PageSize::FitImage {
+        (image_width * 0.75, image_height * 0.75)
+    } else {
+        let max_width = (page_width - margin * 2.0).max(1.0);
+        let max_height = (page_height - margin * 2.0).max(1.0);
+        let scale = match options.fit {
+            FitMode::Contain => (max_width / image_width).min(max_height / image_height),
+            FitMode::Fill => (max_width / image_width).max(max_height / image_height),
+        };
+        (image_width * scale, image_height * scale)
+    };
+    let x = (page_width - draw_width) / 2.0;
+    let y = (page_height - draw_height) / 2.0;
     format!("q\n{draw_width:.3} 0 0 {draw_height:.3} {x:.3} {y:.3} cm\n/Im0 Do\nQ")
 }
 
@@ -258,6 +354,83 @@ mod tests {
         write_pdf(&mut out, &[]).expect("pdf");
         let text = String::from_utf8_lossy(&out);
         assert!(text.contains("/Count 0"));
+        assert!(text.ends_with("%%EOF\n"));
+    }
+
+    #[test]
+    fn auto_orientation_uses_landscape_for_wide_images() {
+        let jpeg = sample_jpeg(8, 6);
+        let pages = [PdfImage {
+            jpeg: &jpeg,
+            width: 8,
+            height: 6,
+        }];
+        let mut out = Vec::new();
+        write_pdf_with(&mut out, &pages, &PdfOptions::default()).expect("pdf");
+        let text = String::from_utf8_lossy(&out);
+        assert!(
+            text.contains("/MediaBox [0 0 841.890 595.276]"),
+            "landscape A4 expected"
+        );
+
+        let mut portrait = Vec::new();
+        write_pdf_with(
+            &mut portrait,
+            &pages,
+            &PdfOptions {
+                orientation: Orientation::Portrait,
+                ..PdfOptions::default()
+            },
+        )
+        .expect("pdf");
+        assert!(String::from_utf8_lossy(&portrait).contains("/MediaBox [0 0 595.276 841.890]"));
+    }
+
+    #[test]
+    fn fit_image_uses_image_dimensions() {
+        let jpeg = sample_jpeg(800, 600);
+        let pages = [PdfImage {
+            jpeg: &jpeg,
+            width: 800,
+            height: 600,
+        }];
+        let mut out = Vec::new();
+        write_pdf_with(
+            &mut out,
+            &pages,
+            &PdfOptions {
+                page_size: PageSize::FitImage,
+                margin_mm: 0.0,
+                ..PdfOptions::default()
+            },
+        )
+        .expect("pdf");
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.contains("/MediaBox [0 0 600.000 450.000]"), "{text}");
+    }
+
+    #[test]
+    fn letter_and_fill_mode_render() {
+        let jpeg = sample_jpeg(40, 60);
+        let pages = [PdfImage {
+            jpeg: &jpeg,
+            width: 40,
+            height: 60,
+        }];
+        let mut out = Vec::new();
+        write_pdf_with(
+            &mut out,
+            &pages,
+            &PdfOptions {
+                page_size: PageSize::Letter,
+                orientation: Orientation::Portrait,
+                margin_mm: 20.0,
+                fit: FitMode::Fill,
+            },
+        )
+        .expect("pdf");
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.contains("/MediaBox [0 0 612.000 792.000]"));
         assert!(text.ends_with("%%EOF\n"));
     }
 }

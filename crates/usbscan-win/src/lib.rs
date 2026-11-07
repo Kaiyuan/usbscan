@@ -26,6 +26,7 @@ pub mod controls;
 pub mod corners;
 pub mod dpi;
 pub mod error;
+pub mod export_dialog;
 pub mod icons;
 pub mod menu;
 pub mod text;

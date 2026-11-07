@@ -25,6 +25,7 @@ pub mod id {
     pub const FILE_REVEAL: usize = 1010;
     pub const FILE_EXPORT_JPG: usize = 1011;
     pub const FILE_EXPORT_TEXT: usize = 1012;
+    pub const FILE_EXPORT_IMAGES: usize = 1013;
 
     pub const EDIT_UNDO: usize = 1101;
     pub const EDIT_REDO: usize = 1102;
@@ -84,6 +85,7 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
             id::FILE_EXPORT_TEXT,
             "导出全部 OCR 文本(&T)…",
         )?;
+        append(file, MF_STRING, id::FILE_EXPORT_IMAGES, "导出全部 JPG(&G)…")?;
         append(file, MF_STRING, id::FILE_PRINT, "打印(&P)…\tCtrl+P")?;
         append(file, MF_SEPARATOR, 0, "")?;
         append(file, MF_STRING, id::FILE_EXIT, "退出(&X)")?;

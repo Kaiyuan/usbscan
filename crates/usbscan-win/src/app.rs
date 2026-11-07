@@ -483,12 +483,16 @@ fn register_window_classes() -> Result<(), WinError> {
     // SAFETY: 加载系统光标，参数为标准 IDC_ARROW。
     let cursor = unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) };
 
-    let classes: [(&str, WndprocAlias); 5] = [
+    let classes: [(&str, WndprocAlias); 6] = [
         (MAIN_CLASS, wndproc),
         (PREVIEW_CLASS, preview_proc),
         (crate::corners::CORNER_CLASS, crate::corners::wndproc),
         (crate::text_edit::TEXT_EDIT_CLASS, crate::text_edit::wndproc),
         (crate::annotate::ANNOTATE_CLASS, crate::annotate::wndproc),
+        (
+            crate::export_dialog::EXPORT_CLASS,
+            crate::export_dialog::wndproc,
+        ),
     ];
 
     for (name, proc_fn) in classes {
@@ -1953,6 +1957,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::FILE_EXPORT_IMAGES {
+        export_all_images(hwnd);
+        return;
+    }
+
     if id == menu::id::TOOL_OCR_EDIT {
         edit_ocr_text(hwnd);
         return;
@@ -2280,6 +2289,9 @@ fn export_pdf(hwnd: HWND) {
             refresh_status(s);
             return;
         }
+        let Some(options) = crate::export_dialog::edit_options(hwnd) else {
+            return;
+        };
         let default_name = format!(
             "usbscan_{}.pdf",
             naming::TimeStamp::now().format("yyyyMMdd_HHmmss")
@@ -2314,7 +2326,7 @@ fn export_pdf(hwnd: HWND) {
 
         let temp = path.with_extension("pdf.tmp");
         let result = fs::File::create(&temp).and_then(|mut file| {
-            export::write_pdf(&mut file, &images)?;
+            export::write_pdf_with(&mut file, &images, &options)?;
             file.sync_all()?;
             fs::rename(&temp, &path)
         });
@@ -2601,6 +2613,53 @@ fn export_all_text(hwnd: HWND) {
                 return;
             }
         }
+        refresh_status(s);
+    }
+}
+
+/// 把整份会话的成品 JPEG 复制到指定目录。
+fn export_all_images(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；文件操作逐项检查。
+    unsafe {
+        let s = &mut *state;
+        if s.session.pages.is_empty() {
+            s.status_msg = "当前文档没有页面".to_string();
+            refresh_status(s);
+            return;
+        }
+        let Some(directory) = choose_folder(hwnd, "选择 JPG 导出文件夹") else {
+            return;
+        };
+        let mut exported = 0usize;
+        let mut skipped = 0usize;
+        for (index, page) in s.session.pages.iter().enumerate() {
+            let source = s.output_root.join(&page.path);
+            if !source.exists() {
+                skipped += 1;
+                continue;
+            }
+            let stem = page.path.file_stem().map_or_else(
+                || "page".to_string(),
+                |stem| stem.to_string_lossy().into_owned(),
+            );
+            let target = unique_path(&directory.join(format!("{:03}_{stem}.jpg", index + 1)));
+            match fs::copy(&source, &target) {
+                Ok(_) => exported += 1,
+                Err(_) => skipped += 1,
+            }
+        }
+        s.status_msg = if skipped == 0 {
+            format!("已导出 {exported} 张 JPG：{}", directory.display())
+        } else {
+            format!(
+                "已导出 {exported} 张 JPG，跳过 {skipped} 张：{}",
+                directory.display()
+            )
+        };
         refresh_status(s);
     }
 }

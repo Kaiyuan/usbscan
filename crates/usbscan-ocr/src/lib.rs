@@ -192,6 +192,10 @@ pub struct OcrLine {
     pub width: u32,
     pub height: u32,
     pub confidence: f32,
+    /// Tesseract 版面块编号。
+    pub block: u32,
+    /// Tesseract 段落编号。
+    pub paragraph: u32,
 }
 
 /// 一次 OCR 的完整结果。
@@ -237,11 +241,7 @@ pub fn recognize_document(
     }
     let tsv = String::from_utf8_lossy(&output.stdout);
     let lines = parse_tsv(&tsv);
-    let text = lines
-        .iter()
-        .map(|line| line.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\r\n");
+    let text = lines_to_text(&lines);
     if text.trim().is_empty() {
         return Err(OcrError::Empty);
     }
@@ -335,9 +335,9 @@ pub fn parse_tsv(text: &str) -> Vec<OcrLine> {
         }
     }
 
-    groups
-        .into_iter()
-        .map(|group| OcrLine {
+    let mut lines = Vec::with_capacity(groups.len());
+    for (group, key) in groups.into_iter().zip(keys) {
+        lines.push(OcrLine {
             text: group.text,
             left: group.left,
             top: group.top,
@@ -348,8 +348,29 @@ pub fn parse_tsv(text: &str) -> Vec<OcrLine> {
             } else {
                 (group.confidence_sum / f64::from(group.words)) as f32
             },
-        })
-        .collect()
+            block: key.0,
+            paragraph: key.1,
+        });
+    }
+    lines
+}
+
+fn lines_to_text(lines: &[OcrLine]) -> String {
+    let mut text = String::new();
+    let mut previous: Option<(u32, u32)> = None;
+    for line in lines {
+        if let Some(previous) = previous {
+            if previous != (line.block, line.paragraph) {
+                text.push_str("\r\n");
+            }
+        }
+        if !text.is_empty() {
+            text.push_str("\r\n");
+        }
+        text.push_str(&line.text);
+        previous = Some((line.block, line.paragraph));
+    }
+    text
 }
 
 fn append_word(target: &mut String, word: &str) {
@@ -406,6 +427,20 @@ mod tests {
         assert_eq!(lines[1].text, "中文字符");
         assert_eq!(lines[1].width, 82);
         assert!(lines[0].confidence > 90.0 && lines[0].confidence < 96.0);
+    }
+
+    #[test]
+    fn separates_paragraphs_with_blank_line() {
+        let tsv = concat!(
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n",
+            "5\t1\t1\t1\t1\t1\t10\t20\t40\t18\t95\tFirst\n",
+            "5\t1\t1\t2\t1\t1\t10\t60\t40\t18\t95\tSecond\n",
+        );
+        let lines = parse_tsv(tsv);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[1].paragraph, 2);
+        let text = lines_to_text(&lines);
+        assert!(text.contains("First\r\n\r\nSecond"), "{text:?}");
     }
 
     #[test]

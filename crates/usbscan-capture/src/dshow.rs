@@ -161,7 +161,7 @@ pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
             break;
         };
         let display = display_name(&moniker).unwrap_or_default();
-        let name = if display.is_empty() {
+        let name = if display.is_empty() || display.starts_with("@device:") {
             format!("DirectShow 摄像头 {}", index + 1)
         } else {
             display

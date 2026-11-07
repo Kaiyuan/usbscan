@@ -7,8 +7,14 @@
 //! 嵌入 PDF，不重新编码、不依赖第三方 PDF 库。支持纸张尺寸、方向、页边距
 //! 与“适应 / 填满”两种排版方式。
 
+#![allow(clippy::cast_precision_loss)]
+
 use std::fmt::Write as _;
 use std::io::{self, Write};
+
+mod docx;
+
+pub use docx::{write_docx, DocxPage};
 
 /// 一页待导出的 JPEG。
 pub struct PdfImage<'a> {

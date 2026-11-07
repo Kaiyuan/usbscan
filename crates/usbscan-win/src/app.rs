@@ -2217,6 +2217,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::FILE_EXPORT_DOCX {
+        export_docx(hwnd);
+        return;
+    }
+
     if id == menu::id::FILE_EXPORT_JPG {
         export_selected_page(hwnd);
         return;
@@ -2687,6 +2692,74 @@ fn export_pdf(hwnd: HWND) {
             Err(err) => {
                 let _ = fs::remove_file(&temp);
                 let message = format!("导出 PDF 失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        }
+        refresh_status(s);
+    }
+}
+
+/// 导出整份会话为 Word (.docx)。
+fn export_docx(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；文件读写与对话框逐项检查。
+    unsafe {
+        let s = &mut *state;
+        if s.session.pages.is_empty() {
+            s.status_msg = "当前文档没有页面".to_string();
+            refresh_status(s);
+            return;
+        }
+        let default_name = format!(
+            "usbscan_{}.docx",
+            naming::TimeStamp::now().format("yyyyMMdd_HHmmss")
+        );
+        let Some(path) = save_file_dialog(hwnd, "导出 Word", &default_name, "docx") else {
+            return;
+        };
+        let mut jpeg_pages = Vec::with_capacity(s.session.pages.len());
+        for page in &s.session.pages {
+            let source = s.output_root.join(&page.path);
+            match fs::read(&source) {
+                Ok(bytes) => jpeg_pages.push(bytes),
+                Err(err) => {
+                    let message = format!("读取 {} 失败：{err}", source.display());
+                    s.status_msg.clone_from(&message);
+                    refresh_status(s);
+                    show_error(hwnd, &message);
+                    return;
+                }
+            }
+        }
+        let images: Vec<export::DocxPage<'_>> = jpeg_pages
+            .iter()
+            .zip(&s.session.pages)
+            .map(|(jpeg, page)| export::DocxPage {
+                jpeg,
+                width: page.width,
+                height: page.height,
+            })
+            .collect();
+
+        let temp = path.with_extension("docx.tmp");
+        let result = fs::File::create(&temp).and_then(|mut file| {
+            export::write_docx(&mut file, &images)?;
+            file.sync_all()?;
+            fs::rename(&temp, &path)
+        });
+        match result {
+            Ok(()) => {
+                s.status_msg = format!("已导出 Word（{} 页）：{}", images.len(), path.display());
+            }
+            Err(err) => {
+                let _ = fs::remove_file(&temp);
+                let message = format!("导出 Word 失败：{err}");
                 s.status_msg.clone_from(&message);
                 refresh_status(s);
                 show_error(hwnd, &message);

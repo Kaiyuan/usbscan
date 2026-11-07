@@ -30,6 +30,7 @@ pub mod id {
     pub const FILE_EXPORT_TEXT: usize = 1012;
     pub const FILE_EXPORT_IMAGES: usize = 1013;
     pub const FILE_COPY_IMAGE: usize = 1015;
+    pub const FILE_EXPORT_DOCX: usize = 1016;
 
     pub const EDIT_UNDO: usize = 1101;
     pub const EDIT_REDO: usize = 1102;
@@ -94,6 +95,12 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(file, MF_STRING, id::FILE_REVEAL, "打开文件位置(&L)")?;
         append(file, MF_SEPARATOR, 0, "")?;
         append(file, MF_STRING, id::FILE_EXPORT, "导出 PDF(&E)…\tCtrl+E")?;
+        append(
+            file,
+            MF_STRING,
+            id::FILE_EXPORT_DOCX,
+            "导出 Word (.docx)(&W)…",
+        )?;
         append(file, MF_STRING, id::FILE_EXPORT_JPG, "导出当前页 JPG(&J)…")?;
         append(file, MF_STRING, id::FILE_COPY_IMAGE, "复制当前页图片(&C)")?;
         append(
@@ -187,6 +194,7 @@ pub fn build_page_menu() -> Result<HMENU, WinError> {
         append(menu, MF_STRING, id::TOOL_OCR, "OCR 识别(&O)")?;
         append(menu, MF_STRING, id::TOOL_OCR_EDIT, "编辑 OCR 文本(&E)…")?;
         append(menu, MF_STRING, id::FILE_EXPORT_JPG, "导出当前页 JPG(&J)…")?;
+        append(menu, MF_STRING, id::FILE_EXPORT_DOCX, "导出 Word (.docx)…")?;
         append(menu, MF_STRING, id::FILE_COPY_IMAGE, "复制图片(&C)")?;
         append(menu, MF_STRING, id::FILE_PRINT, "打印(&P)…")?;
         append(menu, MF_SEPARATOR, 0, "")?;

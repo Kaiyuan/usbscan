@@ -13,9 +13,11 @@ use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 
 mod enhance;
+mod perspective;
 mod transform;
 
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
+pub use perspective::auto_perspective;
 pub use transform::{mirror_horizontal_bgra, rotate90_bgra};
 
 /// 图像处理错误。

@@ -19,6 +19,7 @@ use crate::ImagingError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EnhanceOptions {
     pub auto_crop: bool,
+    pub perspective: bool,
     pub deskew: bool,
     pub remove_shadow: bool,
     pub white_background: bool,
@@ -30,7 +31,11 @@ impl EnhanceOptions {
     /// 是否至少启用了一个算子。
     #[must_use]
     pub const fn is_active(self) -> bool {
-        self.auto_crop || self.deskew || self.remove_shadow || self.white_background
+        self.auto_crop
+            || self.perspective
+            || self.deskew
+            || self.remove_shadow
+            || self.white_background
     }
 }
 
@@ -74,6 +79,17 @@ pub fn enhance(
         return Ok(image);
     }
 
+    if options.perspective {
+        if let Ok(Some((width, height, bgra))) =
+            super::perspective::auto_perspective(image.width, image.height, &image.bgra)
+        {
+            image = EnhancedImage {
+                width,
+                height,
+                bgra,
+            };
+        }
+    }
     if options.deskew {
         if let Some(correction) = estimate_skew(&image) {
             if correction.abs() >= 0.35 {

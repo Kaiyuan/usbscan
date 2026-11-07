@@ -233,7 +233,7 @@ struct AppState {
     settings_apply: HWND,
     enhance_group: HWND,
     enhance_heading: HWND,
-    enhance_checks: [HWND; 4],
+    enhance_checks: [HWND; 5],
     enhance_label: HWND,
     enhance_value: HWND,
     enhance_track: HWND,
@@ -318,6 +318,7 @@ pub fn run() -> Result<(), WinError> {
     let jpeg_quality = config.jpeg_quality.unwrap_or(92).clamp(1, 100);
     let enhance = imaging::EnhanceOptions {
         auto_crop: config.auto_crop.unwrap_or(false),
+        perspective: config.perspective.unwrap_or(false),
         deskew: config.deskew.unwrap_or(false),
         remove_shadow: config.remove_shadow.unwrap_or(false),
         white_background: config.white_background.unwrap_or(false),
@@ -361,7 +362,7 @@ pub fn run() -> Result<(), WinError> {
         settings_apply: ptr::null_mut(),
         enhance_group: ptr::null_mut(),
         enhance_heading: ptr::null_mut(),
-        enhance_checks: [ptr::null_mut(); 4],
+        enhance_checks: [ptr::null_mut(); 5],
         enhance_label: ptr::null_mut(),
         enhance_value: ptr::null_mut(),
         enhance_track: ptr::null_mut(),
@@ -1028,7 +1029,7 @@ fn create_children(state: *mut AppState) {
 
         s.enhance_group = controls::create_group(s.hwnd, s.hinstance, "");
         s.enhance_heading = controls::create_label(s.hwnd, s.hinstance, "图像增强");
-        let enhance_labels = ["自动裁边", "自动纠偏", "去阴影", "白底净化"];
+        let enhance_labels = ["自动裁边", "自动纠偏", "透视校正", "去阴影", "白底净化"];
         for (index, label) in enhance_labels.iter().enumerate() {
             s.enhance_checks[index] =
                 controls::create_checkbox(s.hwnd, s.hinstance, CMD_ENHANCE_CHECK + index, label);
@@ -1041,6 +1042,7 @@ fn create_children(state: *mut AppState) {
         for (control, checked) in s.enhance_checks.iter().zip([
             s.enhance.auto_crop,
             s.enhance.deskew,
+            s.enhance.perspective,
             s.enhance.remove_shadow,
             s.enhance.white_background,
         ]) {
@@ -1108,7 +1110,7 @@ fn apply_font_to_children(state: &AppState) {
             state.enhance_checks[0],
             state.enhance_checks[1],
             state.enhance_checks[2],
-            state.enhance_checks[3],
+            state.enhance_checks[4],
             state.enhance_label,
             state.enhance_value,
             state.enhance_track,
@@ -1179,7 +1181,7 @@ fn apply_theme(state: *mut AppState) {
             s.enhance_checks[0],
             s.enhance_checks[1],
             s.enhance_checks[2],
-            s.enhance_checks[3],
+            s.enhance_checks[4],
             s.enhance_label,
             s.enhance_value,
             s.enhance_track,
@@ -1510,6 +1512,7 @@ fn persist_config(s: &AppState) {
         jpeg_quality: Some(s.jpeg_quality),
         auto_crop: Some(s.enhance.auto_crop),
         deskew: Some(s.enhance.deskew),
+        perspective: Some(s.enhance.perspective),
         remove_shadow: Some(s.enhance.remove_shadow),
         white_background: Some(s.enhance.white_background),
         enhance_strength: Some(s.enhance.strength),
@@ -1598,8 +1601,9 @@ fn apply_settings(hwnd: HWND) {
         let enhance = imaging::EnhanceOptions {
             auto_crop: controls::checkbox_checked(s.enhance_checks[0]),
             deskew: controls::checkbox_checked(s.enhance_checks[1]),
-            remove_shadow: controls::checkbox_checked(s.enhance_checks[2]),
-            white_background: controls::checkbox_checked(s.enhance_checks[3]),
+            perspective: controls::checkbox_checked(s.enhance_checks[2]),
+            remove_shadow: controls::checkbox_checked(s.enhance_checks[3]),
+            white_background: controls::checkbox_checked(s.enhance_checks[4]),
             strength: u8::try_from(controls::track_position(s.enhance_track).clamp(0, 100))
                 .unwrap_or(60),
         };

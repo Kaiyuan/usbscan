@@ -30,6 +30,8 @@ pub struct Config {
     pub auto_crop: Option<bool>,
     /// 自动纠偏。
     pub deskew: Option<bool>,
+    /// 自动透视校正。
+    pub perspective: Option<bool>,
     /// 去阴影。
     pub remove_shadow: Option<bool>,
     /// 白底净化。
@@ -72,6 +74,8 @@ impl Config {
                 config.auto_crop = Some(value);
             } else if let Some(value) = toml_bool(line, "deskew") {
                 config.deskew = Some(value);
+            } else if let Some(value) = toml_bool(line, "perspective") {
+                config.perspective = Some(value);
             } else if let Some(value) = toml_bool(line, "remove_shadow") {
                 config.remove_shadow = Some(value);
             } else if let Some(value) = toml_bool(line, "white_background") {
@@ -114,6 +118,7 @@ impl Config {
         for (key, value) in [
             ("auto_crop", self.auto_crop),
             ("deskew", self.deskew),
+            ("perspective", self.perspective),
             ("remove_shadow", self.remove_shadow),
             ("white_background", self.white_background),
         ] {

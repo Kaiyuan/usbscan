@@ -104,6 +104,16 @@ const CMD_ENHANCE_TRACK: usize = 2800;
 
 /// 撤销拍摄的计时器 ID。
 const UNDO_TIMER: usize = 1;
+/// 定时拍摄倒计时定时器。
+const COUNTDOWN_TIMER: usize = 2;
+/// 连拍间隔定时器。
+const BURST_TIMER: usize = 3;
+/// 定时拍摄倒计时秒数。
+const COUNTDOWN_SECONDS: u32 = 3;
+/// 连拍张数。
+const BURST_COUNT: u32 = 5;
+/// 连拍间隔（毫秒）。
+const BURST_INTERVAL_MS: u32 = 800;
 /// 拍摄后允许撤销的时间窗口（毫秒）。
 const UNDO_WINDOW_MS: u32 = 3_000;
 /// 缩略图逻辑尺寸（96 DPI）。
@@ -271,6 +281,10 @@ struct AppState {
     selected_page: Option<usize>,
     /// 最近一次拍摄；非空表示 3 秒撤销窗口内。
     undo_page: Option<doc::Page>,
+    /// 定时拍摄剩余秒数；0 表示未启用。
+    countdown: u32,
+    /// 连拍剩余张数；0 表示未启用。
+    burst: u32,
 }
 
 /// 启动应用：创建窗口并进入消息循环。
@@ -394,6 +408,8 @@ pub fn run() -> Result<(), WinError> {
         thumb_height: 0,
         selected_page: None,
         undo_page: None,
+        countdown: 0,
+        burst: 0,
     });
     let state_ptr = Box::into_raw(state);
 
@@ -575,6 +591,68 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         set_undo_enabled(hwnd, false);
                     }
                     KillTimer(hwnd, UNDO_TIMER);
+                } else if wparam == COUNTDOWN_TIMER {
+                    let fire = {
+                        let state = state_ptr(hwnd);
+                        if state.is_null() {
+                            false
+                        } else {
+                            let s = &mut *state;
+                            if s.countdown > 1 {
+                                s.countdown -= 1;
+                                s.status_msg = format!("{} 秒后拍摄…", s.countdown);
+                                refresh_status(s);
+                                false
+                            } else {
+                                KillTimer(hwnd, COUNTDOWN_TIMER);
+                                s.countdown = 0;
+                                if s.capture.latest_frame().is_some() {
+                                    true
+                                } else {
+                                    s.status_msg = "定时拍摄已取消：未取得画面".to_string();
+                                    refresh_status(s);
+                                    false
+                                }
+                            }
+                        }
+                    };
+                    if fire {
+                        capture_photo(hwnd);
+                    }
+                } else if wparam == BURST_TIMER {
+                    let (capture, completed) = {
+                        let state = state_ptr(hwnd);
+                        if state.is_null() {
+                            (false, false)
+                        } else {
+                            let s = &mut *state;
+                            if s.burst == 0 {
+                                KillTimer(hwnd, BURST_TIMER);
+                                (false, false)
+                            } else if s.capture.latest_frame().is_none() {
+                                KillTimer(hwnd, BURST_TIMER);
+                                s.burst = 0;
+                                s.status_msg = "连拍已停止：未取得画面".to_string();
+                                refresh_status(s);
+                                (false, false)
+                            } else {
+                                s.burst -= 1;
+                                (true, s.burst == 0)
+                            }
+                        }
+                    };
+                    if capture {
+                        capture_photo(hwnd);
+                    }
+                    if completed {
+                        let state = state_ptr(hwnd);
+                        if !state.is_null() {
+                            KillTimer(hwnd, BURST_TIMER);
+                            let s = &mut *state;
+                            s.status_msg = "连拍完成".to_string();
+                            refresh_status(s);
+                        }
+                    }
                 }
                 0
             }
@@ -2020,7 +2098,17 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == 2002 {
+        toggle_burst(hwnd);
+        return;
+    }
+    if id == 2003 {
+        toggle_countdown(hwnd);
+        return;
+    }
+
     if id == CMD_CAPTURE {
+        cancel_delayed_capture(hwnd);
         capture_photo(hwnd);
         return;
     }
@@ -3344,6 +3432,103 @@ fn undo_capture(hwnd: HWND) {
             |n| n.to_string_lossy().into_owned(),
         );
         s.status_msg = format!("已撤销：{name}（序号 {} 已回收）", page.seq);
+        refresh_status(s);
+    }
+}
+
+fn cancel_delayed_capture(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；仅操作定时器。
+    unsafe {
+        stop_delayed(hwnd, &mut *state);
+    }
+}
+
+fn stop_delayed(hwnd: HWND, s: &mut AppState) {
+    if s.countdown > 0 {
+        // SAFETY: 标准定时器 API。
+        unsafe {
+            KillTimer(hwnd, COUNTDOWN_TIMER);
+        }
+        s.countdown = 0;
+    }
+    if s.burst > 0 {
+        // SAFETY: 标准定时器 API。
+        unsafe {
+            KillTimer(hwnd, BURST_TIMER);
+        }
+        s.burst = 0;
+    }
+}
+
+/// 切换定时拍摄（3 秒倒计时）。
+fn toggle_countdown(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；定时器 API 返回值无需检查。
+    unsafe {
+        let s = &mut *state;
+        if s.countdown > 0 {
+            stop_delayed(hwnd, s);
+            s.status_msg = "已取消定时拍摄".to_string();
+            refresh_status(s);
+            return;
+        }
+        if s.capture.latest_frame().is_none() {
+            s.status_msg = "尚未取得画面，无法开始定时拍摄".to_string();
+            refresh_status(s);
+            return;
+        }
+        stop_delayed(hwnd, s);
+        s.countdown = COUNTDOWN_SECONDS;
+        SetTimer(hwnd, COUNTDOWN_TIMER, 1_000, None);
+        s.status_msg = format!("{COUNTDOWN_SECONDS} 秒后拍摄（再次点击“定时”可取消）");
+        refresh_status(s);
+    }
+}
+
+/// 切换连拍（立即拍一张，随后按固定间隔继续）。
+fn toggle_burst(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；定时器 API 返回值无需检查。
+    unsafe {
+        let proceed = {
+            let s = &mut *state;
+            if s.burst > 0 {
+                stop_delayed(hwnd, s);
+                s.status_msg = "已停止连拍".to_string();
+                refresh_status(s);
+                false
+            } else if s.capture.latest_frame().is_none() {
+                s.status_msg = "尚未取得画面，无法开始连拍".to_string();
+                refresh_status(s);
+                false
+            } else {
+                stop_delayed(hwnd, s);
+                s.burst = BURST_COUNT;
+                true
+            }
+        };
+        if !proceed {
+            return;
+        }
+        capture_photo(hwnd);
+        let s = &mut *state;
+        s.burst = s.burst.saturating_sub(1);
+        if s.burst == 0 {
+            s.status_msg = "连拍完成".to_string();
+        } else {
+            SetTimer(hwnd, BURST_TIMER, BURST_INTERVAL_MS, None);
+            s.status_msg = format!("连拍中… 剩余 {} 张", s.burst);
+        }
         refresh_status(s);
     }
 }

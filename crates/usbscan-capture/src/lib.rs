@@ -77,23 +77,74 @@ impl Camera {
 
 /// 合并 MF 与 DirectShow 的设备列表。
 ///
-/// 同名设备只保留一条；MF 的稳定 ID 优先。
+/// 同一个物理设备可能同时出现在两套枚举结果中；优先保留 MF 条目。
 pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
     let mut cameras = mf::list_cameras().unwrap_or_default();
     let dshow_cameras = dshow::list_cameras().unwrap_or_default();
     for camera in dshow_cameras {
-        if !cameras
-            .iter()
-            .any(|existing| existing.name == camera.name || existing.id == camera.id)
-        {
+        let key = pnp_key(&camera.name);
+        let duplicate = cameras.iter().any(|existing| {
+            existing.name == camera.name
+                || existing.id == camera.id
+                || key
+                    .as_ref()
+                    .is_some_and(|key| pnp_key(&existing.id).as_ref() == Some(key))
+        });
+        if !duplicate {
             cameras.push(camera);
         }
     }
     Ok(cameras)
 }
 
+/// 从设备符号链接/显示名中提取稳定的 PNP 设备键。
+///
+/// MF 使用 `\\?\usb#vid_...`，DirectShow 使用
+/// `@device:pnp:\\?\usb#vid_...`；去掉前缀和接口 GUID 后可以直接比较。
+pub(crate) fn pnp_key(value: &str) -> Option<String> {
+    let value = value
+        .split_once("@device:pnp:")
+        .map_or(value, |(_, rest)| rest);
+    if value.contains("@device:sw:") {
+        return None;
+    }
+    let value = value.strip_prefix(r"\\?\").unwrap_or(value);
+    let end = value.find("#{").unwrap_or(value.len());
+    let key = &value[..end];
+    if key.is_empty() {
+        None
+    } else {
+        Some(key.to_ascii_lowercase())
+    }
+}
+
 /// 进程级初始化：确保 MF 已就绪。
 pub fn ensure_backends() -> Result<(), CaptureError> {
     ensure_platform()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pnp_key_matches_media_foundation_and_direct_show_forms() {
+        let mf = r"\\?\usb#vid_cb07&pid_1bcf&mi_00#a&3a4e7912&0&0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\global";
+        let dshow = r"@device:pnp:\\?\usb#vid_cb07&pid_1bcf&mi_00#a&3a4e7912&0&0000#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\global";
+        assert_eq!(pnp_key(mf), pnp_key(dshow));
+        assert_eq!(
+            pnp_key(mf).as_deref(),
+            Some("usb#vid_cb07&pid_1bcf&mi_00#a&3a4e7912&0&0000")
+        );
+    }
+
+    #[test]
+    fn pnp_key_ignores_virtual_devices() {
+        assert_eq!(
+            pnp_key(r"@device:pnp:\\?\usb#vid_1234#5&abc&0&1#{guid}"),
+            Some("usb#vid_1234#5&abc&0&1".to_string())
+        );
+        assert!(pnp_key("@device:sw:{860BB310-5D01-11D0-BD3B-00A0C911CE86}\\{A3FCE0F5}").is_none());
+    }
 }

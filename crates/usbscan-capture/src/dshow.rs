@@ -404,7 +404,13 @@ fn find_moniker(info: &CameraInfo) -> Option<IMoniker> {
         }
         let moniker = monikers[0].take()?;
         let display = display_name(&moniker).unwrap_or_default();
-        if info.id == format!("dshow:{index}:{display}") || info.name == display {
+        let wanted = crate::pnp_key(&info.id).or_else(|| crate::pnp_key(&info.name));
+        if info.id == format!("dshow:{index}:{display}")
+            || info.name == display
+            || wanted
+                .as_ref()
+                .is_some_and(|key| crate::pnp_key(&display).as_ref() == Some(key))
+        {
             return Some(moniker);
         }
         index += 1;

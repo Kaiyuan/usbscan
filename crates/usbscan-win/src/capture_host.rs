@@ -204,19 +204,25 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
         };
 
         let mut opened = None;
-        let mut last_error = None;
+        let mut first_error = None;
         for info in &candidates {
+            log_line(&format!("尝试打开 {} [{}]", info.name, info.id));
             match capture::Camera::open(info) {
                 Ok(camera) => {
                     opened = Some((camera, *info));
                     break;
                 }
-                Err(err) => last_error = Some(err),
+                Err(err) => {
+                    log_line(&format!("打开失败 {}：{err:?}", info.name));
+                    if first_error.is_none() {
+                        first_error = Some(err);
+                    }
+                }
             }
         }
 
         let Some((mut camera, info)) = opened else {
-            let message = last_error.map_or_else(
+            let message = first_error.map_or_else(
                 || format!("无法打开摄像头：{}", first.name),
                 |err| err.to_string(),
             );

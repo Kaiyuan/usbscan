@@ -28,6 +28,7 @@ pub mod error;
 pub mod icons;
 pub mod menu;
 pub mod text;
+pub mod text_edit;
 pub mod theme;
 
 pub use app::run;

@@ -24,6 +24,7 @@ pub mod id {
     pub const FILE_EXIT: usize = 1009;
     pub const FILE_REVEAL: usize = 1010;
     pub const FILE_EXPORT_JPG: usize = 1011;
+    pub const FILE_EXPORT_TEXT: usize = 1012;
 
     pub const EDIT_UNDO: usize = 1101;
     pub const EDIT_REDO: usize = 1102;
@@ -33,7 +34,6 @@ pub mod id {
     pub const EDIT_MIRROR: usize = 1106;
     pub const EDIT_REPROCESS: usize = 1107;
     pub const EDIT_PERSPECTIVE: usize = 1108;
-
     pub const DEVICE_REFRESH: usize = 1201;
     pub const DEVICE_RESET: usize = 1202;
     pub const DEVICE_PROPERTIES: usize = 1203;
@@ -44,6 +44,7 @@ pub mod id {
 
     pub const TOOL_OCR: usize = 1401;
     pub const TOOL_SETTINGS: usize = 1402;
+    pub const TOOL_OCR_EDIT: usize = 1403;
 
     pub const HELP_MANUAL: usize = 1501;
     pub const HELP_ABOUT: usize = 1502;
@@ -76,6 +77,12 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(file, MF_SEPARATOR, 0, "")?;
         append(file, MF_STRING, id::FILE_EXPORT, "导出 PDF(&E)…\tCtrl+E")?;
         append(file, MF_STRING, id::FILE_EXPORT_JPG, "导出当前页 JPG(&J)…")?;
+        append(
+            file,
+            MF_STRING,
+            id::FILE_EXPORT_TEXT,
+            "导出全部 OCR 文本(&T)…",
+        )?;
         append(file, MF_STRING, id::FILE_PRINT, "打印(&P)…\tCtrl+P")?;
         append(file, MF_SEPARATOR, 0, "")?;
         append(file, MF_STRING, id::FILE_EXIT, "退出(&X)")?;
@@ -116,6 +123,7 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
 
         let tools = CreatePopupMenu();
         append(tools, MF_STRING, id::TOOL_OCR, "OCR 识别(&O)\tCtrl+Shift+T")?;
+        append(tools, MF_STRING, id::TOOL_OCR_EDIT, "编辑 OCR 文本(&E)…")?;
         append(tools, MF_SEPARATOR, 0, "")?;
         append(tools, MF_STRING, id::TOOL_SETTINGS, "设置(&S)…")?;
         append(bar, MF_POPUP, tools as usize, "工具(&T)")?;

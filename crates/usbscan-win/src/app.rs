@@ -6,6 +6,7 @@
 //! M0-1 骨架 + M0-2 采集链路：原生菜单栏、工具栏、状态栏、
 //! 缩略图面板、预览区与增强面板，并已接入 Media Foundation 实时取帧。
 
+use std::fmt::Write as _;
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -482,10 +483,11 @@ fn register_window_classes() -> Result<(), WinError> {
     // SAFETY: 加载系统光标，参数为标准 IDC_ARROW。
     let cursor = unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) };
 
-    let classes: [(&str, WndprocAlias); 3] = [
+    let classes: [(&str, WndprocAlias); 4] = [
         (MAIN_CLASS, wndproc),
         (PREVIEW_CLASS, preview_proc),
         (crate::corners::CORNER_CLASS, crate::corners::wndproc),
+        (crate::text_edit::TEXT_EDIT_CLASS, crate::text_edit::wndproc),
     ];
 
     for (name, proc_fn) in classes {
@@ -1941,6 +1943,16 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::FILE_EXPORT_TEXT {
+        export_all_text(hwnd);
+        return;
+    }
+
+    if id == menu::id::TOOL_OCR_EDIT {
+        edit_ocr_text(hwnd);
+        return;
+    }
+
     if id == menu::id::FILE_IMPORT {
         import_images(hwnd);
         return;
@@ -2451,37 +2463,137 @@ fn ocr_selected_page(hwnd: HWND) {
 
         match ocr::recognize_with_fallback(&executable, &path, &languages) {
             Ok((text, language)) => {
+                let Some(edited) = crate::text_edit::edit_text(hwnd, "OCR 识别结果", &text)
+                else {
+                    s.status_msg = format!("OCR 完成（{language}），已取消保存");
+                    refresh_status(s);
+                    return;
+                };
                 let text_path = path.with_extension("txt");
-                let saved = fs::write(&text_path, text.as_bytes()).is_ok();
-                let preview = if text.chars().count() > 2000 {
-                    let mut preview: String = text.chars().take(2000).collect();
-                    preview.push_str("\n\n……（结果过长，已截断）");
-                    preview
-                } else {
-                    text.clone()
-                };
-                let title = wide("OCR 识别结果");
-                let body = wide(&preview);
-                MessageBoxW(
-                    hwnd,
-                    body.as_ptr(),
-                    title.as_ptr(),
-                    MB_OK | MB_ICONINFORMATION,
-                );
-                s.status_msg = if saved {
-                    format!(
-                        "OCR 完成（{language}，{} 字符）：{}",
-                        text.chars().count(),
-                        text_path.display()
-                    )
-                } else {
-                    format!("OCR 完成（{language}），但文本文件写入失败")
-                };
+                match write_text_atomic(&text_path, &edited) {
+                    Ok(()) => {
+                        s.status_msg = format!(
+                            "OCR 完成（{language}，{} 字符）：{}",
+                            edited.chars().count(),
+                            text_path.display()
+                        );
+                    }
+                    Err(err) => {
+                        let message = format!("文本文件写入失败：{err}");
+                        s.status_msg.clone_from(&message);
+                        refresh_status(s);
+                        show_error(hwnd, &message);
+                        return;
+                    }
+                }
             }
             Err(err) => {
                 let message = err.to_string();
                 s.status_msg.clone_from(&message);
                 show_error(hwnd, &message);
+            }
+        }
+        refresh_status(s);
+    }
+}
+
+/// 编辑选中页已保存的 OCR 文本。
+fn edit_ocr_text(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；文件读写逐项检查。
+    unsafe {
+        let s = &mut *state;
+        let Some(index) = s.selected_page else {
+            s.status_msg = "请先在左侧选择要编辑文本的页面".to_string();
+            refresh_status(s);
+            return;
+        };
+        let Some(page) = s.session.pages.get(index) else {
+            return;
+        };
+        let text_path = s.output_root.join(page.path.with_extension("txt"));
+        let content = fs::read_to_string(&text_path).unwrap_or_default();
+        let title = format!("OCR 文本 — 第 {} 页", index + 1);
+        let Some(edited) = crate::text_edit::edit_text(hwnd, &title, &content) else {
+            s.status_msg = "已取消文本编辑".to_string();
+            refresh_status(s);
+            return;
+        };
+        match write_text_atomic(&text_path, &edited) {
+            Ok(()) => {
+                s.status_msg = format!("文本已保存：{}", text_path.display());
+            }
+            Err(err) => {
+                let message = format!("文本文件写入失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        }
+        refresh_status(s);
+    }
+}
+
+/// 把所有页面的 OCR 文本合并导出为一个 `.txt`。
+fn export_all_text(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；文件对话框与写入逐项检查。
+    unsafe {
+        let s = &mut *state;
+        if s.session.pages.is_empty() {
+            s.status_msg = "当前文档没有页面".to_string();
+            refresh_status(s);
+            return;
+        }
+        let default_name = format!(
+            "usbscan_{}.txt",
+            naming::TimeStamp::now().format("yyyyMMdd_HHmmss")
+        );
+        let Some(path) = save_file_dialog(hwnd, "导出 OCR 文本", &default_name, "txt") else {
+            return;
+        };
+
+        let mut out = String::with_capacity(4096);
+        out.push_str(&s.session.doc_name);
+        out.push_str("\r\n\r\n");
+        let mut exported = 0usize;
+        for (index, page) in s.session.pages.iter().enumerate() {
+            let text_path = s.output_root.join(page.path.with_extension("txt"));
+            let Ok(text) = fs::read_to_string(&text_path) else {
+                continue;
+            };
+            exported += 1;
+            let _ = write!(
+                out,
+                "===== 第 {} 页 · {} =====\r\n",
+                index + 1,
+                page.path.display()
+            );
+            out.push_str(text.trim_end());
+            out.push_str("\r\n\r\n");
+        }
+        if exported == 0 {
+            s.status_msg = "没有可导出的 OCR 文本，请先识别至少一页".to_string();
+            refresh_status(s);
+            return;
+        }
+        match write_text_atomic(&path, &out) {
+            Ok(()) => {
+                s.status_msg = format!("已导出 {exported} 页文本：{}", path.display());
+            }
+            Err(err) => {
+                let message = format!("导出文本失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
             }
         }
         refresh_status(s);
@@ -2781,6 +2893,18 @@ fn write_jpeg_atomic(
         let _ = fs::remove_file(&temp);
         return Err(err);
     }
+    fs::rename(&temp, path).map_err(|err| {
+        let _ = fs::remove_file(&temp);
+        err.to_string()
+    })
+}
+
+fn write_text_atomic(path: &Path, text: &str) -> Result<(), String> {
+    let temp = path.with_extension("txt.tmp");
+    let mut file = fs::File::create(&temp).map_err(|err| err.to_string())?;
+    file.write_all(text.as_bytes())
+        .and_then(|()| file.sync_all())
+        .map_err(|err| err.to_string())?;
     fs::rename(&temp, path).map_err(|err| {
         let _ = fs::remove_file(&temp);
         err.to_string()

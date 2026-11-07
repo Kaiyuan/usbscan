@@ -15,7 +15,7 @@ edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-or-later"
 authors = ["usbscan contributors"]
-repository = "https://github.com/usbscan/usbscan"
+repository = "https://github.com/Kaiyuan/usbscan"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

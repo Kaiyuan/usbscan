@@ -45,10 +45,38 @@ usbscan 是一款面向 Windows 的文档采集软件。插上任一 UVC 摄像�
 > 设备切换与热插拔、按命名规则拍照落盘、会话恢复、缩略图列表与 3 秒撤销。
 > 增强、DShow 兜底、OCR、导出等功能仍在开发中。
 
+前置条件：Rust stable + Visual Studio Build Tools（“使用 C++ 的桌面开发”负载）。
+
 ```powershell
-# 前置：Rust stable + Visual Studio Build Tools（C++ 桌面开发负载）
-git clone https://github.com/<owner>/usbscan.git
+git clone https://github.com/Kaiyuan/usbscan.git
 cd usbscan
+```
+
+### 一键构建（推荐）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build.ps1
+```
+
+脚本依次执行格式检查、Clippy、全部测试和 Release 构建，并在 `dist\` 生成：
+
+- `usbscan.exe`
+- `usbscan-<版本>-win-x64.zip`
+- `SHA256SUMS.txt`
+
+常用参数：
+
+```powershell
+.\build.ps1 -SkipTests      # 跳过测试
+.\build.ps1 -SkipLint       # 跳过 fmt / clippy
+.\build.ps1 -Configuration debug
+.\build.ps1 -Clean          # 先 cargo clean
+.\build.ps1 -NoPackage      # 只构建，不生成 dist
+```
+
+### 手工构建
+
+```powershell
 cargo build --release -p usbscan-app
 # 产物：target\release\usbscan.exe
 ```
@@ -73,6 +101,8 @@ usbscan/
 │  ├─ usbscan-naming/   # 文件名/目录命名规则引擎
 │  └─ usbscan-win/      # Win32 原生界面与消息循环
 ├─ docs/                # 设计文档
+├─ build.ps1            # 一键构建、检查与打包
+├─ dist/                # 构建产物（git 忽略）
 └─ Cargo.toml           # workspace 配置
 ```
 

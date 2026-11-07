@@ -14,6 +14,8 @@ workspace = true
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
     "Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_DirectShow",
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",
 ] }

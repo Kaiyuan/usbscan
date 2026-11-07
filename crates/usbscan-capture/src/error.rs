@@ -19,6 +19,11 @@ pub enum CaptureError {
         step: &'static str,
         source: Box<Self>,
     },
+    /// Media Foundation 与 DirectShow 均未成功打开设备。
+    BackendFailure {
+        media_foundation: Box<Self>,
+        direct_show: Box<Self>,
+    },
     /// 系统中没有任何视频采集设备。
     NoDevices,
     /// 设备已断开或无法再次打开。
@@ -59,6 +64,13 @@ impl fmt::Display for CaptureError {
             }
             Self::Hresult(code) => write!(f, "Media Foundation 错误 0x{code:08X}"),
             Self::Stage { step, source } => write!(f, "{step}失败：{source}"),
+            Self::BackendFailure {
+                media_foundation,
+                direct_show,
+            } => write!(
+                f,
+                "Media Foundation 与 DirectShow 均无法打开摄像头（MF：{media_foundation}；DShow：{direct_show}）"
+            ),
             Self::NoDevices => write!(f, "未检测到摄像头"),
             Self::DeviceNotFound(name) => write!(f, "摄像头不可用：{name}"),
             Self::UnsupportedFormat(subtype) => {
@@ -77,6 +89,9 @@ impl std::error::Error for CaptureError {
         match self {
             Self::Windows(err) => Some(err),
             Self::Stage { source, .. } => Some(source.as_ref()),
+            Self::BackendFailure {
+                media_foundation, ..
+            } => Some(media_foundation.as_ref()),
             _ => None,
         }
     }

@@ -206,7 +206,7 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
         let mut opened = None;
         let mut last_error = None;
         for info in &candidates {
-            match capture::MfCamera::open(info) {
+            match capture::Camera::open(info) {
                 Ok(camera) => {
                     opened = Some((camera, *info));
                     break;
@@ -224,6 +224,7 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
             sleep_interruptible(stop, Duration::from_millis(1000));
             continue;
         };
+        log_line(&format!("使用 {} 打开 {}", camera.backend(), info.name));
 
         // 记录实际打开的稳定 ID，后续重启或热插拔时不必再靠名称猜测。
         {

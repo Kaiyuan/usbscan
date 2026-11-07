@@ -37,6 +37,8 @@ pub struct Page {
     pub seq: u64,
     /// 相对于输出根目录的成品文件路径。
     pub path: PathBuf,
+    /// 相对于输出根目录的原始图像路径；未保留原图时为 `None`。
+    pub raw: Option<PathBuf>,
     /// 成品宽度（像素）。
     pub width: u32,
     /// 成品高度（像素）。
@@ -51,8 +53,12 @@ impl Page {
     /// 用于写入 JSON 的路径形式：统一使用 `/`，避免反斜杠转义噪音。
     #[must_use]
     pub fn manifest_path(&self) -> String {
-        self.path.to_string_lossy().replace('\\', "/")
+        path_to_manifest(&self.path)
     }
+}
+
+fn path_to_manifest(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 /// 一次拍摄会话。
@@ -157,6 +163,13 @@ impl Session {
             let _ = write!(out, "{}", page.seq);
             out.push_str(", \"path\": ");
             let _ = write!(out, "{}", json::quote(&page.manifest_path()));
+            out.push_str(", \"raw\": ");
+            match &page.raw {
+                Some(raw) => {
+                    let _ = write!(out, "{}", json::quote(&path_to_manifest(raw)));
+                }
+                None => out.push_str("null"),
+            }
             let _ = write!(
                 out,
                 ", \"width\": {}, \"height\": {}, \"captured_at\": {}",
@@ -233,6 +246,11 @@ fn page_from_json(value: &Json) -> Result<Page, String> {
     Ok(Page {
         seq: value.get("seq").and_then(Json::as_u64).unwrap_or(1),
         path: PathBuf::from(path),
+        raw: value
+            .get("raw")
+            .and_then(Json::as_str)
+            .filter(|raw| !raw.is_empty())
+            .map(PathBuf::from),
         width: value
             .get("width")
             .and_then(Json::as_u64)
@@ -412,6 +430,7 @@ mod tests {
         Page {
             seq,
             path: PathBuf::from(format!("2026/11/07/{name}.jpg")),
+            raw: Some(PathBuf::from(format!("raw/{name}.jpg"))),
             width: 1920,
             height: 1080,
             captured_at: 1_700_000_000,

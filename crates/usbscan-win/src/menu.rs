@@ -28,6 +28,10 @@ pub mod id {
     pub const EDIT_UNDO: usize = 1101;
     pub const EDIT_REDO: usize = 1102;
     pub const EDIT_DELETE_PAGE: usize = 1103;
+    pub const EDIT_ROTATE_RIGHT: usize = 1104;
+    pub const EDIT_ROTATE_LEFT: usize = 1105;
+    pub const EDIT_MIRROR: usize = 1106;
+    pub const EDIT_REPROCESS: usize = 1107;
 
     pub const DEVICE_REFRESH: usize = 1201;
     pub const DEVICE_RESET: usize = 1202;
@@ -81,6 +85,12 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(edit, MF_STRING, id::EDIT_REDO, "重做(&R)\tCtrl+Y")?;
         append(edit, MF_SEPARATOR, 0, "")?;
         append(edit, MF_STRING, id::EDIT_DELETE_PAGE, "删除当前页(&D)\tDel")?;
+        append(edit, MF_SEPARATOR, 0, "")?;
+        append(edit, MF_STRING, id::EDIT_ROTATE_RIGHT, "顺时针旋转 90°(&R)")?;
+        append(edit, MF_STRING, id::EDIT_ROTATE_LEFT, "逆时针旋转 90°(&L)")?;
+        append(edit, MF_STRING, id::EDIT_MIRROR, "水平镜像(&M)")?;
+        append(edit, MF_SEPARATOR, 0, "")?;
+        append(edit, MF_STRING, id::EDIT_REPROCESS, "重新处理增强(&P)")?;
         append(bar, MF_POPUP, edit as usize, "编辑(&E)")?;
 
         let device = CreatePopupMenu();

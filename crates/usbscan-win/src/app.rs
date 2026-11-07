@@ -1892,6 +1892,23 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::EDIT_ROTATE_RIGHT {
+        transform_selected_page(hwnd, PageTransform::RotateRight);
+        return;
+    }
+    if id == menu::id::EDIT_ROTATE_LEFT {
+        transform_selected_page(hwnd, PageTransform::RotateLeft);
+        return;
+    }
+    if id == menu::id::EDIT_MIRROR {
+        transform_selected_page(hwnd, PageTransform::Mirror);
+        return;
+    }
+    if id == menu::id::EDIT_REPROCESS {
+        reprocess_selected_page(hwnd);
+        return;
+    }
+
     if id == menu::id::FILE_NEW {
         new_document(hwnd);
         return;
@@ -2337,6 +2354,7 @@ fn import_images(hwnd: HWND) {
             s.session.push_page(doc::Page {
                 seq,
                 path: relative,
+                raw: None,
                 width: dimensions.0,
                 height: dimensions.1,
                 captured_at: doc::now_unix(),
@@ -2725,6 +2743,180 @@ fn delete_selected_page(hwnd: HWND) {
     }
 }
 
+/// 重新加载页面列表并恢复指定选中项。
+fn reload_page_list(s: &mut AppState, selected: Option<usize>) {
+    reset_page_list(s);
+    rebuild_page_list(s);
+    if let Some(index) = selected {
+        if index < s.session.pages.len() {
+            controls::set_list_selected(s.pages, index);
+            s.selected_page = Some(index);
+            set_delete_page_enabled(s.hwnd, true);
+        }
+    }
+}
+
+fn write_jpeg_atomic(
+    path: &Path,
+    width: u32,
+    height: u32,
+    bgra: &[u8],
+    quality: u8,
+) -> Result<(), String> {
+    let temp = path.with_extension("tmp.jpg");
+    let file = fs::File::create(&temp).map_err(|err| err.to_string())?;
+    if let Err(err) = write_jpeg(file, width, height, bgra, quality) {
+        let _ = fs::remove_file(&temp);
+        return Err(err);
+    }
+    fs::rename(&temp, path).map_err(|err| {
+        let _ = fs::remove_file(&temp);
+        err.to_string()
+    })
+}
+
+/// 使用当前增强设置重新处理选中页。
+fn reprocess_selected_page(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；文件操作逐项检查。
+    unsafe {
+        let s = &mut *state;
+        let Some(index) = s.selected_page else {
+            s.status_msg = "请先在左侧选择要重新处理的页面".to_string();
+            refresh_status(s);
+            return;
+        };
+        let Some(page) = s.session.pages.get(index).cloned() else {
+            return;
+        };
+        let Some(raw) = page
+            .raw
+            .as_ref()
+            .map(|raw| s.output_root.join(raw))
+            .filter(|path| path.exists())
+        else {
+            s.status_msg = "此页没有保留原图，无法重新处理".to_string();
+            refresh_status(s);
+            return;
+        };
+        let (width, height, data) = match imaging::load_bgra(&raw) {
+            Ok(image) => image,
+            Err(err) => {
+                let message = format!("读取原图失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        let (width, height, data) = if s.enhance.is_active() {
+            match imaging::enhance(width, height, &data, s.enhance) {
+                Ok(image) => (image.width, image.height, image.bgra),
+                Err(err) => {
+                    let message = format!("增强失败：{err}");
+                    s.status_msg.clone_from(&message);
+                    refresh_status(s);
+                    show_error(hwnd, &message);
+                    return;
+                }
+            }
+        } else {
+            (width, height, data)
+        };
+
+        let path = s.output_root.join(&page.path);
+        if let Err(err) = write_jpeg_atomic(&path, width, height, &data, s.jpeg_quality) {
+            let message = format!("写回成品失败：{err}");
+            s.status_msg.clone_from(&message);
+            refresh_status(s);
+            show_error(hwnd, &message);
+            return;
+        }
+        if let Some(updated) = s.session.pages.get_mut(index) {
+            updated.width = width;
+            updated.height = height;
+        }
+        s.session.updated_at = doc::now_unix();
+        s.session.closed_cleanly = false;
+        let _ = s.store.save(&s.session);
+        reload_page_list(s, Some(index));
+        s.status_msg = format!("已重新处理第 {} 页", index + 1);
+        refresh_status(s);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PageTransform {
+    RotateRight,
+    RotateLeft,
+    Mirror,
+}
+
+fn transform_selected_page(hwnd: HWND, transform: PageTransform) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；文件操作逐项检查。
+    unsafe {
+        let s = &mut *state;
+        let Some(index) = s.selected_page else {
+            s.status_msg = "请先在左侧选择页面".to_string();
+            refresh_status(s);
+            return;
+        };
+        let Some(page) = s.session.pages.get(index).cloned() else {
+            return;
+        };
+        let path = s.output_root.join(&page.path);
+        let (width, height, data) = match imaging::load_bgra(&path) {
+            Ok(image) => image,
+            Err(err) => {
+                let message = format!("读取图片失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        let result = match transform {
+            PageTransform::RotateRight => imaging::rotate90_bgra(width, height, &data, true),
+            PageTransform::RotateLeft => imaging::rotate90_bgra(width, height, &data, false),
+            PageTransform::Mirror => imaging::mirror_horizontal_bgra(width, height, &data),
+        };
+        let (width, height, data) = match result {
+            Ok(image) => image,
+            Err(err) => {
+                let message = format!("图像变换失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        if let Err(err) = write_jpeg_atomic(&path, width, height, &data, s.jpeg_quality) {
+            let message = format!("写回图片失败：{err}");
+            s.status_msg.clone_from(&message);
+            refresh_status(s);
+            show_error(hwnd, &message);
+            return;
+        }
+        if let Some(updated) = s.session.pages.get_mut(index) {
+            updated.width = width;
+            updated.height = height;
+        }
+        s.session.updated_at = doc::now_unix();
+        s.session.closed_cleanly = false;
+        let _ = s.store.save(&s.session);
+        reload_page_list(s, Some(index));
+        s.status_msg = "页面已更新".to_string();
+        refresh_status(s);
+    }
+}
+
 /// 结束当前会话并开始新文档（磁盘上的图片保留）。
 fn new_document(hwnd: HWND) {
     let state = state_ptr(hwnd);
@@ -2894,9 +3086,15 @@ fn capture_photo(hwnd: HWND) {
                 let relative = path
                     .strip_prefix(&s.output_root)
                     .map_or_else(|_| path.clone(), Path::to_path_buf);
+                let raw = if enhanced.is_some() {
+                    write_raw_copy(s, &frame, seq)
+                } else {
+                    None
+                };
                 s.session.push_page(doc::Page {
                     seq,
                     path: relative,
+                    raw,
                     width,
                     height,
                     captured_at: doc::now_unix(),
@@ -2924,6 +3122,28 @@ fn capture_photo(hwnd: HWND) {
             }
         }
     }
+}
+
+/// 把未增强的原始帧保存到 `.usbscan/raw/`，返回相对于输出根的路径。
+fn write_raw_copy(s: &AppState, frame: &capture::Frame, seq: u64) -> Option<PathBuf> {
+    let directory = s.output_root.join(".usbscan").join("raw");
+    fs::create_dir_all(&directory).ok()?;
+    let name = format!("{seq:06}_{}.jpg", doc::now_unix());
+    let path = directory.join(&name);
+    let file = fs::File::create(&path).ok()?;
+    if write_jpeg(
+        file,
+        frame.width,
+        frame.height,
+        &frame.data,
+        s.jpeg_quality.max(90),
+    )
+    .is_err()
+    {
+        let _ = fs::remove_file(&path);
+        return None;
+    }
+    Some(PathBuf::from(".usbscan").join("raw").join(name))
 }
 
 /// 把一帧编码为 JPEG 并同步到磁盘。

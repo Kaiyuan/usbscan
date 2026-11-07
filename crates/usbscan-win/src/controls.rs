@@ -47,7 +47,11 @@ const LVS_SHOWSELALWAYS: u32 = 0x0008;
 const LVS_SHAREIMAGELISTS: u32 = 0x0040;
 const LVS_NOSORTHEADER: u32 = 0x8000;
 const LVM_DELETEALLITEMS: u32 = 0x1009;
+const LVM_SETITEMSTATE: u32 = 0x102B;
 const LVNI_SELECTED: u32 = 0x0002;
+const LVIS_FOCUSED: u32 = 0x0001;
+const LVIS_SELECTED: u32 = 0x0002;
+const LVIF_STATE: u32 = 0x0008;
 
 // 轨道条风格
 const TBS_HORZ: u32 = 0x0000;
@@ -318,6 +322,26 @@ pub fn list_selected(list: HWND) -> Option<usize> {
         None
     } else {
         usize::try_from(index).ok()
+    }
+}
+
+/// 选中列表中的指定项。
+pub fn set_list_selected(list: HWND, index: usize) {
+    if list.is_null() {
+        return;
+    }
+    // SAFETY: LVITEMW 为 POD，索引在调用方范围内。
+    unsafe {
+        let mut item: LVITEMW = std::mem::zeroed();
+        item.mask = LVIF_STATE;
+        item.state = LVIS_SELECTED | LVIS_FOCUSED;
+        item.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+        SendMessageW(
+            list,
+            LVM_SETITEMSTATE,
+            index,
+            std::ptr::from_ref(&item) as LPARAM,
+        );
     }
 }
 

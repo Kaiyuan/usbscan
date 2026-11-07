@@ -13,8 +13,10 @@ use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 
 mod enhance;
+mod transform;
 
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
+pub use transform::{mirror_horizontal_bgra, rotate90_bgra};
 
 /// 图像处理错误。
 #[derive(Debug)]
@@ -176,6 +178,18 @@ pub fn thumbnail_bgra(
         }
     }
     Ok((target_width, target_height, out))
+}
+
+/// 读取图片为 top-down BGRA8。
+pub fn load_bgra(path: &Path) -> Result<(u32, u32, Vec<u8>), ImagingError> {
+    let image = image::open(path)?.to_rgba8();
+    let (width, height) = image.dimensions();
+    let rgba = image.into_raw();
+    let mut bgra = Vec::with_capacity(rgba.len());
+    for pixel in rgba.chunks_exact(4) {
+        bgra.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+    }
+    Ok((width, height, bgra))
 }
 
 /// 把任意受支持的图片转码为 JPEG，返回原始像素尺寸。

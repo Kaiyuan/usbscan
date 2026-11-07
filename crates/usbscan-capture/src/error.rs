@@ -48,7 +48,7 @@ impl fmt::Display for CaptureError {
                 match err.code().0 as u32 {
                     0x8007_0005 => write!(
                         f,
-                        "相机访问被拒绝：请在“设置 → 隐私和安全性 → 相机”中允许桌面应用访问"
+                        "相机访问被拒绝（0x80070005）：请允许桌面应用访问摄像头；若系统“相机”应用能正常预览，请把 usbscan.exe 移到系统盘（例如 %LOCALAPPDATA%\\Programs\\usbscan）后重试"
                     ),
                     0xC00D_3704 => write!(
                         f,

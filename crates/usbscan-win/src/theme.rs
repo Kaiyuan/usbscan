@@ -106,6 +106,39 @@ pub fn apply_control(hwnd: HWND, dark: bool) {
     }
 }
 
+/// 把指定主题名应用到控件（用于编辑框等需要特殊暗色主题的控件）。
+pub fn apply_named(hwnd: HWND, name: &str) {
+    let name = wide(name);
+    // SAFETY: 字符串在调用期间有效。
+    unsafe {
+        SetWindowTheme(hwnd, name.as_ptr(), std::ptr::null());
+        windows_sys::Win32::UI::WindowsAndMessaging::SendMessageW(
+            hwnd,
+            windows_sys::Win32::UI::WindowsAndMessaging::WM_THEMECHANGED,
+            0,
+            0,
+        );
+        windows_sys::Win32::Graphics::Gdi::InvalidateRect(hwnd, std::ptr::null(), 1);
+    }
+}
+
+/// 去掉控件的视觉样式，让 `WM_CTLCOLOREDIT` 的颜色生效。
+pub fn apply_plain(hwnd: HWND) {
+    // 传一个空格（而不是空串）才会真正禁用该控件的视觉样式。
+    let blank = wide(" ");
+    // SAFETY: 字符串在调用期间有效。
+    unsafe {
+        SetWindowTheme(hwnd, blank.as_ptr(), blank.as_ptr());
+        windows_sys::Win32::UI::WindowsAndMessaging::SendMessageW(
+            hwnd,
+            windows_sys::Win32::UI::WindowsAndMessaging::WM_THEMECHANGED,
+            0,
+            0,
+        );
+        windows_sys::Win32::Graphics::Gdi::InvalidateRect(hwnd, std::ptr::null(), 1);
+    }
+}
+
 fn load_uxtheme() -> HMODULE {
     // 已加载的模块会被引用计数复用，无需释放。
     let name = wide("uxtheme.dll");

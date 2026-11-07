@@ -24,6 +24,7 @@ pub mod config;
 pub mod controls;
 pub mod dpi;
 pub mod error;
+pub mod icons;
 pub mod menu;
 pub mod text;
 pub mod theme;

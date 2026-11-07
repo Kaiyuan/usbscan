@@ -37,6 +37,7 @@ CI 通过 `cargo deny check licenses` 强制校验，白名单配置见 `deny.to
 | `thiserror` | 错误类型定义 | MIT OR Apache-2.0 | 编译期内联 |
 | `tracing` / `tracing-subscriber` | 日志 | MIT | 编译期内联 |
 | `image` | 图片编解码（JPG/PNG/TIFF/WebP） | MIT OR Apache-2.0 | 编译期内联 |
+| **Tabler Icons** | 工具栏与界面图标字体 `assets/icons/tabler-icons.ttf` | MIT | 以字节嵌入 `usbscan.exe`；随包附 `TABLER-ICONS-LICENSE.txt` |
 | `rayon` | 数据并行 | MIT OR Apache-2.0 | 编译期内联 |
 | `zune-jpeg`（或等价） | MJPEG 软件解码兜底 | MIT OR Apache-2.0 | 编译期内联 |
 | `parking_lot` | 同步原语 | MIT OR Apache-2.0 | 编译期内联 |

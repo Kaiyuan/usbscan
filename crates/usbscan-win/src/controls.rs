@@ -12,14 +12,14 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::UI::Controls::{
     ImageList_Add, ImageList_Create, ImageList_Destroy, HIMAGELIST, ILC_COLOR32, LVIF_IMAGE,
-    LVIF_TEXT, LVITEMW, LVM_DELETEITEM, LVM_INSERTITEMW, LVM_SETBKCOLOR, LVM_SETIMAGELIST,
-    LVM_SETTEXTBKCOLOR, LVM_SETTEXTCOLOR, LVSIL_NORMAL, SB_SETMINHEIGHT, SB_SETPARTS, SB_SETTEXTW,
-    TBM_SETPOS, TBM_SETRANGE, TBM_SETTICFREQ, TB_ADDBUTTONS, TB_ADDSTRINGW, TB_AUTOSIZE,
-    TB_BUTTONSTRUCTSIZE, TB_SETBUTTONSIZE,
+    LVIF_TEXT, LVITEMW, LVM_DELETEITEM, LVM_GETNEXTITEM, LVM_INSERTITEMW, LVM_SETBKCOLOR,
+    LVM_SETIMAGELIST, LVM_SETTEXTBKCOLOR, LVM_SETTEXTCOLOR, LVSIL_NORMAL, SB_SETMINHEIGHT,
+    SB_SETPARTS, SB_SETTEXTW, TBM_SETPOS, TBM_SETRANGE, TBM_SETTICFREQ, TB_ADDBUTTONS,
+    TB_ADDSTRINGW, TB_AUTOSIZE, TB_BUTTONSTRUCTSIZE, TB_SETBUTTONSIZE,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, SendMessageW, BS_AUTOCHECKBOX, BS_GROUPBOX, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
-    WS_VSCROLL,
+    CreateWindowExW, GetWindowTextLengthW, GetWindowTextW, SendMessageW, BS_AUTOCHECKBOX,
+    BS_GROUPBOX, BS_PUSHBUTTON, WS_CHILD, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
 use crate::text::wide;
@@ -29,6 +29,7 @@ const TBSTYLE_FLAT: u32 = 0x0800;
 const TBSTYLE_LIST: u32 = 0x1000;
 const CCS_NODIVIDER: u32 = 0x0040;
 const CCS_NORESIZE: u32 = 0x0010;
+const TB_SETIMAGELIST: u32 = 0x0430;
 const BTNS_BUTTON: u8 = 0x0000;
 const BTNS_SEP: u8 = 0x0001;
 const BTNS_AUTOSIZE: u8 = 0x0010;
@@ -46,10 +47,21 @@ const LVS_SHOWSELALWAYS: u32 = 0x0008;
 const LVS_SHAREIMAGELISTS: u32 = 0x0040;
 const LVS_NOSORTHEADER: u32 = 0x8000;
 const LVM_DELETEALLITEMS: u32 = 0x1009;
+const LVNI_SELECTED: u32 = 0x0002;
 
 // 轨道条风格
 const TBS_HORZ: u32 = 0x0000;
 const TBS_AUTOTICKS: u32 = 0x0001;
+const TBM_GETPOS: u32 = 0x0400;
+
+// 编辑框风格
+const ES_AUTOHSCROLL: u32 = 0x0080;
+const WS_EX_CLIENTEDGE: u32 = 0x0000_0200;
+
+// 复选框消息
+const BM_GETCHECK: u32 = 0x00F0;
+const BM_SETCHECK: u32 = 0x00F1;
+const BST_CHECKED: usize = 1;
 
 // 下拉框风格与消息
 const CBS_DROPDOWNLIST: u32 = 0x0003;
@@ -78,6 +90,8 @@ pub struct ToolButton {
     pub id: usize,
     pub label: &'static str,
     pub separator_before: bool,
+    /// Tabler Icons 图标；`None` 表示纯文字按钮。
+    pub icon: Option<crate::icons::Icon>,
 }
 
 /// 创建状态栏。
@@ -292,6 +306,21 @@ pub fn clear_page_list(list: HWND) {
     }
 }
 
+/// 返回页面列表当前选中的索引。
+#[must_use]
+pub fn list_selected(list: HWND) -> Option<usize> {
+    if list.is_null() {
+        return None;
+    }
+    // SAFETY: 纯消息调用；wParam = -1 表示从头查找。
+    let index = unsafe { SendMessageW(list, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as LPARAM) };
+    if index < 0 {
+        None
+    } else {
+        usize::try_from(index).ok()
+    }
+}
+
 /// 删除页面列表的最后一项。
 pub fn delete_last_page(list: HWND, count_after: usize) {
     if list.is_null() {
@@ -300,6 +329,28 @@ pub fn delete_last_page(list: HWND, count_after: usize) {
     // SAFETY: 纯消息调用。
     unsafe {
         SendMessageW(list, LVM_DELETEITEM, count_after, 0);
+    }
+}
+
+/// 绑定工具栏图像列表。
+pub fn set_toolbar_images(toolbar: HWND, images: HIMAGELIST) {
+    if toolbar.is_null() {
+        return;
+    }
+    // SAFETY: 纯消息调用；图像列表生命周期由调用方管理。
+    unsafe {
+        SendMessageW(toolbar, TB_SETIMAGELIST, 0, images);
+    }
+}
+
+/// 设置状态栏背景色（`SB_SETBKCOLOR`）。
+pub fn set_status_background(status: HWND, color: u32) {
+    if status.is_null() {
+        return;
+    }
+    // SAFETY: 纯消息调用。
+    unsafe {
+        SendMessageW(status, 8193, 0, color as LPARAM);
     }
 }
 
@@ -373,7 +424,9 @@ pub fn create_toolbar(
             let label = wide(b.label);
             let index = SendMessageW(bar, TB_ADDSTRINGW, 0, label.as_ptr() as LPARAM);
             raw.push(TbButton {
-                bitmap: I_IMAGENONE,
+                bitmap: b.icon.map_or(I_IMAGENONE, |icon| {
+                    i32::try_from(icon.index()).unwrap_or(I_IMAGENONE)
+                }),
                 command: i32::try_from(b.id).unwrap_or(0),
                 state: TBSTATE_ENABLED,
                 style: BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT,
@@ -416,6 +469,140 @@ pub fn create_page_list(parent: HWND, hinstance: HINSTANCE) -> HWND {
             hinstance,
             std::ptr::null(),
         )
+    }
+}
+
+/// 创建单行编辑框。
+pub fn create_edit(parent: HWND, hinstance: HINSTANCE, id: usize) -> HWND {
+    let class = wide("EDIT");
+    let empty = wide("");
+    // SAFETY: 标准控件创建。
+    unsafe {
+        CreateWindowExW(
+            WS_EX_CLIENTEDGE,
+            class.as_ptr(),
+            empty.as_ptr(),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+            0,
+            0,
+            0,
+            0,
+            parent,
+            id as usize as _,
+            hinstance,
+            std::ptr::null(),
+        )
+    }
+}
+
+/// 创建普通按钮。
+pub fn create_push_button(parent: HWND, hinstance: HINSTANCE, id: usize, text: &str) -> HWND {
+    let class = wide("BUTTON");
+    let text = wide(text);
+    // SAFETY: 标准控件创建。
+    unsafe {
+        CreateWindowExW(
+            0,
+            class.as_ptr(),
+            text.as_ptr(),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | (BS_PUSHBUTTON as u32),
+            0,
+            0,
+            0,
+            0,
+            parent,
+            id as usize as _,
+            hinstance,
+            std::ptr::null(),
+        )
+    }
+}
+
+/// 读取控件文本。
+#[must_use]
+pub fn get_text(control: HWND) -> String {
+    if control.is_null() {
+        return String::new();
+    }
+    // SAFETY: 先查询长度，再按长度分配缓冲区。
+    unsafe {
+        let len = GetWindowTextLengthW(control);
+        if len <= 0 {
+            return String::new();
+        }
+        let mut buffer = vec![0u16; len as usize + 1];
+        let copied = GetWindowTextW(control, buffer.as_mut_ptr(), buffer.len() as i32);
+        String::from_utf16_lossy(&buffer[..copied.max(0) as usize])
+    }
+}
+
+/// 设置控件文本。
+pub fn set_text(control: HWND, text: &str) {
+    if control.is_null() {
+        return;
+    }
+    let text = wide(text);
+    // SAFETY: 字符串在调用期间有效。
+    unsafe {
+        windows_sys::Win32::UI::WindowsAndMessaging::SetWindowTextW(control, text.as_ptr());
+    }
+}
+
+/// 读取轨道条当前位置。
+#[must_use]
+pub fn track_position(track: HWND) -> i32 {
+    if track.is_null() {
+        return 0;
+    }
+    // SAFETY: 纯消息调用。
+    unsafe { SendMessageW(track, TBM_GETPOS, 0, 0) as i32 }
+}
+
+/// 设置轨道条位置。
+pub fn set_track_position(track: HWND, value: i32) {
+    if track.is_null() {
+        return;
+    }
+    // SAFETY: 纯消息调用。
+    unsafe {
+        SendMessageW(track, TBM_SETPOS, 1, value as LPARAM);
+    }
+}
+
+/// 启用/禁用控件。
+pub fn set_enabled(control: HWND, enabled: bool) {
+    if control.is_null() {
+        return;
+    }
+    // SAFETY: 纯 Win32 调用。
+    unsafe {
+        windows_sys::Win32::UI::Input::KeyboardAndMouse::EnableWindow(control, i32::from(enabled));
+    }
+}
+
+/// 读取复选框状态。
+#[must_use]
+pub fn checkbox_checked(control: HWND) -> bool {
+    if control.is_null() {
+        return false;
+    }
+    // SAFETY: 纯消息调用。
+    unsafe { SendMessageW(control, BM_GETCHECK, 0, 0) == BST_CHECKED as isize }
+}
+
+/// 设置复选框状态。
+pub fn set_checkbox(control: HWND, checked: bool) {
+    if control.is_null() {
+        return;
+    }
+    // SAFETY: 纯消息调用。
+    unsafe {
+        SendMessageW(
+            control,
+            BM_SETCHECK,
+            if checked { BST_CHECKED } else { 0 },
+            0,
+        );
     }
 }
 

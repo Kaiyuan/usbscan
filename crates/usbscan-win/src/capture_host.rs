@@ -6,10 +6,13 @@
 //! 采集线程独立于消息循环：它负责枚举设备、打开摄像头、循环取帧，
 //! 只通过共享状态 + `PostMessage` 与 UI 通信，绝不直接操作窗口。
 
+use std::fs;
+use std::io::Write as _;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use usbscan_capture as capture;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -27,6 +30,8 @@ pub const WM_APP_DEVICES: u32 = 0x8000 + 3;
 pub enum Status {
     /// 正在枚举或重试。
     Connecting,
+    /// 枚举结果为空。
+    NoDevices,
     /// 已打开，正在取帧。
     Ready {
         id: String,
@@ -48,6 +53,8 @@ pub struct Shared {
     pub status: Option<Status>,
     /// 当前帧序号，用于预览判断是否重绘。
     pub sequence: u64,
+    /// 是否已投递 `WM_APP_FRAME`；用于合并高频帧通知。
+    pub frame_pending: bool,
     /// 最近一次枚举到的设备列表。
     pub devices: Vec<capture::CameraInfo>,
     /// 设备列表版本号；UI 只在版本变化时重建下拉框。
@@ -178,30 +185,56 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
             (guard.selected.clone(), guard.selected_name.clone())
         };
 
-        let chosen = match selected.as_deref() {
-            Some(id) => cameras.iter().find(|camera| camera.id == id),
-            None => cameras.first(),
-        };
+        // 优先精确匹配稳定 ID；旧版配置里保存的是 `名称#序号`，
+        // 或设备链接在系统更新后变化时，再按名称找回同一台设备。
+        let candidates = choose_candidates(&cameras, selected.as_deref(), selected_name.as_deref());
 
-        let Some(info) = chosen else {
+        let Some(&first) = candidates.first() else {
             // 用户已经指定设备时，不擅自打开另一台摄像头，等待它重新上线。
-            if let Some(name) = selected_name {
+            if selected.is_some() {
+                let name = selected_name
+                    .or(selected)
+                    .unwrap_or_else(|| "摄像头".to_string());
                 set_status(shared, stop, hwnd, Status::Waiting { name });
             } else {
-                set_status(shared, stop, hwnd, Status::Connecting);
+                set_status(shared, stop, hwnd, Status::NoDevices);
             }
             sleep_interruptible(stop, Duration::from_millis(1000));
             continue;
         };
 
-        let mut camera = match capture::MfCamera::open(info) {
-            Ok(camera) => camera,
-            Err(err) => {
-                set_status(shared, stop, hwnd, Status::Error(err.to_string()));
-                sleep_interruptible(stop, Duration::from_millis(1000));
-                continue;
+        let mut opened = None;
+        let mut last_error = None;
+        for info in &candidates {
+            match capture::MfCamera::open(info) {
+                Ok(camera) => {
+                    opened = Some((camera, *info));
+                    break;
+                }
+                Err(err) => last_error = Some(err),
             }
+        }
+
+        let Some((mut camera, info)) = opened else {
+            let message = last_error.map_or_else(
+                || format!("无法打开摄像头：{}", first.name),
+                |err| err.to_string(),
+            );
+            set_status(shared, stop, hwnd, Status::Error(message));
+            sleep_interruptible(stop, Duration::from_millis(1000));
+            continue;
         };
+
+        // 记录实际打开的稳定 ID，后续重启或热插拔时不必再靠名称猜测。
+        {
+            let mut guard = shared
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if guard.selected.as_deref() != Some(info.id.as_str()) {
+                guard.selected = Some(info.id.clone());
+                guard.selected_name = Some(info.name.clone());
+            }
+        }
 
         let (width, height) = camera.size();
         set_status(
@@ -230,19 +263,32 @@ fn worker(hwnd_value: isize, shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>
 
             match camera.read_frame() {
                 Ok(frame) => {
-                    {
+                    let should_post = {
                         let mut guard = shared
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
                         guard.frame = Some(Arc::new(frame));
                         guard.sequence = guard.sequence.wrapping_add(1);
-                    }
-                    // SAFETY: 窗口在 CaptureHost::stop() 之前保持有效。
-                    unsafe {
-                        PostMessageW(hwnd, WM_APP_FRAME, 0, 0);
+                        // 上一帧的 WM_APP_FRAME 还没处理时不再重复投递，
+                        // 避免高帧率下消息队列堆积、界面来回闪。
+                        let should_post = !guard.frame_pending;
+                        guard.frame_pending = true;
+                        should_post
+                    };
+                    if should_post {
+                        // SAFETY: 窗口在 CaptureHost::stop() 之前保持有效。
+                        unsafe {
+                            PostMessageW(hwnd, WM_APP_FRAME, 0, 0);
+                        }
                     }
                 }
                 Err(err) => {
+                    // 格式切换或流事件期间可能短暂没有样本，保持上一帧继续读，
+                    // 不要因此清空预览并重开设备。
+                    if matches!(err, capture::CaptureError::NoFrame) {
+                        thread::sleep(Duration::from_millis(2));
+                        continue;
+                    }
                     let message = err.to_string();
                     {
                         let mut guard = shared
@@ -277,6 +323,14 @@ fn publish_devices(
             true
         }
     };
+    if changed {
+        let summary = cameras
+            .iter()
+            .map(|camera| format!("{} [{}]", camera.name, camera.id))
+            .collect::<Vec<_>>()
+            .join("; ");
+        log_line(&format!("设备列表（{}）：{}", cameras.len(), summary));
+    }
     if changed && !stop.load(Ordering::SeqCst) {
         // SAFETY: 窗口在 CaptureHost::stop() 之前保持有效。
         unsafe {
@@ -290,23 +344,75 @@ fn set_status(shared: &Arc<Mutex<Shared>>, stop: &Arc<AtomicBool>, hwnd: HWND, s
         return;
     }
     let changed = {
-        let mut guard = shared
+        let guard = shared
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if guard.status.as_ref() == Some(&status) {
-            false
-        } else {
-            guard.status = Some(status);
-            true
-        }
+        guard.status.as_ref() != Some(&status)
     };
     if !changed {
         return;
+    }
+    log_status(&status);
+    {
+        let mut guard = shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.status = Some(status);
     }
     // SAFETY: 窗口在 CaptureHost::stop() 之前保持有效。
     unsafe {
         PostMessageW(hwnd, WM_APP_STATUS, 0 as WPARAM, 0 as LPARAM);
     }
+}
+
+/// 把状态变化追加到 `%APPDATA%\usbscan\usbscan.log`。
+///
+/// 日志只记录设备状态，不含画面或用户文档内容，便于用户反馈
+/// "摄像头打不开"时定位是权限、占用还是枚举问题。
+fn log_status(status: &Status) {
+    log_line(&format!("{status:?}"));
+}
+
+fn log_line(text: &str) {
+    let Some(appdata) = std::env::var_os("APPDATA") else {
+        return;
+    };
+    let dir = PathBuf::from(appdata).join("usbscan");
+    if fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("usbscan.log");
+    if fs::metadata(&path).is_ok_and(|metadata| metadata.len() > 1_000_000) {
+        let _ = fs::remove_file(&path);
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs());
+    let line = format!("[{timestamp}] {text}\n");
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
+/// 根据保存的选择挑出本次要尝试的设备。
+///
+/// 精确 ID 优先；旧配置或设备链接变化时按名称回退；没有选择时依次尝试全部。
+fn choose_candidates<'a>(
+    cameras: &'a [capture::CameraInfo],
+    selected: Option<&str>,
+    selected_name: Option<&str>,
+) -> Vec<&'a capture::CameraInfo> {
+    let mut candidates = Vec::new();
+    if let Some(id) = selected {
+        if let Some(camera) = cameras.iter().find(|camera| camera.id == id) {
+            candidates.push(camera);
+        } else if let Some(name) = selected_name {
+            candidates.extend(cameras.iter().filter(|camera| camera.name == name));
+        }
+    } else {
+        candidates.extend(cameras.iter());
+    }
+    candidates
 }
 
 fn sleep_interruptible(stop: &AtomicBool, duration: Duration) {
@@ -347,5 +453,49 @@ mod tests {
         let shared = host.shared();
         assert!(shared.restart);
         assert!(shared.selected.is_none());
+    }
+
+    fn sample_cameras() -> Vec<capture::CameraInfo> {
+        vec![
+            capture::CameraInfo {
+                id: "link-a".to_string(),
+                name: "摄像头 A".to_string(),
+            },
+            capture::CameraInfo {
+                id: "link-b".to_string(),
+                name: "摄像头 B".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn exact_id_wins() {
+        let cameras = sample_cameras();
+        let chosen = choose_candidates(&cameras, Some("link-b"), Some("摄像头 A"));
+        assert_eq!(chosen.len(), 1);
+        assert_eq!(chosen[0].name, "摄像头 B");
+    }
+
+    #[test]
+    fn stale_id_falls_back_to_name() {
+        let cameras = sample_cameras();
+        // 旧版配置保存的是 `名称#序号`，新版本使用符号链接。
+        let chosen = choose_candidates(&cameras, Some("摄像头 A#0"), Some("摄像头 A"));
+        assert_eq!(chosen.len(), 1);
+        assert_eq!(chosen[0].id, "link-a");
+    }
+
+    #[test]
+    fn no_selection_tries_every_camera() {
+        let cameras = sample_cameras();
+        assert_eq!(choose_candidates(&cameras, None, None).len(), 2);
+    }
+
+    #[test]
+    fn missing_device_stays_empty() {
+        let cameras = sample_cameras();
+        let chosen = choose_candidates(&cameras, Some("gone"), Some("不存在的摄像头"));
+        let empty: Vec<&capture::CameraInfo> = Vec::new();
+        assert_eq!(chosen, empty);
     }
 }

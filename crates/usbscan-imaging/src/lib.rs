@@ -12,6 +12,10 @@ use std::path::Path;
 use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 
+mod enhance;
+
+pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
+
 /// 图像处理错误。
 #[derive(Debug)]
 pub enum ImagingError {
@@ -174,6 +178,25 @@ pub fn thumbnail_bgra(
     Ok((target_width, target_height, out))
 }
 
+/// 把任意受支持的图片转码为 JPEG，返回原始像素尺寸。
+pub fn transcode_to_jpeg<W: Write>(
+    source: &Path,
+    quality: u8,
+    out: W,
+) -> Result<(u32, u32), ImagingError> {
+    let image = image::open(source)?.to_rgb8();
+    let (width, height) = image.dimensions();
+    let encoder = JpegEncoder::new_with_quality(out, quality.clamp(1, 100));
+    encoder.write_image(image.as_raw(), width, height, ExtendedColorType::Rgb8)?;
+    Ok((width, height))
+}
+
+/// 读取磁盘图片的宽高，不完整解码像素。
+pub fn image_dimensions(path: &Path) -> Result<(u32, u32), ImagingError> {
+    let dimensions = image::image_dimensions(path)?;
+    Ok(dimensions)
+}
+
 /// 从磁盘上的图片生成 BGRA 缩略图。
 pub fn image_thumbnail_bgra(
     path: &Path,
@@ -249,5 +272,20 @@ mod tests {
         assert_eq!((width, height), (24, 12));
         assert_eq!(data.len(), 24 * 12 * 4);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn releases_file_after_thumbnail() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-tmp");
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join(format!("imaging-release-{}.jpg", std::process::id()));
+
+        let bgra = vec![255u8; 32 * 32 * 4];
+        let mut jpeg = Vec::new();
+        encode_jpeg_bgra(32, 32, &bgra, 90, &mut jpeg).expect("encode");
+        std::fs::write(&path, &jpeg).expect("write");
+
+        let _ = image_thumbnail_bgra(&path, 16, 16).expect("thumbnail");
+        std::fs::remove_file(&path).expect("file must be closed after decoding");
     }
 }

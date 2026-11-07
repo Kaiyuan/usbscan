@@ -1,0 +1,17 @@
+[package]
+name = "usbscan-export"
+description = "PDF 导出"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+usbscan-imaging = { path = "../usbscan-imaging" }

@@ -4,6 +4,7 @@ members = [
     "crates/usbscan-app",
     "crates/usbscan-capture",
     "crates/usbscan-doc",
+    "crates/usbscan-export",
     "crates/usbscan-imaging",
     "crates/usbscan-naming",
     "crates/usbscan-win",

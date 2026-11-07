@@ -129,8 +129,16 @@ if ($NoPackage -or $Configuration -ne 'release') {
 
     $distExe = Join-Path $dist 'usbscan.exe'
     Copy-Item -LiteralPath $builtExe -Destination $distExe -Force
-    foreach ($fileName in @('LICENSE', 'README.md', 'THIRD_PARTY.md')) {
-        Copy-Item -LiteralPath (Join-Path $Root $fileName) -Destination $dist -Force
+    foreach ($fileName in @(
+        'LICENSE',
+        'README.md',
+        'THIRD_PARTY.md',
+        'assets\icons\TABLER-ICONS-LICENSE.txt'
+    )) {
+        $source = Join-Path $Root $fileName
+        if (Test-Path -LiteralPath $source) {
+            Copy-Item -LiteralPath $source -Destination $dist -Force
+        }
     }
 
     $archive = Join-Path $dist "usbscan-$version-win-$arch.zip"
@@ -138,8 +146,9 @@ if ($NoPackage -or $Configuration -ne 'release') {
         $distExe,
         (Join-Path $dist 'LICENSE'),
         (Join-Path $dist 'README.md'),
-        (Join-Path $dist 'THIRD_PARTY.md')
-    )
+        (Join-Path $dist 'THIRD_PARTY.md'),
+        (Join-Path $dist 'TABLER-ICONS-LICENSE.txt')
+    ) | Where-Object { Test-Path -LiteralPath $_ }
     Compress-Archive -LiteralPath $archiveItems -DestinationPath $archive -Force
 
     $checksums = foreach ($file in @($distExe, $archive)) {

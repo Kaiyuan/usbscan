@@ -110,6 +110,21 @@ impl Session {
         Some(page)
     }
 
+    /// 删除指定页。
+    ///
+    /// 删除最后一页时回收序号；删除中间页只留下空号，不会与后续页面冲突。
+    pub fn remove_page(&mut self, index: usize) -> Option<Page> {
+        if index >= self.pages.len() {
+            return None;
+        }
+        let page = self.pages.remove(index);
+        if page.seq.saturating_add(1) == self.next_seq {
+            self.next_seq = page.seq;
+        }
+        self.updated_at = now_unix();
+        Some(page)
+    }
+
     /// 载入后修正可能不一致的序号。
     pub fn normalize(&mut self) {
         let max_seq = self.pages.iter().map(|page| page.seq).max().unwrap_or(0);
@@ -422,6 +437,23 @@ mod tests {
         assert_eq!(undone.seq, 2);
         assert_eq!(session.next_seq, 2);
         session.push_page(page(2, "b"));
+        assert_eq!(session.next_seq, 3);
+    }
+
+    #[test]
+    fn remove_page_recycles_only_last() {
+        let mut session = Session::new(DEFAULT_DOC_NAME, 1);
+        session.push_page(page(1, "a"));
+        session.push_page(page(2, "b"));
+        session.push_page(page(3, "c"));
+
+        let middle = session.remove_page(1).expect("middle");
+        assert_eq!(middle.seq, 2);
+        assert_eq!(session.next_seq, 4);
+        assert_eq!(session.pages.len(), 2);
+
+        let last = session.remove_page(1).expect("last");
+        assert_eq!(last.seq, 3);
         assert_eq!(session.next_seq, 3);
     }
 

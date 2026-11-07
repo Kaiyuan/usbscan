@@ -74,6 +74,17 @@ pub fn find_tesseract(configured: Option<&Path>) -> Option<PathBuf> {
             }
         }
     }
+    // 便携版：与 usbscan.exe 同目录的 tesseract\tesseract.exe。
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(directory) = executable.parent() {
+            for relative in ["tesseract\\tesseract.exe", "tesseract\\bin\\tesseract.exe"] {
+                let candidate = directory.join(relative);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
     let mut roots = Vec::new();
     for key in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
         if let Some(value) = std::env::var_os(key) {
@@ -94,6 +105,20 @@ pub fn find_tesseract(configured: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
+/// 便携版 Tesseract 的 tessdata 目录。
+fn apply_portable_tessdata(command: &mut Command, executable: &Path) {
+    let Some(directory) = executable.parent() else {
+        return;
+    };
+    for relative in ["tessdata", "..\\tessdata"] {
+        let candidate = directory.join(relative);
+        if candidate.is_dir() {
+            command.env("TESSDATA_PREFIX", candidate);
+            return;
+        }
+    }
+}
+
 /// 检查语言名，只允许 Tesseract 语言列表使用的字符。
 pub fn validate_language(language: &str) -> Result<(), OcrError> {
     if language.is_empty()
@@ -110,6 +135,7 @@ pub fn validate_language(language: &str) -> Result<(), OcrError> {
 pub fn recognize(executable: &Path, image: &Path, language: &str) -> Result<String, OcrError> {
     validate_language(language)?;
     let mut command = Command::new(executable);
+    apply_portable_tessdata(&mut command, executable);
     command
         .arg(image)
         .arg("stdout")
@@ -184,6 +210,7 @@ pub fn recognize_document(
 ) -> Result<OcrDocument, OcrError> {
     validate_language(language)?;
     let mut command = Command::new(executable);
+    apply_portable_tessdata(&mut command, executable);
     command
         .arg(image)
         .arg("stdout")

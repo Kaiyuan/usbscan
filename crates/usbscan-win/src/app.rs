@@ -109,8 +109,10 @@ const CMD_SETTINGS_FOLDER: usize = 2403;
 const CMD_SETTINGS_COLLISION: usize = 2404;
 const CMD_SETTINGS_QUALITY: usize = 2405;
 const CMD_SETTINGS_APPLY: usize = 2406;
-/// 增强复选框起始 ID（2700..2703）。
+/// 增强复选框起始 ID（2700..2704）。
 const CMD_ENHANCE_CHECK: usize = 2700;
+/// 增强预设下拉框 ID。
+const CMD_ENHANCE_PRESET: usize = 2710;
 /// 增强强度轨道条 ID。
 const CMD_ENHANCE_TRACK: usize = 2800;
 
@@ -279,6 +281,8 @@ struct AppState {
     settings_apply: HWND,
     enhance_group: HWND,
     enhance_heading: HWND,
+    enhance_preset_label: HWND,
+    enhance_preset: HWND,
     enhance_checks: [HWND; 5],
     enhance_label: HWND,
     enhance_value: HWND,
@@ -430,6 +434,8 @@ pub fn run() -> Result<(), WinError> {
         settings_apply: ptr::null_mut(),
         enhance_group: ptr::null_mut(),
         enhance_heading: ptr::null_mut(),
+        enhance_preset_label: ptr::null_mut(),
+        enhance_preset: ptr::null_mut(),
         enhance_checks: [ptr::null_mut(); 5],
         enhance_label: ptr::null_mut(),
         enhance_value: ptr::null_mut(),
@@ -1210,6 +1216,18 @@ fn create_children(state: *mut AppState) {
 
         s.enhance_group = controls::create_group(s.hwnd, s.hinstance, "");
         s.enhance_heading = controls::create_label(s.hwnd, s.hinstance, "图像增强");
+        s.enhance_preset_label = controls::create_label(s.hwnd, s.hinstance, "预设");
+        s.enhance_preset = controls::create_combo_box(s.hwnd, s.hinstance, CMD_ENHANCE_PRESET);
+        controls::set_combo_items(
+            s.enhance_preset,
+            &[
+                "自定义".to_string(),
+                "文字文档".to_string(),
+                "票据".to_string(),
+                "照片".to_string(),
+            ],
+            Some(0),
+        );
         let enhance_labels = ["自动裁边", "自动纠偏", "透视校正", "去阴影", "白底净化"];
         for (index, label) in enhance_labels.iter().enumerate() {
             s.enhance_checks[index] =
@@ -1577,7 +1595,21 @@ fn layout(state: *mut AppState) {
             inner_w,
             scale(20),
         );
-        let mut checkbox_y = enhance_y + scale(30);
+        place(
+            s.enhance_preset_label,
+            x,
+            enhance_y + scale(32),
+            scale(40),
+            label_h,
+        );
+        place(
+            s.enhance_preset,
+            x + scale(44),
+            enhance_y + scale(30),
+            inner_w - scale(44),
+            scale(200),
+        );
+        let mut checkbox_y = enhance_y + scale(58);
         for check in s.enhance_checks {
             place(check, x, checkbox_y, inner_w, scale(22));
             checkbox_y += scale(22);
@@ -1638,6 +1670,8 @@ fn toggle_panel(hwnd: HWND, left: bool) {
                 s.settings_apply,
                 s.enhance_group,
                 s.enhance_heading,
+                s.enhance_preset_label,
+                s.enhance_preset,
                 s.enhance_checks[0],
                 s.enhance_checks[1],
                 s.enhance_checks[2],
@@ -1822,6 +1856,24 @@ fn reset_page_list(s: &mut AppState) {
 }
 
 /// 读取设置控件、校验并应用。
+/// 应用图像增强预设。
+fn apply_enhance_preset(s: &mut AppState) {
+    let Some(index) = controls::combo_selection(s.enhance_preset) else {
+        return;
+    };
+    let (values, strength) = match index {
+        1 => ([true, true, false, true, true], 70),
+        2 => ([true, false, true, true, true], 60),
+        3 => ([false, false, false, false, false], 40),
+        _ => return,
+    };
+    for (control, value) in s.enhance_checks.iter().zip(values) {
+        controls::set_checkbox(*control, value);
+    }
+    controls::set_track_position(s.enhance_track, strength);
+    controls::set_text(s.enhance_value, &strength.to_string());
+}
+
 fn apply_settings(hwnd: HWND) {
     let state = state_ptr(hwnd);
     if state.is_null() {
@@ -2164,6 +2216,23 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
     if id == CMD_SETTINGS_OUTPUT || id == CMD_SETTINGS_COLLISION || id == CMD_SETTINGS_QUALITY {
+        return;
+    }
+
+    if id == CMD_ENHANCE_PRESET {
+        let state = state_ptr(hwnd);
+        if !state.is_null() && code == CBN_SELCHANGE {
+            // SAFETY: state 有效；只更新复选框与轨道条。
+            apply_enhance_preset(unsafe { &mut *state });
+        }
+        return;
+    }
+    if (CMD_ENHANCE_CHECK..CMD_ENHANCE_CHECK + 5).contains(&id) {
+        let state = state_ptr(hwnd);
+        if !state.is_null() {
+            // SAFETY: state 有效；手动修改后回到“自定义”。
+            controls::set_combo_index(unsafe { (*state).enhance_preset }, Some(0));
+        }
         return;
     }
 

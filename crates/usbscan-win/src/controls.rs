@@ -72,8 +72,8 @@ const BST_CHECKED: usize = 1;
 const CBS_DROPDOWNLIST: u32 = 0x0003;
 const CB_ADDSTRING: u32 = 0x0143;
 const CB_GETCURSEL: u32 = 0x0147;
-const CB_RESETCONTENT: u32 = 0x014B;
 const CB_SETCURSEL: u32 = 0x014E;
+const CB_RESETCONTENT: u32 = 0x014B;
 
 /// `TBBUTTON` 的本地定义，避免依赖 crate 中可能变动的布局。
 ///

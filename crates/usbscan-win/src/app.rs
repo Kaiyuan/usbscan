@@ -600,9 +600,11 @@ fn register_window_classes() -> Result<(), WinError> {
     // SAFETY: 加载系统光标，参数为标准 IDC_ARROW。
     let cursor = unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) };
 
-    let classes: [(&str, WndprocAlias); 11] = [
+    let classes: [(&str, WndprocAlias); 13] = [
         (MAIN_CLASS, wndproc),
         (crate::menubar::MENU_BAR_CLASS, crate::menubar::wndproc),
+        (crate::toolbar::TOOLBAR_CLASS, crate::toolbar::wndproc),
+        (crate::label::LABEL_CLASS, crate::label::wndproc),
         (PREVIEW_CLASS, preview_proc),
         (crate::corners::CORNER_CLASS, crate::corners::wndproc),
         (crate::crop::CROP_CLASS, crate::crop::wndproc),
@@ -1270,7 +1272,7 @@ fn create_children(state: *mut AppState) {
 
         s.menu_bar = crate::menubar::create(s.hwnd, s.hinstance, s.menu);
 
-        s.toolbar = controls::create_toolbar(
+        s.toolbar = crate::toolbar::create(
             s.hwnd,
             s.hinstance,
             &[
@@ -1341,8 +1343,6 @@ fn create_children(state: *mut AppState) {
                     icon: Some(Icon::Print),
                 },
             ],
-            scale(40),
-            s.dpi,
         );
 
         s.device_label = controls::create_label(s.hwnd, s.hinstance, "设备");
@@ -1391,6 +1391,10 @@ fn create_children(state: *mut AppState) {
         );
 
         s.settings_group = controls::create_group(s.hwnd, s.hinstance, "");
+        s.enhance_group = controls::create_group(s.hwnd, s.hinstance, "");
+        // 分组框只用于布局锚点，实际卡片背景由主窗口绘制；隐藏系统边框。
+        ShowWindow(s.settings_group, SW_HIDE);
+        ShowWindow(s.enhance_group, SW_HIDE);
         s.settings_heading = controls::create_label(s.hwnd, s.hinstance, "扫描设置");
         s.settings_output_label = controls::create_label(s.hwnd, s.hinstance, "输出目录");
         s.settings_output = controls::create_edit(s.hwnd, s.hinstance, CMD_SETTINGS_OUTPUT);
@@ -1428,7 +1432,6 @@ fn create_children(state: *mut AppState) {
             controls::create_push_button(s.hwnd, s.hinstance, CMD_SETTINGS_APPLY, "应用设置");
         controls::make_owner_draw_button(s.settings_apply);
 
-        s.enhance_group = controls::create_group(s.hwnd, s.hinstance, "");
         s.enhance_heading = controls::create_label(s.hwnd, s.hinstance, "图像增强");
         s.enhance_preset_label = controls::create_label(s.hwnd, s.hinstance, "预设");
         s.enhance_preset = controls::create_combo_box(s.hwnd, s.hinstance, CMD_ENHANCE_PRESET);
@@ -1539,7 +1542,10 @@ fn apply_font_to_children(state: &AppState) {
             }
         }
     }
-    controls::autosize_toolbar(state.toolbar);
+    // SAFETY: 工具栏窗口有效。
+    unsafe {
+        InvalidateRect(state.toolbar, ptr::null(), 1);
+    }
 }
 
 /// 按当前主题和 DPI 重新生成工具栏图标。
@@ -1552,8 +1558,8 @@ fn rebuild_toolbar_icons(s: &mut AppState) {
         unsafe { GetSysColor(COLOR_WINDOWTEXT) }
     };
     s.toolbar_icons = icons::create_toolbar_icons(dpi::scale(24, s.dpi), color);
-    controls::set_toolbar_images(s.toolbar, s.toolbar_icons);
-    controls::autosize_toolbar(s.toolbar);
+    crate::toolbar::set_icons(s.toolbar, s.toolbar_icons);
+    crate::toolbar::set_dark(s.toolbar, s.dark);
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1628,6 +1634,34 @@ fn apply_theme(state: *mut AppState) {
         controls::set_status_background(s.status, panel_bg);
         rebuild_toolbar_icons(s);
 
+        // 静态文本、分组框和复选框使用无视觉样式绘制，让 WM_CTLCOLOR*
+        // 的主题颜色真正生效；否则 Windows 会继续用浅色主题文字。
+        for control in [
+            s.device_label,
+            s.format_label,
+            s.record_label,
+            s.settings_heading,
+            s.settings_output_label,
+            s.settings_file_label,
+            s.settings_folder_label,
+            s.settings_collision_label,
+            s.settings_quality_label,
+            s.settings_quality_value,
+            s.settings_preview,
+            s.enhance_heading,
+            s.enhance_preset_label,
+            s.enhance_label,
+            s.enhance_value,
+        ] {
+            crate::label::set_dark(control, s.dark);
+        }
+        for group in [s.settings_group, s.enhance_group] {
+            crate::theme::apply_plain(group);
+        }
+        for check in s.enhance_checks {
+            crate::theme::apply_plain(check);
+        }
+
         if s.dark {
             // 编辑框/下拉框使用专门的暗色子主题；不同 Win10 版本对
             // DarkMode_Explorer 的支持不一致，CFD 主题更稳定。
@@ -1640,6 +1674,8 @@ fn apply_theme(state: *mut AppState) {
                 s.settings_folder,
                 s.settings_collision,
                 s.enhance_preset,
+                s.settings_track,
+                s.enhance_track,
             ] {
                 crate::theme::apply_named(control, "DarkMode_CFD");
             }

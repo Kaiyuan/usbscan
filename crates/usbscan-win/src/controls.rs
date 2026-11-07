@@ -543,6 +543,28 @@ pub fn make_owner_draw_button(button: HWND) {
     }
 }
 
+/// 把标签改成 owner-draw，让文字颜色跟随亮/暗主题。
+pub fn make_owner_draw_static(label: HWND) {
+    if label.is_null() {
+        return;
+    }
+    // SAFETY: 标签句柄有效；只修改窗口样式。
+    unsafe {
+        let style = GetWindowLongPtrW(label, GWL_STYLE) as u32;
+        let style = (style & !0xF) | 0x0D; // SS_OWNERDRAW
+        SetWindowLongPtrW(label, GWL_STYLE, style as isize);
+        SetWindowPos(
+            label,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+}
+
 /// 创建页面缩略图列表（图标模式）。
 pub fn create_page_list(parent: HWND, hinstance: HINSTANCE) -> HWND {
     let class = wide("SysListView32");
@@ -849,25 +871,7 @@ pub fn create_trackbar(parent: HWND, hinstance: HINSTANCE, id: usize) -> HWND {
 
 /// 创建静态文本。
 pub fn create_label(parent: HWND, hinstance: HINSTANCE, text: &str) -> HWND {
-    let class = wide("STATIC");
-    let text = wide(text);
-    // SAFETY: 标准控件创建。
-    unsafe {
-        CreateWindowExW(
-            0,
-            class.as_ptr(),
-            text.as_ptr(),
-            WS_CHILD | WS_VISIBLE,
-            0,
-            0,
-            0,
-            0,
-            parent,
-            std::ptr::null_mut(),
-            hinstance,
-            std::ptr::null(),
-        )
-    }
+    crate::label::create(parent, hinstance, text)
 }
 
 const fn ws_ex_clientedge() -> u32 {

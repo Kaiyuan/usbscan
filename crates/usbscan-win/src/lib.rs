@@ -29,6 +29,7 @@ pub mod dpi;
 pub mod error;
 pub mod export_dialog;
 pub mod icons;
+pub mod label;
 pub mod menu;
 pub mod menubar;
 pub mod ocr_viewer;
@@ -39,6 +40,7 @@ pub mod settings_dialog;
 pub mod text;
 pub mod text_edit;
 pub mod theme;
+pub mod toolbar;
 
 pub use app::run;
 pub use error::WinError;

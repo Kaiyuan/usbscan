@@ -512,7 +512,7 @@ fn register_window_classes() -> Result<(), WinError> {
     // SAFETY: 加载系统光标，参数为标准 IDC_ARROW。
     let cursor = unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) };
 
-    let classes: [(&str, WndprocAlias); 6] = [
+    let classes: [(&str, WndprocAlias); 7] = [
         (MAIN_CLASS, wndproc),
         (PREVIEW_CLASS, preview_proc),
         (crate::corners::CORNER_CLASS, crate::corners::wndproc),
@@ -521,6 +521,10 @@ fn register_window_classes() -> Result<(), WinError> {
         (
             crate::export_dialog::EXPORT_CLASS,
             crate::export_dialog::wndproc,
+        ),
+        (
+            crate::settings_dialog::SETTINGS_CLASS,
+            crate::settings_dialog::wndproc,
         ),
     ];
 
@@ -1854,8 +1858,8 @@ fn refresh_status(s: &AppState) {
     controls::set_status_text(s.status, 3, "v0.1.0");
 
     let title = match &s.camera_name {
-        Some(name) => format!("usbscan — 未命名文档 — {name}"),
-        None => "usbscan — 未命名文档".to_string(),
+        Some(name) => format!("usbscan — {} — {name}", s.session.doc_name),
+        None => format!("usbscan — {}", s.session.doc_name),
     };
     let title = wide(&title);
     // SAFETY: 标题字符串在调用期间有效。
@@ -2117,6 +2121,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
+    if id == menu::id::FILE_OPEN {
+        open_document(hwnd);
+        return;
+    }
+
     if id == menu::id::FILE_REVEAL {
         reveal_selected_page(hwnd);
         return;
@@ -2144,6 +2153,11 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
 
     if id == menu::id::TOOL_OCR_EDIT {
         edit_ocr_text(hwnd);
+        return;
+    }
+
+    if id == menu::id::TOOL_SETTINGS {
+        edit_ocr_settings(hwnd);
         return;
     }
 
@@ -2854,6 +2868,30 @@ fn edit_ocr_text(hwnd: HWND) {
                 return;
             }
         }
+        refresh_status(s);
+    }
+}
+
+/// 编辑 OCR 语言与 Tesseract 路径。
+fn edit_ocr_settings(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；设置窗口返回后统一写回配置。
+    unsafe {
+        let s = &mut *state;
+        let Some(result) = crate::settings_dialog::edit_settings(
+            hwnd,
+            &s.ocr_language,
+            s.tesseract_path.as_deref(),
+        ) else {
+            return;
+        };
+        s.ocr_language = result.language;
+        s.tesseract_path = result.tesseract_path;
+        persist_config(s);
+        s.status_msg = format!("OCR 设置已保存（{}）", s.ocr_language);
         refresh_status(s);
     }
 }
@@ -3598,6 +3636,64 @@ fn new_document(hwnd: HWND) {
         let _ = s.store.save(&s.session);
         s.status_msg = "已新建文档".to_string();
         refresh_status(s);
+    }
+}
+
+/// 打开另一个输出目录中的会话。
+fn open_document(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；确认框与文件读取逐项检查。
+    unsafe {
+        let s = &mut *state;
+        if !s.session.pages.is_empty() {
+            let text = wide("打开工程将结束当前会话。\n\n当前已保存的图片不会被删除。是否继续？");
+            let title = wide("打开工程");
+            if MessageBoxW(
+                hwnd,
+                text.as_ptr(),
+                title.as_ptr(),
+                MB_YESNO | MB_ICONQUESTION,
+            ) != IDYES
+            {
+                return;
+            }
+            let _ = s.store.archive();
+        }
+        let Some(directory) = choose_folder(hwnd, "选择包含 .usbscan\\session.json 的文件夹")
+        else {
+            return;
+        };
+        let store = doc::SessionStore::new(directory.clone());
+        match store.load() {
+            Ok(Some(session)) => {
+                s.session = session;
+                s.output_root = directory;
+                s.store = store;
+                s.selected_page = None;
+                s.undo_page = None;
+                set_delete_page_enabled(hwnd, false);
+                set_undo_enabled(hwnd, false);
+                reset_page_list(s);
+                rebuild_page_list(s);
+                controls::set_text(s.settings_output, &s.output_root.to_string_lossy());
+                persist_config(s);
+                s.status_msg = format!("已打开工程：{}", s.output_root.display());
+                refresh_status(s);
+            }
+            Ok(None) => {
+                s.status_msg = "所选目录中没有 usbscan 工程".to_string();
+                refresh_status(s);
+            }
+            Err(err) => {
+                let message = format!("打开工程失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+            }
+        }
     }
 }
 

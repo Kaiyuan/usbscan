@@ -29,6 +29,7 @@ pub mod error;
 pub mod export_dialog;
 pub mod icons;
 pub mod menu;
+pub mod settings_dialog;
 pub mod text;
 pub mod text_edit;
 pub mod theme;

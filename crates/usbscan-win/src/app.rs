@@ -518,10 +518,11 @@ fn register_window_classes() -> Result<(), WinError> {
     // SAFETY: 加载系统光标，参数为标准 IDC_ARROW。
     let cursor = unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) };
 
-    let classes: [(&str, WndprocAlias); 7] = [
+    let classes: [(&str, WndprocAlias); 8] = [
         (MAIN_CLASS, wndproc),
         (PREVIEW_CLASS, preview_proc),
         (crate::corners::CORNER_CLASS, crate::corners::wndproc),
+        (crate::crop::CROP_CLASS, crate::crop::wndproc),
         (crate::text_edit::TEXT_EDIT_CLASS, crate::text_edit::wndproc),
         (crate::annotate::ANNOTATE_CLASS, crate::annotate::wndproc),
         (
@@ -2134,6 +2135,10 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         transform_selected_page(hwnd, PageTransform::Mirror);
         return;
     }
+    if id == menu::id::EDIT_CROP {
+        crop_selected_page(hwnd);
+        return;
+    }
     if id == menu::id::EDIT_REPROCESS {
         reprocess_selected_page(hwnd);
         return;
@@ -3632,6 +3637,82 @@ fn annotate_selected_page(hwnd: HWND) {
         s.thumb_cache.remove(&page.seq);
         reload_page_list(s, Some(index));
         s.status_msg = format!("已添加 {} 条批注", annotations.len());
+        refresh_status(s);
+    }
+}
+
+/// 手动裁剪选中页。
+fn crop_selected_page(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；图像与文件操作逐项检查。
+    unsafe {
+        let s = &mut *state;
+        let Some(index) = s.selected_page else {
+            s.status_msg = "请先在左侧选择要裁剪的页面".to_string();
+            refresh_status(s);
+            return;
+        };
+        let Some(page) = s.session.pages.get(index).cloned() else {
+            return;
+        };
+        let path = s.output_root.join(&page.path);
+        let (width, height, data) = match imaging::load_bgra(&path) {
+            Ok(image) => image,
+            Err(err) => {
+                let message = format!("读取图片失败：{err}");
+                s.status_msg.clone_from(&message);
+                refresh_status(s);
+                show_error(hwnd, &message);
+                return;
+            }
+        };
+        let Some((left, top, crop_width, crop_height)) =
+            crate::crop::edit_crop(hwnd, width, height, &data, s.dark)
+        else {
+            s.status_msg = "已取消裁剪".to_string();
+            refresh_status(s);
+            return;
+        };
+        if left == 0 && top == 0 && crop_width == width && crop_height == height {
+            s.status_msg = "裁剪区域未改变".to_string();
+            refresh_status(s);
+            return;
+        }
+        let (out_width, out_height, out_data) =
+            match imaging::crop_bgra(width, height, &data, left, top, crop_width, crop_height) {
+                Ok(image) => image,
+                Err(err) => {
+                    let message = format!("裁剪失败：{err}");
+                    s.status_msg.clone_from(&message);
+                    refresh_status(s);
+                    show_error(hwnd, &message);
+                    return;
+                }
+            };
+        if let Err(err) = write_jpeg_atomic(&path, out_width, out_height, &out_data, s.jpeg_quality)
+        {
+            let message = format!("写回裁剪结果失败：{err}");
+            s.status_msg.clone_from(&message);
+            refresh_status(s);
+            show_error(hwnd, &message);
+            return;
+        }
+        if let Some(updated) = s.session.pages.get_mut(index) {
+            updated.width = out_width;
+            updated.height = out_height;
+        }
+        s.session.updated_at = doc::now_unix();
+        s.session.closed_cleanly = false;
+        s.thumb_cache.remove(&page.seq);
+        let _ = s.store.save(&s.session);
+        reload_page_list(s, Some(index));
+        s.status_msg = format!(
+            "已裁剪第 {} 页（{out_width}×{out_height}）",
+            page_number(s, index)
+        );
         refresh_status(s);
     }
 }

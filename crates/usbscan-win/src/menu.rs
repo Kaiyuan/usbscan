@@ -41,6 +41,7 @@ pub mod id {
     pub const EDIT_ANNOTATE: usize = 1109;
     pub const EDIT_MOVE_UP: usize = 1110;
     pub const EDIT_MOVE_DOWN: usize = 1111;
+    pub const EDIT_CROP: usize = 1112;
     pub const DEVICE_REFRESH: usize = 1201;
     pub const DEVICE_RESET: usize = 1202;
     pub const DEVICE_PROPERTIES: usize = 1203;
@@ -116,6 +117,7 @@ pub fn build_main_menu() -> Result<HMENU, WinError> {
         append(edit, MF_STRING, id::EDIT_ROTATE_RIGHT, "顺时针旋转 90°(&R)")?;
         append(edit, MF_STRING, id::EDIT_ROTATE_LEFT, "逆时针旋转 90°(&L)")?;
         append(edit, MF_STRING, id::EDIT_MIRROR, "水平镜像(&M)")?;
+        append(edit, MF_STRING, id::EDIT_CROP, "裁剪(&K)…")?;
         append(edit, MF_SEPARATOR, 0, "")?;
         append(edit, MF_STRING, id::EDIT_REPROCESS, "重新处理增强(&P)")?;
         append(edit, MF_STRING, id::EDIT_PERSPECTIVE, "四角透视校正(&C)…")?;
@@ -172,6 +174,7 @@ pub fn build_page_menu() -> Result<HMENU, WinError> {
         append(menu, MF_STRING, id::EDIT_ROTATE_RIGHT, "顺时针旋转 90°(&R)")?;
         append(menu, MF_STRING, id::EDIT_ROTATE_LEFT, "逆时针旋转 90°(&L)")?;
         append(menu, MF_STRING, id::EDIT_MIRROR, "水平镜像(&M)")?;
+        append(menu, MF_STRING, id::EDIT_CROP, "裁剪(&K)…")?;
         append(menu, MF_STRING, id::EDIT_PERSPECTIVE, "四角透视校正(&C)…")?;
         append(menu, MF_STRING, id::EDIT_ANNOTATE, "批注(&A)…")?;
         append(menu, MF_STRING, id::EDIT_REPROCESS, "重新处理增强(&P)")?;

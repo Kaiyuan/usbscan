@@ -13,12 +13,14 @@ use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 
 mod annotate;
+mod crop;
 mod dib;
 mod enhance;
 mod perspective;
 mod transform;
 
 pub use annotate::{colors, render_annotations, Annotation, AnnotationColor};
+pub use crop::crop_bgra;
 pub use dib::decode_dib;
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
 pub use perspective::{auto_perspective, detect_document_corners, perspective_from_corners};

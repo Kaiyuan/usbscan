@@ -24,6 +24,7 @@ pub mod capture_host;
 pub mod config;
 pub mod controls;
 pub mod corners;
+pub mod crop;
 pub mod dpi;
 pub mod error;
 pub mod export_dialog;

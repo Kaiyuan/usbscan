@@ -30,9 +30,9 @@ use windows_sys::Win32::Graphics::Gdi::{
     CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject,
     GetSysColor, GetSysColorBrush, InvalidateRect, LineTo, MoveToEx, Rectangle, RoundRect,
     ScreenToClient, SelectObject, SetBkColor, SetBkMode, SetStretchBltMode, SetTextColor,
-    StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, COLORONCOLOR, COLOR_APPWORKSPACE,
-    COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, DIB_RGB_COLORS, HBITMAP, HBRUSH,
-    HDC, HGDIOBJ, NULL_PEN, PS_DOT, PS_SOLID, SRCCOPY,
+    StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, CLEARTYPE_QUALITY, COLORONCOLOR,
+    COLOR_APPWORKSPACE, COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT,
+    DIB_RGB_COLORS, HBITMAP, HBRUSH, HDC, HGDIOBJ, NULL_PEN, PS_DOT, PS_SOLID, SRCCOPY,
 };
 use windows_sys::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
 use windows_sys::Win32::System::DataExchange::{
@@ -1240,7 +1240,8 @@ fn draw_push_button(item: *const windows_sys::Win32::UI::Controls::DRAWITEMSTRUC
         } else {
             SelectObject(item.hDC, font)
         };
-        SetBkMode(item.hDC, 1);
+        SetBkMode(item.hDC, 2); // OPAQUE，启用 ClearType
+        SetBkColor(item.hDC, bg);
         SetTextColor(item.hDC, fg);
         let wide_text = wide(&text);
         DrawTextW(
@@ -1317,18 +1318,6 @@ fn create_children(state: *mut AppState) {
                     icon: Some(Icon::Video),
                 },
                 ToolButton {
-                    id: 2005,
-                    label: "裁边",
-                    separator_before: true,
-                    icon: Some(Icon::Crop),
-                },
-                ToolButton {
-                    id: 2006,
-                    label: "纠偏",
-                    separator_before: false,
-                    icon: Some(Icon::Deskew),
-                },
-                ToolButton {
                     id: 2007,
                     label: "识别",
                     separator_before: true,
@@ -1355,12 +1344,12 @@ fn create_children(state: *mut AppState) {
             ],
         );
 
-        s.device_label = controls::create_label(s.hwnd, s.hinstance, "设备");
+        s.device_label = controls::create_theme_label(s.hwnd, s.hinstance, "设备");
         s.device_combo = controls::create_combo_box(s.hwnd, s.hinstance, CMD_DEVICE_COMBO);
-        s.format_label = controls::create_label(s.hwnd, s.hinstance, "分辨率");
+        s.format_label = controls::create_theme_label(s.hwnd, s.hinstance, "分辨率");
         s.format_combo = controls::create_combo_box(s.hwnd, s.hinstance, CMD_FORMAT_COMBO);
         controls::set_combo_items(s.format_combo, &["自动".to_string()], Some(0));
-        s.record_label = controls::create_label(s.hwnd, s.hinstance, "录像");
+        s.record_label = controls::create_theme_label(s.hwnd, s.hinstance, "录像");
         s.record_combo = controls::create_combo_box(s.hwnd, s.hinstance, CMD_RECORD_FPS);
         let fps_items = ["25 fps", "30 fps", "50 fps", "60 fps"];
         let fps_index = match s.record_fps {
@@ -1405,17 +1394,17 @@ fn create_children(state: *mut AppState) {
         // 分组框只用于布局锚点，实际卡片背景由主窗口绘制；隐藏系统边框。
         ShowWindow(s.settings_group, SW_HIDE);
         ShowWindow(s.enhance_group, SW_HIDE);
-        s.settings_heading = controls::create_label(s.hwnd, s.hinstance, "扫描设置");
-        s.settings_output_label = controls::create_label(s.hwnd, s.hinstance, "输出目录");
+        s.settings_heading = controls::create_theme_label(s.hwnd, s.hinstance, "扫描设置");
+        s.settings_output_label = controls::create_theme_label(s.hwnd, s.hinstance, "输出目录");
         s.settings_output = controls::create_edit(s.hwnd, s.hinstance, CMD_SETTINGS_OUTPUT);
         s.settings_browse =
             controls::create_push_button(s.hwnd, s.hinstance, CMD_SETTINGS_BROWSE, "浏览…");
         controls::make_owner_draw_button(s.settings_browse);
-        s.settings_file_label = controls::create_label(s.hwnd, s.hinstance, "文件名模板");
+        s.settings_file_label = controls::create_theme_label(s.hwnd, s.hinstance, "文件名模板");
         s.settings_file = controls::create_edit(s.hwnd, s.hinstance, CMD_SETTINGS_FILE);
-        s.settings_folder_label = controls::create_label(s.hwnd, s.hinstance, "子目录模板");
+        s.settings_folder_label = controls::create_theme_label(s.hwnd, s.hinstance, "子目录模板");
         s.settings_folder = controls::create_edit(s.hwnd, s.hinstance, CMD_SETTINGS_FOLDER);
-        s.settings_collision_label = controls::create_label(s.hwnd, s.hinstance, "重名策略");
+        s.settings_collision_label = controls::create_theme_label(s.hwnd, s.hinstance, "重名策略");
         s.settings_collision =
             controls::create_combo_box(s.hwnd, s.hinstance, CMD_SETTINGS_COLLISION);
         let collision_items = [
@@ -1433,17 +1422,17 @@ fn create_children(state: *mut AppState) {
             &collision_items,
             Some(collision_index),
         );
-        s.settings_quality_label = controls::create_label(s.hwnd, s.hinstance, "JPEG 质量");
-        s.settings_quality_value = controls::create_label(s.hwnd, s.hinstance, "92");
+        s.settings_quality_label = controls::create_theme_label(s.hwnd, s.hinstance, "JPEG 质量");
+        s.settings_quality_value = controls::create_theme_label(s.hwnd, s.hinstance, "92");
         s.settings_track = controls::create_trackbar(s.hwnd, s.hinstance, CMD_SETTINGS_QUALITY);
         controls::set_track_position(s.settings_track, i32::from(s.jpeg_quality));
-        s.settings_preview = controls::create_label(s.hwnd, s.hinstance, "示例：生成中…");
+        s.settings_preview = controls::create_theme_label(s.hwnd, s.hinstance, "示例：生成中…");
         s.settings_apply =
             controls::create_push_button(s.hwnd, s.hinstance, CMD_SETTINGS_APPLY, "应用设置");
         controls::make_owner_draw_button(s.settings_apply);
 
-        s.enhance_heading = controls::create_label(s.hwnd, s.hinstance, "图像增强");
-        s.enhance_preset_label = controls::create_label(s.hwnd, s.hinstance, "预设");
+        s.enhance_heading = controls::create_theme_label(s.hwnd, s.hinstance, "图像增强");
+        s.enhance_preset_label = controls::create_theme_label(s.hwnd, s.hinstance, "预设");
         s.enhance_preset = controls::create_combo_box(s.hwnd, s.hinstance, CMD_ENHANCE_PRESET);
         controls::set_combo_items(
             s.enhance_preset,
@@ -1460,8 +1449,8 @@ fn create_children(state: *mut AppState) {
             s.enhance_checks[index] =
                 controls::create_checkbox(s.hwnd, s.hinstance, CMD_ENHANCE_CHECK + index, label);
         }
-        s.enhance_label = controls::create_label(s.hwnd, s.hinstance, "强度");
-        s.enhance_value = controls::create_label(s.hwnd, s.hinstance, "60");
+        s.enhance_label = controls::create_theme_label(s.hwnd, s.hinstance, "强度");
+        s.enhance_value = controls::create_theme_label(s.hwnd, s.hinstance, "60");
         s.enhance_track = controls::create_trackbar(s.hwnd, s.hinstance, CMD_ENHANCE_TRACK);
         controls::set_track_position(s.enhance_track, i32::from(s.enhance.strength));
         controls::set_text(s.enhance_value, &s.enhance.strength.to_string());
@@ -1751,6 +1740,7 @@ fn create_ui_font(dpi: u32) -> usize {
         let mut lf = ncm.lfMessageFont;
         let base = lf.lfHeight.abs();
         lf.lfHeight = -dpi::scale(base, dpi);
+        lf.lfQuality = CLEARTYPE_QUALITY;
         CreateFontIndirectW(&lf) as usize
     }
 }
@@ -2898,12 +2888,17 @@ fn on_command(hwnd: HWND, id: usize, code: u32) {
         return;
     }
 
-    if id == 2005 {
+    if id == 2005 || id == menu::id::PAGE_AUTO_CROP {
         auto_fix_selected_page(hwnd, AutoFix::Crop);
         return;
     }
-    if id == 2006 {
+    if id == 2006 || id == menu::id::PAGE_AUTO_DESKEW {
         auto_fix_selected_page(hwnd, AutoFix::Deskew);
+        return;
+    }
+
+    if id == menu::id::PAGE_RENAME {
+        rename_selected_page(hwnd);
         return;
     }
 
@@ -4451,6 +4446,106 @@ enum AutoFix {
 }
 
 /// 对当前页执行自动裁边/透视校正或自动纠偏。
+fn rename_selected_page(hwnd: HWND) {
+    let state = state_ptr(hwnd);
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: state 有效；文件操作逐项检查。
+    unsafe {
+        let s = &mut *state;
+        let index = s
+            .selected_page
+            .or_else(|| {
+                controls::list_selected(s.pages).and_then(|row| page_index_from_row(s, row))
+            })
+            .or_else(|| (!s.session.pages.is_empty()).then(|| s.session.pages.len() - 1));
+        let Some(index) = index else {
+            s.status_msg = "请先在左侧选择要重命名的页面".to_string();
+            refresh_status(s);
+            return;
+        };
+        let Some(page) = s.session.pages.get(index).cloned() else {
+            return;
+        };
+        let old_path = s.output_root.join(&page.path);
+        let current_name = old_path.file_name().map_or_else(
+            || page.path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        let Some(input) = crate::text_edit::edit_line(hwnd, "重命名页面", &current_name)
+        else {
+            return;
+        };
+        let input = input.trim();
+        let stem = Path::new(input)
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if stem.is_empty()
+            || stem == "."
+            || stem == ".."
+            || stem.ends_with(' ')
+            || stem.ends_with('.')
+            || stem.chars().any(|ch| {
+                ch.is_control()
+                    || matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            })
+        {
+            show_error(
+                hwnd,
+                "文件名无效：不能包含 \\ / : * ? \" < > |，且不能为空。",
+            );
+            return;
+        }
+        let extension = old_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .filter(|extension| !extension.is_empty())
+            .unwrap_or("jpg");
+        let new_name = format!("{stem}.{extension}");
+        let Some(parent) = old_path.parent() else {
+            show_error(hwnd, "无法确定页面所在目录。");
+            return;
+        };
+        let new_path = parent.join(&new_name);
+        if new_path == old_path {
+            s.status_msg = "文件名未改变".to_string();
+            refresh_status(s);
+            return;
+        }
+        if new_path.exists() {
+            show_error(hwnd, &format!("文件已存在：{new_name}"));
+            return;
+        }
+        if let Err(err) = fs::rename(&old_path, &new_path) {
+            show_error(hwnd, &format!("重命名失败：{err}"));
+            return;
+        }
+        // 同步重命名 OCR 文本和行框数据。
+        for sidecar_extension in ["txt", "ocr.tsv"] {
+            let old_sidecar = old_path.with_extension(sidecar_extension);
+            if old_sidecar.exists() {
+                let _ = fs::rename(old_sidecar, new_path.with_extension(sidecar_extension));
+            }
+        }
+        let relative = new_path
+            .strip_prefix(&s.output_root)
+            .unwrap_or(&new_path)
+            .to_path_buf();
+        if let Some(updated) = s.session.pages.get_mut(index) {
+            updated.path = relative;
+        }
+        s.session.updated_at = doc::now_unix();
+        s.session.closed_cleanly = false;
+        let _ = s.store.save(&s.session);
+        s.thumb_cache.remove(&page.seq);
+        reload_page_list(s, Some(index));
+        s.status_msg = format!("已重命名为 {new_name}");
+        refresh_status(s);
+    }
+}
+
 fn auto_fix_selected_page(hwnd: HWND, mode: AutoFix) {
     let state = state_ptr(hwnd);
     if state.is_null() {

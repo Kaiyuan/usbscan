@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect, GetSysColor,
-    SelectObject, SetBkMode, SetTextColor, COLOR_WINDOWTEXT, DT_LEFT, DT_NOPREFIX, HGDIOBJ,
-    TRANSPARENT,
+    SelectObject, SetBkColor, SetBkMode, SetTextColor, COLOR_WINDOWTEXT, DT_LEFT, DT_NOPREFIX,
+    HGDIOBJ,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GetClientRect, GetParent, GetWindowTextLengthW,
@@ -104,7 +104,8 @@ pub unsafe extern "system" fn wndproc(
                 } else {
                     SelectObject(hdc, font)
                 };
-                SetBkMode(hdc, TRANSPARENT as i32);
+                SetBkMode(hdc, 2); // OPAQUE，启用 ClearType
+                SetBkColor(hdc, bg);
                 SetTextColor(hdc, fg);
 
                 let len = GetWindowTextLengthW(hwnd);

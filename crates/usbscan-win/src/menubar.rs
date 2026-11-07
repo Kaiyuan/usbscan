@@ -12,10 +12,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, ClientToScreen, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect,
-    GetStockObject, GetSysColor, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject,
-    SetBkMode, SetTextColor, COLOR_BTNTEXT, COLOR_HIGHLIGHTTEXT, DT_CENTER, DT_SINGLELINE,
-    DT_VCENTER, HGDIOBJ, NULL_PEN, TRANSPARENT,
+    BeginPaint, ClientToScreen, CreateFontIndirectW, CreateSolidBrush, DeleteObject, DrawTextW,
+    EndPaint, FillRect, GetStockObject, GetSysColor, GetTextExtentPoint32W, InvalidateRect,
+    RoundRect, SelectObject, SetBkColor, SetBkMode, SetTextColor, CLEARTYPE_QUALITY, COLOR_BTNTEXT,
+    COLOR_HIGHLIGHTTEXT, DEFAULT_CHARSET, DT_CENTER, DT_SINGLELINE, DT_VCENTER, FW_NORMAL, HGDIOBJ,
+    LOGFONTW, NULL_PEN, TRANSPARENT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GetClientRect, GetSubMenu, GetWindowLongPtrW, SendMessageW,
@@ -43,6 +44,7 @@ static DARK: AtomicBool = AtomicBool::new(false);
 struct MenuBarState {
     menu: HMENU,
     hover: i32,
+    font: HGDIOBJ,
 }
 
 /// 创建菜单栏子窗口；`menu` 是隐藏的主菜单栏句柄。
@@ -107,7 +109,12 @@ fn item_rects(hwnd: HWND) -> [RECT; 6] {
     // SAFETY: 使用屏幕 DC 与父窗口字体测量文字。
     unsafe {
         let parent = windows_sys::Win32::UI::WindowsAndMessaging::GetParent(hwnd);
-        let font = SendMessageW(parent, WM_GETFONT, 0, 0) as HGDIOBJ;
+        let state = state_ptr(hwnd);
+        let font = if state.is_null() {
+            SendMessageW(parent, WM_GETFONT, 0, 0) as HGDIOBJ
+        } else {
+            (*state).font
+        };
         let dc = windows_sys::Win32::Graphics::Gdi::GetDC(hwnd);
         let old = if font.is_null() {
             ptr::null_mut()
@@ -182,6 +189,20 @@ fn show_menu(hwnd: HWND, index: usize) {
     }
 }
 
+fn create_menu_font(hwnd: HWND) -> HGDIOBJ {
+    let mut logfont: LOGFONTW = unsafe { std::mem::zeroed() };
+    let dpi = dpi::dpi_for_window(hwnd);
+    logfont.lfHeight = -dpi::scale(12, dpi);
+    logfont.lfWeight = FW_NORMAL as i32;
+    logfont.lfCharSet = DEFAULT_CHARSET;
+    logfont.lfQuality = CLEARTYPE_QUALITY;
+    let face: Vec<u16> = "Segoe UI".encode_utf16().collect();
+    let count = face.len().min(logfont.lfFaceName.len() - 1);
+    logfont.lfFaceName[..count].copy_from_slice(&face[..count]);
+    // SAFETY: logfont 在调用期间有效。
+    unsafe { CreateFontIndirectW(&logfont) as HGDIOBJ }
+}
+
 /// 菜单栏窗口过程。
 ///
 /// # Safety
@@ -202,6 +223,7 @@ pub unsafe extern "system" fn wndproc(
                 let state = Box::new(MenuBarState {
                     menu: (*cs).lpCreateParams as HMENU,
                     hover: -1,
+                    font: create_menu_font(hwnd),
                 });
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(state) as isize);
                 0
@@ -224,7 +246,12 @@ pub unsafe extern "system" fn wndproc(
                 let state = state_ptr(hwnd);
                 let hover = if state.is_null() { -1 } else { (*state).hover };
                 let parent = windows_sys::Win32::UI::WindowsAndMessaging::GetParent(hwnd);
-                let font = SendMessageW(parent, WM_GETFONT, 0, 0) as HGDIOBJ;
+                let state = state_ptr(hwnd);
+                let font = if state.is_null() {
+                    SendMessageW(parent, WM_GETFONT, 0, 0) as HGDIOBJ
+                } else {
+                    (*state).font
+                };
                 let old = if font.is_null() {
                     ptr::null_mut()
                 } else {
@@ -267,6 +294,19 @@ pub unsafe extern "system" fn wndproc(
                         fg
                     };
                     SetTextColor(hdc, color);
+                    SetBkColor(
+                        hdc,
+                        if selected {
+                            if dark {
+                                DARK_SELECTED
+                            } else {
+                                rgb(0x00, 0x7a, 0xff)
+                            }
+                        } else {
+                            bg
+                        },
+                    );
+                    SetBkMode(hdc, 2); // OPAQUE，启用 ClearType 抗锯齿
                     let text = wide(title);
                     DrawTextW(
                         hdc,
@@ -312,6 +352,9 @@ pub unsafe extern "system" fn wndproc(
                 let state = state_ptr(hwnd);
                 if !state.is_null() {
                     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                    if !(*state).font.is_null() {
+                        DeleteObject((*state).font);
+                    }
                     drop(Box::from_raw(state));
                 }
                 DefWindowProcW(hwnd, msg, wparam, lparam)

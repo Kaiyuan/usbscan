@@ -871,6 +871,29 @@ pub fn create_trackbar(parent: HWND, hinstance: HINSTANCE, id: usize) -> HWND {
 
 /// 创建静态文本。
 pub fn create_label(parent: HWND, hinstance: HINSTANCE, text: &str) -> HWND {
+    let class = wide("STATIC");
+    let text = wide(text);
+    // SAFETY: 标准控件创建。
+    unsafe {
+        CreateWindowExW(
+            0,
+            class.as_ptr(),
+            text.as_ptr(),
+            WS_CHILD | WS_VISIBLE,
+            0,
+            0,
+            0,
+            0,
+            parent,
+            std::ptr::null_mut(),
+            hinstance,
+            std::ptr::null(),
+        )
+    }
+}
+
+/// 主窗口使用的主题化标签（文字颜色随亮/暗主题变化）。
+pub fn create_theme_label(parent: HWND, hinstance: HINSTANCE, text: &str) -> HWND {
     crate::label::create(parent, hinstance, text)
 }
 

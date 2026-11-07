@@ -11,8 +11,8 @@ use std::ptr;
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect, GetDC,
-    GetStockObject, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject, SetBkMode,
-    SetTextColor, DT_LEFT, DT_SINGLELINE, DT_VCENTER, HGDIOBJ, NULL_PEN, TRANSPARENT,
+    GetStockObject, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject, SetBkColor,
+    SetBkMode, SetTextColor, DT_LEFT, DT_SINGLELINE, DT_VCENTER, HGDIOBJ, NULL_PEN, TRANSPARENT,
 };
 use windows_sys::Win32::UI::Controls::{ImageList_Draw, HIMAGELIST, ILD_TRANSPARENT};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
@@ -293,6 +293,7 @@ pub unsafe extern "system" fn wndproc(
                         continue;
                     };
                     let index = i32::try_from(entry_index).unwrap_or(-1);
+                    let mut text_bg = bg;
                     if pressed == index || hover == index {
                         let color = if pressed == index {
                             if dark {
@@ -305,6 +306,7 @@ pub unsafe extern "system" fn wndproc(
                         } else {
                             LIGHT_HOVER
                         };
+                        text_bg = color;
                         let brush = CreateSolidBrush(color);
                         let old_brush = SelectObject(hdc, brush);
                         let old_pen = SelectObject(hdc, GetStockObject(NULL_PEN));
@@ -313,6 +315,8 @@ pub unsafe extern "system" fn wndproc(
                         SelectObject(hdc, old_brush);
                         DeleteObject(brush as HGDIOBJ);
                     }
+                    SetBkColor(hdc, text_bg);
+                    SetBkMode(hdc, 2); // OPAQUE，启用 ClearType
                     let state = &*state;
                     let entry = &state.entries[entry_index];
                     let mut text_x = rect.left + pad;

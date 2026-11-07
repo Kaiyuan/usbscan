@@ -7,10 +7,10 @@ use std::sync::atomic::Ordering;
 
 use windows_sys::Win32::Graphics::Gdi::{
     CreateSolidBrush, DeleteObject, DrawTextW, FillRect, GetDC, GetStockObject, GetSysColor,
-    GetSysColorBrush, GetTextExtentPoint32W, ReleaseDC, RoundRect, SelectObject, SetBkMode,
-    SetTextColor, COLOR_GRAYTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_MENU, COLOR_MENUTEXT,
-    DEFAULT_GUI_FONT, DT_CENTER, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, HGDIOBJ, NULL_PEN,
-    TRANSPARENT,
+    GetSysColorBrush, GetTextExtentPoint32W, ReleaseDC, RoundRect, SelectObject, SetBkColor,
+    SetBkMode, SetTextColor, COLOR_GRAYTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_MENU,
+    COLOR_MENUTEXT, DEFAULT_GUI_FONT, DT_CENTER, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER,
+    HGDIOBJ, NULL_PEN,
 };
 use windows_sys::Win32::UI::Controls::{
     DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_DISABLED, ODS_SELECTED, ODT_MENU,
@@ -77,6 +77,9 @@ pub mod id {
 
     /// 打开选中的页面（右键菜单/双击）。
     pub const PAGE_OPEN: usize = 1601;
+    pub const PAGE_RENAME: usize = 1602;
+    pub const PAGE_AUTO_CROP: usize = 1603;
+    pub const PAGE_AUTO_DESKEW: usize = 1604;
 
     /// 快捷键"拍照"，与工具栏按钮共用同一命令 ID。
     pub const CAPTURE: usize = 2001;
@@ -200,7 +203,11 @@ pub fn build_page_menu() -> Result<HMENU, WinError> {
             return Err(WinError::last());
         }
         append(menu, MF_STRING, id::PAGE_OPEN, "打开(&O)")?;
+        append(menu, MF_STRING, id::PAGE_RENAME, "重命名(&R)…")?;
         append(menu, MF_STRING, id::FILE_REVEAL, "在资源管理器中定位(&L)")?;
+        append(menu, MF_SEPARATOR, 0, "")?;
+        append(menu, MF_STRING, id::PAGE_AUTO_CROP, "自动裁边并纠畸变(&A)")?;
+        append(menu, MF_STRING, id::PAGE_AUTO_DESKEW, "自动纠偏(&K)")?;
         append(menu, MF_SEPARATOR, 0, "")?;
         append(menu, MF_STRING, id::EDIT_ROTATE_RIGHT, "顺时针旋转 90°(&R)")?;
         append(menu, MF_STRING, id::EDIT_ROTATE_LEFT, "逆时针旋转 90°(&L)")?;
@@ -620,7 +627,8 @@ pub fn draw_item(item: *const DRAWITEMSTRUCT, dark: bool) -> bool {
             FillRect(item.hDC, &item.rcItem, brush);
         }
         DeleteObject(brush as HGDIOBJ);
-        SetBkMode(item.hDC, TRANSPARENT as i32);
+        SetBkMode(item.hDC, 2); // OPAQUE，启用 ClearType
+        SetBkColor(item.hDC, bg);
         SetTextColor(item.hDC, fg);
 
         let text = menu_text(item.hwndItem, id, top_level);

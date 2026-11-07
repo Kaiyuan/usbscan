@@ -41,10 +41,20 @@ struct EditState {
     save: HWND,
     cancel: HWND,
     result: Option<String>,
+    single_line: bool,
 }
 
 /// 打开模态文本编辑窗口；保存时返回编辑后的文本。
 pub fn edit_text(parent: HWND, title: &str, content: &str) -> Option<String> {
+    edit_modal(parent, title, content, false)
+}
+
+/// 打开单行输入窗口（用于重命名等）。
+pub fn edit_line(parent: HWND, title: &str, content: &str) -> Option<String> {
+    edit_modal(parent, title, content, true)
+}
+
+fn edit_modal(parent: HWND, title: &str, content: &str, single_line: bool) -> Option<String> {
     let state = Box::new(EditState {
         parent,
         content: content.to_string(),
@@ -52,6 +62,7 @@ pub fn edit_text(parent: HWND, title: &str, content: &str) -> Option<String> {
         save: ptr::null_mut(),
         cancel: ptr::null_mut(),
         result: None,
+        single_line,
     });
     let state_ptr = Box::into_raw(state);
 
@@ -62,8 +73,17 @@ pub fn edit_text(parent: HWND, title: &str, content: &str) -> Option<String> {
     }
     let parent_width = parent_rect.right - parent_rect.left;
     let parent_height = parent_rect.bottom - parent_rect.top;
-    let width = (parent_width * 70 / 100).max(560);
-    let height = (parent_height * 70 / 100).max(420);
+    let (width, height) = if single_line {
+        (
+            dpi::scale(460, dpi::dpi_for_window(parent)).min(parent_width.saturating_sub(40)),
+            dpi::scale(190, dpi::dpi_for_window(parent)),
+        )
+    } else {
+        (
+            (parent_width * 70 / 100).max(560),
+            (parent_height * 70 / 100).max(420),
+        )
+    };
     let x = parent_rect.left + (parent_width - width) / 2;
     let y = parent_rect.top + (parent_height - height) / 2;
 
@@ -144,10 +164,9 @@ pub unsafe extern "system" fn wndproc(
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
                 let class = wide("EDIT");
                 let content = wide(&(*state).content);
-                (*state).edit = CreateWindowExW(
-                    WS_EX_CLIENTEDGE,
-                    class.as_ptr(),
-                    content.as_ptr(),
+                let style = if (*state).single_line {
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL as u32
+                } else {
                     WS_CHILD
                         | WS_VISIBLE
                         | WS_TABSTOP
@@ -156,7 +175,13 @@ pub unsafe extern "system" fn wndproc(
                         | ES_MULTILINE as u32
                         | ES_AUTOVSCROLL as u32
                         | ES_AUTOHSCROLL as u32
-                        | ES_WANTRETURN as u32,
+                        | ES_WANTRETURN as u32
+                };
+                (*state).edit = CreateWindowExW(
+                    WS_EX_CLIENTEDGE,
+                    class.as_ptr(),
+                    content.as_ptr(),
+                    style,
                     0,
                     0,
                     0,
@@ -245,13 +270,18 @@ fn layout(hwnd: HWND, state: *mut EditState) {
         let button_height = dpi::scale(30, dpi);
         let gap = dpi::scale(8, dpi);
         let bottom = rect.bottom - button_height - margin;
+        let edit_height = if (*state).single_line {
+            dpi::scale(28, dpi)
+        } else {
+            (bottom - margin * 2).max(1)
+        };
         SetWindowPos(
             (*state).edit,
             ptr::null_mut(),
             margin,
             margin,
             (rect.right - margin * 2).max(1),
-            (bottom - margin * 2).max(1),
+            edit_height,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
         let save_x = rect.right - margin - button_width * 2 - gap;

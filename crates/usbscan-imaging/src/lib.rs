@@ -15,6 +15,7 @@ use image::{ExtendedColorType, ImageEncoder};
 mod annotate;
 mod crop;
 mod dib;
+mod document;
 mod enhance;
 mod perspective;
 mod transform;
@@ -22,8 +23,9 @@ mod transform;
 pub use annotate::{colors, render_annotations, Annotation, AnnotationColor};
 pub use crop::crop_bgra;
 pub use dib::{decode_dib, encode_dib_bgra};
+pub use document::detect_document_corners;
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
-pub use perspective::{auto_perspective, detect_document_corners, perspective_from_corners};
+pub use perspective::{auto_perspective, perspective_from_corners};
 pub use transform::{mirror_horizontal_bgra, rotate90_bgra};
 
 /// 校验 BGRA 缓冲区与宽高是否匹配。

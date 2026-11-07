@@ -118,11 +118,53 @@ fn luminance(pixel: &[u8]) -> u32 {
     (u32::from(pixel[2]) * 299 + u32::from(pixel[1]) * 587 + u32::from(pixel[0]) * 114) / 1000
 }
 
+#[allow(clippy::too_many_lines)]
 fn crop_to_content(image: &EnhancedImage) -> EnhancedImage {
     let width = image.width as usize;
     let height = image.height as usize;
     if width < 8 || height < 8 {
         return image.clone();
+    }
+
+    // 优先使用连通域检测出的文档边界；检测失败时回退到背景色裁剪。
+    if let Some(corners) = crate::detect_document_corners(image.width, image.height, &image.bgra) {
+        let min_x = corners
+            .iter()
+            .map(|point| point.0)
+            .fold(f64::MAX, f64::min)
+            .floor()
+            .clamp(0.0, width as f64 - 1.0) as usize;
+        let min_y = corners
+            .iter()
+            .map(|point| point.1)
+            .fold(f64::MAX, f64::min)
+            .floor()
+            .clamp(0.0, height as f64 - 1.0) as usize;
+        let max_x = corners
+            .iter()
+            .map(|point| point.0)
+            .fold(f64::MIN, f64::max)
+            .ceil()
+            .clamp(0.0, width as f64 - 1.0) as usize;
+        let max_y = corners
+            .iter()
+            .map(|point| point.1)
+            .fold(f64::MIN, f64::max)
+            .ceil()
+            .clamp(0.0, height as f64 - 1.0) as usize;
+        let margin = 2;
+        let left = min_x.saturating_sub(margin);
+        let top = min_y.saturating_sub(margin);
+        let right = (max_x + margin).min(width - 1);
+        let bottom = (max_y + margin).min(height - 1);
+        let crop_width = right - left + 1;
+        let crop_height = bottom - top + 1;
+        if crop_width >= 16
+            && crop_height >= 16
+            && (crop_width < width * 99 / 100 || crop_height < height * 99 / 100)
+        {
+            return crop_rect(image, left, top, right, bottom);
+        }
     }
 
     // 用四条边的平均颜色作为背景估计。
@@ -193,7 +235,19 @@ fn crop_to_content(image: &EnhancedImage) -> EnhancedImage {
     if crop_width < 16 || crop_height < 16 {
         return image.clone();
     }
+    crop_rect(image, left, top, right, bottom)
+}
 
+fn crop_rect(
+    image: &EnhancedImage,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+) -> EnhancedImage {
+    let width = image.width as usize;
+    let crop_width = right - left + 1;
+    let crop_height = bottom - top + 1;
     let mut out = vec![0u8; crop_width * crop_height * 4];
     for y in 0..crop_height {
         let src = ((top + y) * width + left) * 4;
@@ -223,14 +277,15 @@ fn estimate_skew(image: &EnhancedImage) -> Option<f32> {
         }
     }
 
-    // 取梯度较强的点参与投影，减少背景噪声。
+    // 取梯度较强的点参与投影，权重使用梯度幅值，减少背景弱边缘干扰。
     let mut points = Vec::new();
     for y in 1..height - 1 {
         for x in 1..width - 1 {
             let gx = i32::from(gray[y * width + x + 1]) - i32::from(gray[y * width + x - 1]);
             let gy = i32::from(gray[(y + 1) * width + x]) - i32::from(gray[(y - 1) * width + x]);
-            if gx.abs() + gy.abs() > 60 {
-                points.push((x as f32, y as f32));
+            let weight = gx.abs() + gy.abs();
+            if weight > 50 {
+                points.push((x as f32, y as f32, weight as f32));
             }
         }
     }
@@ -240,44 +295,57 @@ fn estimate_skew(image: &EnhancedImage) -> Option<f32> {
 
     let cx = width as f32 / 2.0;
     let cy = height as f32 / 2.0;
+    let mut bins = vec![0.0f32; height + 2];
     let mut best_angle = 0.0f32;
     let mut best_score = 0.0f32;
-    let mut bins = vec![0u32; height + 2];
-    let mut angle = -8.0f32;
-    while angle <= 8.0 {
-        bins.fill(0);
-        let radians = angle.to_radians();
-        let (sin, cos) = radians.sin_cos();
-        for &(x, y) in &points {
-            let dx = x - cx;
-            let dy = y - cy;
-            // 投影到 y 轴：文本行水平时，行方向的直方图最集中。
-            let rotated = dx * sin + dy * cos + cy;
-            let index = rotated as isize;
-            if index >= 0 && (index as usize) < bins.len() {
-                bins[index as usize] += 1;
-            }
-        }
-        let mean = bins
-            .iter()
-            .map(|&v| f32::from(u16::try_from(v).unwrap_or(u16::MAX)))
-            .sum::<f32>()
-            / bins.len() as f32;
-        let score: f32 = bins
-            .iter()
-            .map(|&value| {
-                let value = f32::from(u16::try_from(value).unwrap_or(u16::MAX));
-                (value - mean) * (value - mean)
-            })
-            .sum();
+    let mut angle = -15.0f32;
+    while angle <= 15.0 {
+        let score = projection_score(&points, cx, cy, angle, &mut bins);
         if score > best_score {
             best_score = score;
             best_angle = angle;
         }
-        angle += 0.5;
+        angle += 0.25;
+    }
+
+    // 在粗搜索结果附近做一次细化。
+    let coarse = best_angle;
+    let mut angle = coarse - 0.4;
+    while angle <= coarse + 0.4 {
+        let score = projection_score(&points, cx, cy, angle, &mut bins);
+        if score > best_score {
+            best_score = score;
+            best_angle = angle;
+        }
+        angle += 0.05;
     }
     // 搜索得到的是把像素转正所需的角度。
     Some(best_angle)
+}
+
+fn projection_score(
+    points: &[(f32, f32, f32)],
+    cx: f32,
+    cy: f32,
+    angle: f32,
+    bins: &mut [f32],
+) -> f32 {
+    bins.fill(0.0);
+    let radians = angle.to_radians();
+    let (sin, cos) = radians.sin_cos();
+    for &(x, y, weight) in points {
+        let dx = x - cx;
+        let dy = y - cy;
+        let rotated = dx * sin + dy * cos + cy;
+        let index = rotated as isize;
+        if index >= 0 && (index as usize) < bins.len() {
+            bins[index as usize] += weight;
+        }
+    }
+    let mean = bins.iter().sum::<f32>() / bins.len() as f32;
+    bins.iter()
+        .map(|value| (value - mean) * (value - mean))
+        .sum()
 }
 
 fn rotate(image: &EnhancedImage, degrees: f32) -> EnhancedImage {
@@ -490,6 +558,43 @@ mod tests {
         assert!(out.height < height);
         assert!(out.width >= 60);
         assert!(out.height >= 35);
+    }
+
+    #[test]
+    fn crop_finds_bright_paper_on_wood() {
+        let width = 300u32;
+        let height = 220u32;
+        let mut data = solid(width, height, [120, 95, 60, 255]);
+        for y in 40..180 {
+            for x in 70..240 {
+                let offset = (y * width + x) as usize * 4;
+                data[offset..offset + 4].copy_from_slice(&[245, 245, 240, 255]);
+            }
+        }
+        for y in 0..40 {
+            for x in 0..60 {
+                let offset = (y * width + x) as usize * 4;
+                data[offset..offset + 4].copy_from_slice(&[30, 30, 30, 255]);
+            }
+        }
+        let out = enhance(
+            width,
+            height,
+            &data,
+            EnhanceOptions {
+                auto_crop: true,
+                ..EnhanceOptions::default()
+            },
+        )
+        .expect("enhance");
+        assert!(out.width >= 165 && out.width < 190, "width {}", out.width);
+        assert!(
+            out.height >= 135 && out.height < 160,
+            "height {}",
+            out.height
+        );
+        let center = ((out.height / 2) * out.width + out.width / 2) as usize * 4;
+        assert!(out.bgra[center] > 200, "crop should keep paper");
     }
 
     #[test]

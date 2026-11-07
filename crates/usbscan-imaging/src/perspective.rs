@@ -23,7 +23,7 @@ pub fn auto_perspective(
     bgra: &[u8],
 ) -> Result<Option<(u32, u32, Vec<u8>)>, ImagingError> {
     crate::validate_bgra(width, height, bgra)?;
-    let Some(corners) = detect_document_corners(width, height, bgra) else {
+    let Some(corners) = crate::detect_document_corners(width, height, bgra) else {
         return Ok(None);
     };
     perspective_from_corners(width, height, bgra, &corners).map(Some)
@@ -92,8 +92,13 @@ pub fn perspective_from_corners(
     Ok((target_width, target_height, out))
 }
 
-/// 检测文档四角；检测不到可信四边形时返回 `None`。
-pub fn detect_document_corners(width: u32, height: u32, bgra: &[u8]) -> Option<[(f64, f64); 4]> {
+/// 旧版全图极值点检测（保留供回归对照）。
+#[allow(dead_code)]
+pub fn detect_document_corners_legacy(
+    width: u32,
+    height: u32,
+    bgra: &[u8],
+) -> Option<[(f64, f64); 4]> {
     let width_usize = width as usize;
     let height_usize = height as usize;
     if width_usize < 16 || height_usize < 16 {

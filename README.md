@@ -6,6 +6,8 @@ Windows 10 / 11 · Rust · Slint 界面 · 完全离线 · 开源
 
 [项目主页](https://kaiyuan.github.io/usbscan/) · [下载最新版本](https://github.com/Kaiyuan/usbscan/releases/latest)
 
+项目主页支持简体中文、繁體中文、English、Deutsch、Français、Italiano、Español、日本語、한국어，并按浏览器语言自动选择。
+
 ---
 
 ## 这是什么

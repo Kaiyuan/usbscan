@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-Hans">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,6 +9,16 @@
   <meta name="theme-color" content="#0f0f10" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/usbscan_icons/usbscan_32x32.png">
   <link rel="apple-touch-icon" href="assets/usbscan_icons/usbscan_128x128.png">
+  <link rel="alternate" hreflang="zh-Hans" href="https://kaiyuan.github.io/usbscan/?lang=zh-Hans">
+  <link rel="alternate" hreflang="zh-Hant" href="https://kaiyuan.github.io/usbscan/?lang=zh-Hant">
+  <link rel="alternate" hreflang="en" href="https://kaiyuan.github.io/usbscan/?lang=en">
+  <link rel="alternate" hreflang="de" href="https://kaiyuan.github.io/usbscan/?lang=de">
+  <link rel="alternate" hreflang="fr" href="https://kaiyuan.github.io/usbscan/?lang=fr">
+  <link rel="alternate" hreflang="it" href="https://kaiyuan.github.io/usbscan/?lang=it">
+  <link rel="alternate" hreflang="es" href="https://kaiyuan.github.io/usbscan/?lang=es">
+  <link rel="alternate" hreflang="ja" href="https://kaiyuan.github.io/usbscan/?lang=ja">
+  <link rel="alternate" hreflang="ko" href="https://kaiyuan.github.io/usbscan/?lang=ko">
+  <link rel="alternate" hreflang="x-default" href="https://kaiyuan.github.io/usbscan/">
   <meta property="og:type" content="website">
   <meta property="og:title" content="UsbScan — 把 USB 摄像头变成文档扫描仪">
   <meta property="og:description" content="任意 UVC 摄像头，自动裁边、透视校正、离线 OCR 与 PDF 归档。">
@@ -88,6 +98,40 @@
     .nav-links { display: flex; align-items: center; gap: 20px; margin-left: auto; }
     .nav-links a { color: var(--muted); font-size: 13px; transition: color .18s ease; }
     .nav-links a:hover { color: var(--text); }
+    .lang {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .lang > svg { width: 15px; height: 15px; flex: none; color: var(--muted); }
+    .lang select {
+      appearance: none;
+      -webkit-appearance: none;
+      max-width: 132px;
+      padding: 7px 22px 7px 9px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel-solid);
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1;
+      cursor: pointer;
+      transition: border-color .18s ease;
+    }
+    .lang select:hover { border-color: var(--accent); }
+    .lang select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .lang .chev {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 9px;
+      pointer-events: none;
+    }
     .nav-cta {
       display: inline-flex;
       align-items: center;
@@ -156,8 +200,8 @@
     .btn-secondary { background: var(--panel-solid); color: var(--text); border-color: var(--border); box-shadow: var(--shadow-soft); }
     .btn svg { width: 17px; height: 17px; flex: none; }
     .meta { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 24px; color: var(--muted); font-size: 12px; }
-    .meta span { display: inline-flex; align-items: center; gap: 6px; }
-    .meta svg { width: 14px; height: 14px; color: var(--accent); }
+    .meta > span { display: inline-flex; align-items: center; gap: 6px; }
+    .meta svg { width: 14px; height: 14px; color: var(--accent); flex: none; }
     .hero-art { position: relative; }
     .hero-art::before {
       content: "";
@@ -261,10 +305,17 @@
       .hero { padding-top: 48px; }
       .features, .steps, .docs-grid { grid-template-columns: 1fr 1fr; }
       .download-panel { grid-template-columns: 1fr; }
+      .nav-links { gap: 16px; }
+    }
+    @media (max-width: 820px) {
+      .nav-links a:not(.nav-cta) { display: none; }
     }
     @media (max-width: 640px) {
       .wrap { width: min(var(--max), calc(100% - 28px)); }
-      .nav-links a:not(.nav-cta) { display: none; }
+      .nav-inner { gap: 12px; }
+      .nav-links { gap: 10px; }
+      .lang > svg { display: none; }
+      .lang select { max-width: 112px; }
       .features, .steps, .docs-grid { grid-template-columns: 1fr; }
       .hero { padding-top: 38px; }
       .download-panel { padding: 24px; }
@@ -275,15 +326,20 @@
 <body>
   <header class="nav">
     <div class="wrap nav-inner">
-      <a class="brand" href="#top" aria-label="UsbScan 首页">
-        <img src="assets/usbscan_icons/usbscan_64x64.png" alt="UsbScan 图标">
+      <a class="brand" href="#top" data-i18n-aria="brand.home" aria-label="UsbScan 首页">
+        <img src="assets/usbscan_icons/usbscan_64x64.png" data-i18n-alt="brand.alt" alt="UsbScan 图标">
         <span>UsbScan</span>
       </a>
-      <nav class="nav-links" aria-label="主导航">
-        <a href="#features">功能</a>
-        <a href="#how">工作流</a>
-        <a href="#download">下载</a>
-        <a href="#docs">文档</a>
+      <nav class="nav-links" data-i18n-aria="nav.label" aria-label="主导航">
+        <a href="#features" data-i18n="nav.features">功能</a>
+        <a href="#how" data-i18n="nav.workflow">工作流</a>
+        <a href="#download" data-i18n="nav.download">下载</a>
+        <a href="#docs" data-i18n="nav.docs">文档</a>
+        <label class="lang">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3z"/></svg>
+          <select id="lang-select" data-i18n-aria="nav.language" aria-label="语言"></select>
+          <span class="chev" aria-hidden="true">▾</span>
+        </label>
         <a class="nav-cta" href="https://github.com/Kaiyuan/usbscan" target="_blank" rel="noopener">GitHub ↗</a>
       </nav>
     </div>
@@ -293,28 +349,28 @@
     <section class="hero">
       <div class="wrap hero-grid">
         <div>
-          <div class="eyebrow"><span class="dot"></span> Windows 10 / 11 · 完全离线 · 开源</div>
-          <h1>把任意 USB 摄像头，<br><span class="grad">变成文档扫描仪。</span></h1>
-          <p class="lede">拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，一条完整的工作流。无需专业扫描仪，也无需把文档上传到云端。</p>
+          <div class="eyebrow"><span class="dot"></span><span data-i18n="hero.badge">Windows 10 / 11 · 完全离线 · 开源</span></div>
+          <h1><span data-i18n="hero.title1">把任意 USB 摄像头，</span><br><span class="grad" data-i18n="hero.title2">变成文档扫描仪。</span></h1>
+          <p class="lede" data-i18n="hero.lede">拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，一条完整的工作流。无需专业扫描仪，也无需把文档上传到云端。</p>
           <div class="actions">
             <a class="btn btn-primary" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-              下载 for Windows
+              <span data-i18n="hero.download">下载 Windows 版</span>
             </a>
             <a class="btn btn-secondary" href="https://github.com/Kaiyuan/usbscan" target="_blank" rel="noopener">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2.17c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg>
-              查看源码
+              <span data-i18n="hero.source">查看源码</span>
             </a>
           </div>
           <div class="meta">
-            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg> 所有处理都在本机</span>
-            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg> Media Foundation + DirectShow</span>
-            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg> GPL-3.0-or-later</span>
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span data-i18n="meta.offline">所有处理都在本机</span></span>
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg><span data-i18n="meta.backend">Media Foundation + DirectShow</span></span>
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg><span data-i18n="meta.license">GPL-3.0-or-later</span></span>
           </div>
         </div>
         <div class="hero-art">
           <div class="shot-card">
-            <img src="assets/usbscan-docktop.png" alt="UsbScan 软件界面：实时预览、文档裁剪框、页面列表与扫描设置" loading="eager">
+            <img src="assets/usbscan-docktop.png" data-i18n-alt="hero.alt" alt="UsbScan 软件界面：实时预览、文档裁剪框、页面列表与扫描设置" loading="eager">
           </div>
         </div>
       </div>
@@ -323,40 +379,40 @@
     <section class="section" id="features">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker">Features</p>
-          <h2>为纸质文档而生的摄像头工作流</h2>
-          <p>从取景到归档，每一步都围绕真实文档扫描设计，而不是简单的拍照工具。</p>
+          <p class="kicker" data-i18n="features.kicker">功能</p>
+          <h2 data-i18n="features.title">为纸质文档而生的摄像头工作流</h2>
+          <p data-i18n="features.lede">从取景到归档，每一步都围绕真实文档扫描设计，而不是简单的拍照工具。</p>
         </div>
         <div class="features">
           <article class="card">
             <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h1a2 2 0 0 0 2-2 1 1 0 0 1 1-1h6a1 1 0 0 1 1 1 2 2 0 0 0 2 2h1a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2"/><circle cx="12" cy="13" r="3"/></svg></div>
-            <h3>任意 UVC 摄像头</h3>
-            <p>Media Foundation 主后端，DirectShow 兜底。网络摄像头、高拍仪、工业模组与笔记本内置摄像头都能用。</p>
+            <h3 data-i18n="features.cameraTitle">任意 UVC 摄像头</h3>
+            <p data-i18n="features.cameraDesc">Media Foundation 主后端，DirectShow 兜底。网络摄像头、高拍仪、工业模组与笔记本内置摄像头都能用。</p>
           </article>
           <article class="card">
             <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5v10a2 2 0 0 0 2 2h10"/><path d="M5 8h10a2 2 0 0 1 2 2v10"/></svg></div>
-            <h3>实时裁边 + 透视校正</h3>
-            <p>预览上实时绘制文档四角，拍摄时自动裁掉桌面背景并纠正透视畸变；检测不可信时安全跳过。</p>
+            <h3 data-i18n="features.cropTitle">实时裁边 + 透视校正</h3>
+            <p data-i18n="features.cropDesc">预览上实时绘制文档四角，拍摄时自动裁掉桌面背景并纠正透视畸变；检测不可信时安全跳过。</p>
           </article>
           <article class="card">
             <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/><path d="M8 12h8M12 8v8"/></svg></div>
-            <h3>离线 OCR</h3>
-            <p>调用本机 Tesseract 5，不联网、不上传。识别结果可直接用于可搜索 PDF。</p>
+            <h3 data-i18n="features.ocrTitle">离线 OCR</h3>
+            <p data-i18n="features.ocrDesc">调用本机 Tesseract 5，不联网、不上传。识别结果可直接用于可搜索 PDF。</p>
           </article>
           <article class="card">
             <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 13h6M9 17h4"/></svg></div>
-            <h3>PDF / JPG 归档</h3>
-            <p>多页 PDF、单页 JPG 或整份会话导出，文件名与子目录模板可在拍摄前配置。</p>
+            <h3 data-i18n="features.pdfTitle">PDF / JPG 归档</h3>
+            <p data-i18n="features.pdfDesc">多页 PDF、单页 JPG 或整份会话导出，文件名与子目录模板可在拍摄前配置。</p>
           </article>
           <article class="card">
             <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg></div>
-            <h3>macOS 风格界面</h3>
-            <p>Slint 自绘的圆角界面，跟随系统亮/暗主题；开关、工具栏与卡片统一为 macOS 视觉语言。</p>
+            <h3 data-i18n="features.uiTitle">macOS 风格界面</h3>
+            <p data-i18n="features.uiDesc">Slint 自绘的圆角界面，跟随系统亮/暗主题；开关、工具栏与卡片统一为 macOS 视觉语言。</p>
           </article>
           <article class="card">
             <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-15.5-2M4 5v4h4"/><path d="M4 13a8 8 0 0 0 15.5 2M20 19v-4h-4"/></svg></div>
-            <h3>自动更新</h3>
-            <p>在关于窗口选择是否检查更新。启用后启动时访问 GitHub Releases，发现新版本可在右下角一键下载安装。</p>
+            <h3 data-i18n="features.updateTitle">自动更新</h3>
+            <p data-i18n="features.updateDesc">在关于窗口选择是否检查更新。启用后启动时访问 GitHub Releases，发现新版本可在右下角一键下载安装。</p>
           </article>
         </div>
       </div>
@@ -365,14 +421,14 @@
     <section class="section" id="how">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker">Workflow</p>
-          <h2>三步完成一份扫描件</h2>
-          <p>不用学习复杂的图像软件，拍摄时自动完成大部分校正。</p>
+          <p class="kicker" data-i18n="workflow.kicker">工作流</p>
+          <h2 data-i18n="workflow.title">三步完成一份扫描件</h2>
+          <p data-i18n="workflow.lede">不用学习复杂的图像软件，拍摄时自动完成大部分校正。</p>
         </div>
         <div class="steps">
-          <div class="step"><div class="num">1</div><div><h3>连接摄像头</h3><p>插上任一 USB 摄像头，选择设备与分辨率。</p></div></div>
-          <div class="step"><div class="num">2</div><div><h3>放入文档并拍摄</h3><p>预览实时显示裁剪框，按下快门自动裁边、纠偏并落盘。</p></div></div>
-          <div class="step"><div class="num">3</div><div><h3>整理与导出</h3><p>重命名、删除、OCR，导出 PDF 或 JPG。</p></div></div>
+          <div class="step"><div class="num">1</div><div><h3 data-i18n="workflow.s1Title">连接摄像头</h3><p data-i18n="workflow.s1Desc">插上任一 USB 摄像头，选择设备与分辨率。</p></div></div>
+          <div class="step"><div class="num">2</div><div><h3 data-i18n="workflow.s2Title">放入文档并拍摄</h3><p data-i18n="workflow.s2Desc">预览实时显示裁剪框，按下快门自动裁边、纠偏并落盘。</p></div></div>
+          <div class="step"><div class="num">3</div><div><h3 data-i18n="workflow.s3Title">整理与导出</h3><p data-i18n="workflow.s3Desc">重命名、删除、OCR，导出 PDF 或 JPG。</p></div></div>
         </div>
       </div>
     </section>
@@ -381,27 +437,27 @@
       <div class="wrap">
         <div class="download-panel">
           <div>
-            <p class="kicker">Download</p>
-            <h2>下载 UsbScan</h2>
-            <p>安装版适合大多数用户；便携版解压即用，不写注册表。下载后可直接覆盖旧版本。</p>
+            <p class="kicker" data-i18n="download.kicker">下载</p>
+            <h2 data-i18n="download.title">下载 UsbScan</h2>
+            <p data-i18n="download.desc">安装版适合大多数用户；便携版解压即用，不写注册表。下载后可直接覆盖旧版本。</p>
             <div class="download-actions">
               <a class="btn btn-primary" id="setup-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-                下载安装版
+                <span data-i18n="download.setup">下载安装版</span>
               </a>
               <a class="btn btn-secondary" id="portable-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
-                下载便携版
+                <span data-i18n="download.portable">下载便携版</span>
               </a>
             </div>
             <p class="download-meta" id="release-note">正在读取最新版本…你也可以前往 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> 查看全部版本。</p>
           </div>
           <div class="download-side">
-            <div class="row"><span>最新版本</span><span id="latest-version">—</span></div>
-            <div class="row"><span>系统</span><span>Windows 10 / 11 x64</span></div>
-            <div class="row"><span>运行环境</span><span>无需 .NET / WebView2</span></div>
-            <div class="row"><span>许可证</span><span>GPL-3.0-or-later</span></div>
-            <div class="row"><span>校验和</span><a id="checksums-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt</a></div>
+            <div class="row"><span data-i18n="download.latest">最新版本</span><span id="latest-version">—</span></div>
+            <div class="row"><span data-i18n="download.system">系统</span><span>Windows 10 / 11 x64</span></div>
+            <div class="row"><span data-i18n="download.runtime">运行环境</span><span data-i18n="download.runtimeValue">无需 .NET / WebView2</span></div>
+            <div class="row"><span data-i18n="download.license">许可证</span><span>GPL-3.0-or-later</span></div>
+            <div class="row"><span data-i18n="download.checksums">校验和</span><a id="checksums-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt</a></div>
           </div>
         </div>
       </div>
@@ -410,14 +466,14 @@
     <section class="section" id="docs">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker">Documentation</p>
-          <h2>文档与源码</h2>
-          <p>设计、架构、命名规则与发布流程都在仓库中公开。</p>
+          <p class="kicker" data-i18n="docs.kicker">文档</p>
+          <h2 data-i18n="docs.title">文档与源码</h2>
+          <p data-i18n="docs.lede">设计、架构、命名规则与发布流程都在仓库中公开。</p>
         </div>
         <div class="docs-grid">
-          <a class="doc-link" href="https://github.com/Kaiyuan/usbscan/blob/master/README.md" target="_blank" rel="noopener"><strong>README</strong><span>功能、构建与使用说明</span></a>
-          <a class="doc-link" href="https://github.com/Kaiyuan/usbscan/tree/master/docs" target="_blank" rel="noopener"><strong>设计文档</strong><span>需求、架构、UI 原型与开发计划</span></a>
-          <a class="doc-link" href="https://github.com/Kaiyuan/usbscan" target="_blank" rel="noopener"><strong>GitHub 仓库</strong><span>源码、Issue 与 Release</span></a>
+          <a class="doc-link" href="https://github.com/Kaiyuan/usbscan/blob/master/README.md" target="_blank" rel="noopener"><strong data-i18n="docs.readmeTitle">README</strong><span data-i18n="docs.readmeDesc">功能、构建与使用说明</span></a>
+          <a class="doc-link" href="https://github.com/Kaiyuan/usbscan/tree/master/docs" target="_blank" rel="noopener"><strong data-i18n="docs.designTitle">设计文档</strong><span data-i18n="docs.designDesc">需求、架构、UI 原型与开发计划</span></a>
+          <a class="doc-link" href="https://github.com/Kaiyuan/usbscan" target="_blank" rel="noopener"><strong data-i18n="docs.repoTitle">GitHub 仓库</strong><span data-i18n="docs.repoDesc">源码、Issue 与 Release</span></a>
         </div>
       </div>
     </section>
@@ -436,28 +492,777 @@
 
   <script>
     (function () {
-      var repo = 'Kaiyuan/usbscan';
-      var api = 'https://api.github.com/repos/' + repo + '/releases/latest';
-      var note = document.getElementById('release-note');
-      fetch(api, { headers: { Accept: 'application/vnd.github+json' } })
-        .then(function (response) { if (!response.ok) throw new Error('no release'); return response.json(); })
-        .then(function (release) {
-          document.getElementById('latest-version').textContent = release.tag_name || '—';
-          var assets = release.assets || [];
-          var setup = assets.find(function (a) { return /setup.*\.exe$/i.test(a.name); });
-          var portable = assets.find(function (a) { return /portable.*\.zip$/i.test(a.name); });
-          var checksums = assets.find(function (a) { return /SHA256SUMS\.txt$/i.test(a.name); });
-          if (setup) { var el = document.getElementById('setup-link'); el.href = setup.browser_download_url; }
-          if (portable) { var el2 = document.getElementById('portable-link'); el2.href = portable.browser_download_url; }
-          if (checksums) { var el3 = document.getElementById('checksums-link'); el3.href = checksums.browser_download_url; }
-          note.textContent = setup && portable
-            ? '下载后可直接覆盖旧版本；校验和可在 SHA256SUMS.txt 中查看。'
-            : '该 Release 暂未包含完整安装版 / 便携版，请前往 GitHub Releases 查看。';
-        })
-        .catch(function () {
-          document.getElementById('latest-version').textContent = '—';
-          note.innerHTML = '尚未发布 Release，或暂时无法访问 GitHub API。你也可以前往 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> 查看构建产物。';
+      var LANGUAGES = [
+        ['zh-Hans', '简体中文'],
+        ['zh-Hant', '繁體中文'],
+        ['en', 'English'],
+        ['de', 'Deutsch'],
+        ['fr', 'Français'],
+        ['it', 'Italiano'],
+        ['es', 'Español'],
+        ['ja', '日本語'],
+        ['ko', '한국어']
+      ];
+
+      var I18N = {
+        'zh-Hans': {
+          'nav.features': `功能`,
+          'nav.workflow': `工作流`,
+          'nav.download': `下载`,
+          'nav.docs': `文档`,
+          'nav.language': `语言`,
+          'nav.label': `主导航`,
+          'brand.home': `UsbScan 首页`,
+          'brand.alt': `UsbScan 图标`,
+          'hero.badge': `Windows 10 / 11 · 完全离线 · 开源`,
+          'hero.title1': `把任意 USB 摄像头，`,
+          'hero.title2': `变成文档扫描仪。`,
+          'hero.lede': `拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，一条完整的工作流。无需专业扫描仪，也无需把文档上传到云端。`,
+          'hero.download': `下载 Windows 版`,
+          'hero.source': `查看源码`,
+          'hero.alt': `UsbScan 软件界面：实时预览、文档裁剪框、页面列表与扫描设置`,
+          'meta.offline': `所有处理都在本机`,
+          'meta.backend': `Media Foundation + DirectShow`,
+          'meta.license': `GPL-3.0-or-later`,
+          'features.kicker': `功能`,
+          'features.title': `为纸质文档而生的摄像头工作流`,
+          'features.lede': `从取景到归档，每一步都围绕真实文档扫描设计，而不是简单的拍照工具。`,
+          'features.cameraTitle': `任意 UVC 摄像头`,
+          'features.cameraDesc': `Media Foundation 主后端，DirectShow 兜底。网络摄像头、高拍仪、工业模组与笔记本内置摄像头都能用。`,
+          'features.cropTitle': `实时裁边 + 透视校正`,
+          'features.cropDesc': `预览上实时绘制文档四角，拍摄时自动裁掉桌面背景并纠正透视畸变；检测不可信时安全跳过。`,
+          'features.ocrTitle': `离线 OCR`,
+          'features.ocrDesc': `调用本机 Tesseract 5，不联网、不上传。识别结果可直接用于可搜索 PDF。`,
+          'features.pdfTitle': `PDF / JPG 归档`,
+          'features.pdfDesc': `多页 PDF、单页 JPG 或整份会话导出，文件名与子目录模板可在拍摄前配置。`,
+          'features.uiTitle': `macOS 风格界面`,
+          'features.uiDesc': `Slint 自绘的圆角界面，跟随系统亮/暗主题；开关、工具栏与卡片统一为 macOS 视觉语言。`,
+          'features.updateTitle': `自动更新`,
+          'features.updateDesc': `在关于窗口选择是否检查更新。启用后启动时访问 GitHub Releases，发现新版本可在右下角一键下载安装。`,
+          'workflow.kicker': `工作流`,
+          'workflow.title': `三步完成一份扫描件`,
+          'workflow.lede': `不用学习复杂的图像软件，拍摄时自动完成大部分校正。`,
+          'workflow.s1Title': `连接摄像头`,
+          'workflow.s1Desc': `插上任一 USB 摄像头，选择设备与分辨率。`,
+          'workflow.s2Title': `放入文档并拍摄`,
+          'workflow.s2Desc': `预览实时显示裁剪框，按下快门自动裁边、纠偏并落盘。`,
+          'workflow.s3Title': `整理与导出`,
+          'workflow.s3Desc': `重命名、删除、OCR，导出 PDF 或 JPG。`,
+          'download.kicker': `下载`,
+          'download.title': `下载 UsbScan`,
+          'download.desc': `安装版适合大多数用户；便携版解压即用，不写注册表。下载后可直接覆盖旧版本。`,
+          'download.setup': `下载安装版`,
+          'download.portable': `下载便携版`,
+          'download.noteLoading': `正在读取最新版本…你也可以前往 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> 查看全部版本。`,
+          'download.noteReady': `下载后可直接覆盖旧版本；校验和可在 SHA256SUMS.txt 中查看。`,
+          'download.noteIncomplete': `该 Release 暂未包含完整安装版 / 便携版，请前往 GitHub Releases 查看。`,
+          'download.noteUnavailable': `尚未发布 Release，或暂时无法访问 GitHub API。你也可以前往 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> 查看构建产物。`,
+          'download.latest': `最新版本`,
+          'download.system': `系统`,
+          'download.runtime': `运行环境`,
+          'download.runtimeValue': `无需 .NET / WebView2`,
+          'download.license': `许可证`,
+          'download.checksums': `校验和`,
+          'docs.kicker': `文档`,
+          'docs.title': `文档与源码`,
+          'docs.lede': `设计、架构、命名规则与发布流程都在仓库中公开。`,
+          'docs.readmeTitle': `README`,
+          'docs.readmeDesc': `功能、构建与使用说明`,
+          'docs.designTitle': `设计文档`,
+          'docs.designDesc': `需求、架构、UI 原型与开发计划`,
+          'docs.repoTitle': `GitHub 仓库`,
+          'docs.repoDesc': `源码、Issue 与 Release`,
+          'page.title': `UsbScan — 把 USB 摄像头变成文档扫描仪`,
+          'page.description': `UsbScan 是一款 Windows 离线文档扫描软件：任意 UVC 摄像头、自动裁边与透视校正、离线 OCR、PDF 导出、MP4 录像。`
+        },
+        'zh-Hant': {
+          'nav.features': `功能`,
+          'nav.workflow': `工作流程`,
+          'nav.download': `下載`,
+          'nav.docs': `文件`,
+          'nav.language': `語言`,
+          'nav.label': `主導覽`,
+          'brand.home': `UsbScan 首頁`,
+          'brand.alt': `UsbScan 圖示`,
+          'hero.badge': `Windows 10 / 11 · 完全離線 · 開源`,
+          'hero.title1': `把任意 USB 攝影機，`,
+          'hero.title2': `變成文件掃描器。`,
+          'hero.lede': `拍攝、自動裁邊、透視校正、離線 OCR 與 PDF 歸檔，一條完整的工作流程。無需專業掃描器，也無需把文件上傳到雲端。`,
+          'hero.download': `下載 Windows 版`,
+          'hero.source': `查看原始碼`,
+          'hero.alt': `UsbScan 軟體介面：即時預覽、文件裁切框、頁面清單與掃描設定`,
+          'meta.offline': `所有處理都在本機`,
+          'meta.backend': `Media Foundation + DirectShow`,
+          'meta.license': `GPL-3.0-or-later`,
+          'features.kicker': `功能`,
+          'features.title': `為紙本文件而生的攝影機工作流程`,
+          'features.lede': `從取景到歸檔，每一步都圍繞真實文件掃描設計，而不是單純的拍照工具。`,
+          'features.cameraTitle': `任意 UVC 攝影機`,
+          'features.cameraDesc': `Media Foundation 主後端，DirectShow 備援。網路攝影機、高拍儀、工業模組與筆記型電腦內建攝影機都能用。`,
+          'features.cropTitle': `即時裁邊 + 透視校正`,
+          'features.cropDesc': `預覽上即時繪製文件四角，拍攝時自動裁掉桌面背景並校正透視變形；偵測不可信時安全跳過。`,
+          'features.ocrTitle': `離線 OCR`,
+          'features.ocrDesc': `呼叫本機 Tesseract 5，不連網、不上傳。辨識結果可直接用於可搜尋 PDF。`,
+          'features.pdfTitle': `PDF / JPG 歸檔`,
+          'features.pdfDesc': `多頁 PDF、單頁 JPG 或整份工作階段匯出，檔名與子目錄範本可在拍攝前設定。`,
+          'features.uiTitle': `macOS 風格介面`,
+          'features.uiDesc': `Slint 自繪的圓角介面，跟隨系統亮/暗主題；開關、工具列與卡片統一為 macOS 視覺語言。`,
+          'features.updateTitle': `自動更新`,
+          'features.updateDesc': `在關於視窗選擇是否檢查更新。啟用後啟動時會造訪 GitHub Releases，發現新版本可在右下角一鍵下載安裝。`,
+          'workflow.kicker': `工作流程`,
+          'workflow.title': `三步完成一份掃描件`,
+          'workflow.lede': `不用學習複雜的影像軟體，拍攝時自動完成大部分校正。`,
+          'workflow.s1Title': `連接攝影機`,
+          'workflow.s1Desc': `插上任一 USB 攝影機，選擇裝置與解析度。`,
+          'workflow.s2Title': `放入文件並拍攝`,
+          'workflow.s2Desc': `預覽即時顯示裁切框，按下快門自動裁邊、校正並存檔。`,
+          'workflow.s3Title': `整理與匯出`,
+          'workflow.s3Desc': `重新命名、刪除、OCR，匯出 PDF 或 JPG。`,
+          'download.kicker': `下載`,
+          'download.title': `下載 UsbScan`,
+          'download.desc': `安裝版適合大多數使用者；可攜版解壓即用，不寫登錄檔。下載後可直接覆蓋舊版本。`,
+          'download.setup': `下載安裝版`,
+          'download.portable': `下載可攜版`,
+          'download.noteLoading': `正在讀取最新版本…你也可以前往 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> 查看所有版本。`,
+          'download.noteReady': `下載後可直接覆蓋舊版本；校驗和可在 SHA256SUMS.txt 中查看。`,
+          'download.noteIncomplete': `此 Release 尚未包含完整的安裝版 / 可攜版，請前往 GitHub Releases 查看。`,
+          'download.noteUnavailable': `尚未發布 Release，或暫時無法存取 GitHub API。你也可以前往 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> 查看建置產物。`,
+          'download.latest': `最新版本`,
+          'download.system': `系統`,
+          'download.runtime': `執行環境`,
+          'download.runtimeValue': `無需 .NET / WebView2`,
+          'download.license': `授權`,
+          'download.checksums': `校驗和`,
+          'docs.kicker': `文件`,
+          'docs.title': `文件與原始碼`,
+          'docs.lede': `設計、架構、命名規則與發佈流程都在儲存庫中公開。`,
+          'docs.readmeTitle': `README`,
+          'docs.readmeDesc': `功能、建置與使用說明`,
+          'docs.designTitle': `設計文件`,
+          'docs.designDesc': `需求、架構、UI 原型與開發計畫`,
+          'docs.repoTitle': `GitHub 儲存庫`,
+          'docs.repoDesc': `原始碼、Issue 與 Release`,
+          'page.title': `UsbScan — 把 USB 攝影機變成文件掃描器`,
+          'page.description': `UsbScan 是一款 Windows 離線文件掃描軟體：任意 UVC 攝影機、自動裁邊與透視校正、離線 OCR、PDF 匯出、MP4 錄影。`
+        },
+        'en': {
+          'nav.features': `Features`,
+          'nav.workflow': `Workflow`,
+          'nav.download': `Download`,
+          'nav.docs': `Docs`,
+          'nav.language': `Language`,
+          'nav.label': `Main navigation`,
+          'brand.home': `UsbScan home`,
+          'brand.alt': `UsbScan icon`,
+          'hero.badge': `Windows 10 / 11 · Fully offline · Open source`,
+          'hero.title1': `Turn any USB camera`,
+          'hero.title2': `into a document scanner.`,
+          'hero.lede': `Capture, auto-crop, perspective correction, offline OCR and PDF archiving: one complete workflow. No dedicated scanner, and no uploads to the cloud.`,
+          'hero.download': `Download for Windows`,
+          'hero.source': `View source`,
+          'hero.alt': `UsbScan interface: live preview, document crop frame, page list and scan settings`,
+          'meta.offline': `All processing stays on your device`,
+          'meta.backend': `Media Foundation + DirectShow`,
+          'meta.license': `GPL-3.0-or-later`,
+          'features.kicker': `Features`,
+          'features.title': `A camera workflow built for paper documents`,
+          'features.lede': `From framing to archiving, every step is designed for real document scanning, not just taking photos.`,
+          'features.cameraTitle': `Any UVC camera`,
+          'features.cameraDesc': `Media Foundation as the primary backend with DirectShow fallback. Webcams, document cameras, industrial modules and built-in laptop cameras all work.`,
+          'features.cropTitle': `Live crop + perspective correction`,
+          'features.cropDesc': `Document corners are drawn live on the preview. On capture, the background is cropped away and perspective distortion corrected; detection safely skips when uncertain.`,
+          'features.ocrTitle': `Offline OCR`,
+          'features.ocrDesc': `Uses your local Tesseract 5, with no network and no uploads. Results feed directly into searchable PDFs.`,
+          'features.pdfTitle': `PDF / JPG archiving`,
+          'features.pdfDesc': `Multi-page PDFs, single-page JPGs or whole-session exports, with file name and subfolder templates configured before capture.`,
+          'features.uiTitle': `macOS-style interface`,
+          'features.uiDesc': `A rounded interface drawn with Slint that follows the system light/dark theme; switches, toolbar and cards share one macOS visual language.`,
+          'features.updateTitle': `Automatic updates`,
+          'features.updateDesc': `Choose whether to check for updates in the About window. When enabled, startup checks GitHub Releases and a new version can be downloaded and installed from the bottom-right corner.`,
+          'workflow.kicker': `Workflow`,
+          'workflow.title': `Three steps to a finished scan`,
+          'workflow.lede': `No complex image editor to learn; most correction happens automatically when you capture.`,
+          'workflow.s1Title': `Connect a camera`,
+          'workflow.s1Desc': `Plug in any USB camera, then pick the device and resolution.`,
+          'workflow.s2Title': `Place the document and capture`,
+          'workflow.s2Desc': `The preview shows the crop frame live; the shutter auto-crops, deskews and saves.`,
+          'workflow.s3Title': `Organize and export`,
+          'workflow.s3Desc': `Rename, delete, run OCR, then export to PDF or JPG.`,
+          'download.kicker': `Download`,
+          'download.title': `Download UsbScan`,
+          'download.desc': `The installer suits most users; the portable build runs after unzipping and writes no registry entries. Either can be installed over an older version.`,
+          'download.setup': `Download installer`,
+          'download.portable': `Download portable`,
+          'download.noteLoading': `Reading the latest version… You can also browse all versions on <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a>.`,
+          'download.noteReady': `You can install over an older version; checksums are listed in SHA256SUMS.txt.`,
+          'download.noteIncomplete': `This release does not include both the installer and portable build yet. See GitHub Releases for all assets.`,
+          'download.noteUnavailable': `No release has been published yet, or the GitHub API is unreachable. You can also check <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> for build artifacts.`,
+          'download.latest': `Latest version`,
+          'download.system': `System`,
+          'download.runtime': `Runtime`,
+          'download.runtimeValue': `No .NET / WebView2 required`,
+          'download.license': `License`,
+          'download.checksums': `Checksums`,
+          'docs.kicker': `Documentation`,
+          'docs.title': `Docs and source`,
+          'docs.lede': `Design, architecture, naming conventions and the release process are all public in the repository.`,
+          'docs.readmeTitle': `README`,
+          'docs.readmeDesc': `Features, build and usage`,
+          'docs.designTitle': `Design docs`,
+          'docs.designDesc': `Requirements, architecture, UI prototypes and roadmap`,
+          'docs.repoTitle': `GitHub repository`,
+          'docs.repoDesc': `Source, issues and releases`,
+          'page.title': `UsbScan — Turn any USB camera into a document scanner`,
+          'page.description': `UsbScan is a Windows offline document scanning app: any UVC camera, auto-crop and perspective correction, offline OCR, PDF export and MP4 recording.`
+        },
+        'de': {
+          'nav.features': `Funktionen`,
+          'nav.workflow': `Workflow`,
+          'nav.download': `Download`,
+          'nav.docs': `Doku`,
+          'nav.language': `Sprache`,
+          'nav.label': `Hauptnavigation`,
+          'brand.home': `UsbScan-Startseite`,
+          'brand.alt': `UsbScan-Symbol`,
+          'hero.badge': `Windows 10 / 11 · Vollständig offline · Open Source`,
+          'hero.title1': `Jede USB-Kamera`,
+          'hero.title2': `wird zum Dokumentenscanner.`,
+          'hero.lede': `Aufnehmen, automatisch zuschneiden, Perspektive korrigieren, Offline-OCR und PDF-Archivierung – ein kompletter Workflow. Kein spezieller Scanner und keine Uploads in die Cloud.`,
+          'hero.download': `Für Windows herunterladen`,
+          'hero.source': `Quellcode ansehen`,
+          'hero.alt': `UsbScan-Oberfläche: Live-Vorschau, Zuschnittrahmen, Seitenliste und Scan-Einstellungen`,
+          'meta.offline': `Alle Verarbeitung bleibt auf dem Gerät`,
+          'meta.backend': `Media Foundation + DirectShow`,
+          'meta.license': `GPL-3.0-or-later`,
+          'features.kicker': `Funktionen`,
+          'features.title': `Ein Kamera-Workflow für Papierdokumente`,
+          'features.lede': `Vom Sucher bis zum Archiv: Jeder Schritt ist für echtes Dokumentenscannen ausgelegt, nicht nur für Fotos.`,
+          'features.cameraTitle': `Jede UVC-Kamera`,
+          'features.cameraDesc': `Media Foundation als Haupt-Backend, DirectShow als Fallback. Webcams, Dokumentenkameras, Industriemodule und integrierte Laptop-Kameras funktionieren.`,
+          'features.cropTitle': `Live-Zuschnitt + Perspektivkorrektur`,
+          'features.cropDesc': `Die Dokumentecken werden live in der Vorschau eingezeichnet. Beim Auslösen wird der Hintergrund entfernt und die Perspektive korrigiert; bei unsicherer Erkennung wird sicher übersprungen.`,
+          'features.ocrTitle': `Offline-OCR`,
+          'features.ocrDesc': `Nutzt das lokale Tesseract 5 – kein Netzwerk, keine Uploads. Ergebnisse fließen direkt in durchsuchbare PDFs ein.`,
+          'features.pdfTitle': `PDF-/JPG-Archivierung`,
+          'features.pdfDesc': `Mehrseitige PDFs, einseitige JPGs oder der Export der ganzen Sitzung – Dateinamen- und Unterordner-Vorlagen lassen sich vor der Aufnahme festlegen.`,
+          'features.uiTitle': `macOS-Oberfläche`,
+          'features.uiDesc': `Eine mit Slint gezeichnete, abgerundete Oberfläche, die dem hellen/dunklen Systemthema folgt; Schalter, Symbolleiste und Karten teilen eine macOS-Bildsprache.`,
+          'features.updateTitle': `Automatische Updates`,
+          'features.updateDesc': `Im Info-Fenster wählst du, ob nach Updates gesucht wird. Aktiviert prüft der Start GitHub Releases; eine neue Version lässt sich unten rechts mit einem Klick herunterladen und installieren.`,
+          'workflow.kicker': `Workflow`,
+          'workflow.title': `In drei Schritten zum fertigen Scan`,
+          'workflow.lede': `Kein komplexer Bildeditor – das meiste wird beim Aufnehmen automatisch korrigiert.`,
+          'workflow.s1Title': `Kamera anschließen`,
+          'workflow.s1Desc': `Beliebige USB-Kamera einstecken, dann Gerät und Auflösung wählen.`,
+          'workflow.s2Title': `Dokument einlegen und aufnehmen`,
+          'workflow.s2Desc': `Die Vorschau zeigt den Zuschnitt live; der Auslöser schneidet zu, richtet aus und speichert.`,
+          'workflow.s3Title': `Ordnen und exportieren`,
+          'workflow.s3Desc': `Umbenennen, löschen, OCR ausführen und als PDF oder JPG exportieren.`,
+          'download.kicker': `Download`,
+          'download.title': `UsbScan herunterladen`,
+          'download.desc': `Der Installer eignet sich für die meisten Nutzer; die portable Variante läuft nach dem Entpacken und schreibt keine Registry-Einträge. Beide lassen sich über eine ältere Version installieren.`,
+          'download.setup': `Installer herunterladen`,
+          'download.portable': `Portable Version`,
+          'download.noteLoading': `Neueste Version wird gelesen… Alle Versionen findest du auch auf <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a>.`,
+          'download.noteReady': `Du kannst über eine ältere Version installieren; Prüfsummen stehen in SHA256SUMS.txt.`,
+          'download.noteIncomplete': `Dieses Release enthält noch nicht Installer und Portable-Version. Alle Assets findest du auf GitHub Releases.`,
+          'download.noteUnavailable': `Es wurde noch kein Release veröffentlicht oder die GitHub-API ist nicht erreichbar. Build-Artefakte findest du auch auf <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a>.`,
+          'download.latest': `Neueste Version`,
+          'download.system': `System`,
+          'download.runtime': `Laufzeitumgebung`,
+          'download.runtimeValue': `Kein .NET / WebView2 erforderlich`,
+          'download.license': `Lizenz`,
+          'download.checksums': `Prüfsummen`,
+          'docs.kicker': `Doku`,
+          'docs.title': `Dokumentation und Quellcode`,
+          'docs.lede': `Design, Architektur, Namensregeln und Release-Prozess sind im Repository öffentlich.`,
+          'docs.readmeTitle': `README`,
+          'docs.readmeDesc': `Funktionen, Build und Nutzung`,
+          'docs.designTitle': `Design-Dokumente`,
+          'docs.designDesc': `Anforderungen, Architektur, UI-Prototypen und Roadmap`,
+          'docs.repoTitle': `GitHub-Repository`,
+          'docs.repoDesc': `Quellcode, Issues und Releases`,
+          'page.title': `UsbScan — Jede USB-Kamera wird zum Dokumentenscanner`,
+          'page.description': `UsbScan ist eine Windows-App zum Offline-Scannen von Dokumenten: jede UVC-Kamera, Auto-Zuschnitt und Perspektivkorrektur, Offline-OCR, PDF-Export und MP4-Aufnahme.`
+        },
+        'fr': {
+          'nav.features': `Fonctionnalités`,
+          'nav.workflow': `Fonctionnement`,
+          'nav.download': `Télécharger`,
+          'nav.docs': `Docs`,
+          'nav.language': `Langue`,
+          'nav.label': `Navigation principale`,
+          'brand.home': `Accueil UsbScan`,
+          'brand.alt': `Icône UsbScan`,
+          'hero.badge': `Windows 10 / 11 · 100 % hors ligne · Open source`,
+          'hero.title1': `Transformez n'importe quelle caméra USB`,
+          'hero.title2': `en scanner de documents.`,
+          'hero.lede': `Capture, recadrage automatique, correction de perspective, OCR hors ligne et archivage PDF : un flux complet. Pas besoin de scanner dédié, et aucun envoi vers le cloud.`,
+          'hero.download': `Télécharger pour Windows`,
+          'hero.source': `Voir le code`,
+          'hero.alt': `Interface d'UsbScan : aperçu en direct, cadre de recadrage, liste des pages et réglages de numérisation`,
+          'meta.offline': `Tout le traitement reste sur votre appareil`,
+          'meta.backend': `Media Foundation + DirectShow`,
+          'meta.license': `GPL-3.0-or-later`,
+          'features.kicker': `Fonctionnalités`,
+          'features.title': `Un flux de travail pensé pour le papier`,
+          'features.lede': `Du cadrage à l'archivage, chaque étape est conçue pour la numérisation de documents, pas pour de simples photos.`,
+          'features.cameraTitle': `Toute caméra UVC`,
+          'features.cameraDesc': `Media Foundation en backend principal, DirectShow en secours. Webcams, scanners à main, modules industriels et caméras intégrées fonctionnent.`,
+          'features.cropTitle': `Recadrage en direct + perspective`,
+          'features.cropDesc': `Les coins du document sont dessinés en direct sur l'aperçu. À la capture, le fond est retiré et la perspective corrigée ; en cas de doute, la détection est ignorée.`,
+          'features.ocrTitle': `OCR hors ligne`,
+          'features.ocrDesc': `Utilise Tesseract 5 installé localement, sans réseau ni envoi. Les résultats alimentent directement des PDF interrogeables.`,
+          'features.pdfTitle': `Archivage PDF / JPG`,
+          'features.pdfDesc': `PDF multipage, JPG d'une page ou export de toute la session, avec modèles de nom de fichier et de sous-dossier configurables avant la capture.`,
+          'features.uiTitle': `Interface façon macOS`,
+          'features.uiDesc': `Une interface arrondie dessinée avec Slint qui suit le thème clair/sombre du système ; interrupteurs, barre d'outils et cartes partagent le même langage visuel macOS.`,
+          'features.updateTitle': `Mises à jour automatiques`,
+          'features.updateDesc': `Choisissez dans la fenêtre À propos si vous voulez rechercher des mises à jour. Une fois activé, le démarrage interroge GitHub Releases et la nouvelle version peut être téléchargée et installée en bas à droite.`,
+          'workflow.kicker': `Fonctionnement`,
+          'workflow.title': `Trois étapes pour un scan terminé`,
+          'workflow.lede': `Pas d'éditeur d'image complexe : l'essentiel de la correction se fait automatiquement à la capture.`,
+          'workflow.s1Title': `Brancher une caméra`,
+          'workflow.s1Desc': `Branchez n'importe quelle caméra USB, puis choisissez l'appareil et la résolution.`,
+          'workflow.s2Title': `Placer le document et capturer`,
+          'workflow.s2Desc': `L'aperçu affiche le cadre en direct ; le déclencheur recadre, redresse et enregistre.`,
+          'workflow.s3Title': `Organiser et exporter`,
+          'workflow.s3Desc': `Renommer, supprimer, lancer l'OCR, puis exporter en PDF ou JPG.`,
+          'download.kicker': `Téléchargement`,
+          'download.title': `Télécharger UsbScan`,
+          'download.desc': `L'installateur convient à la plupart des utilisateurs ; la version portable fonctionne après décompression et n'écrit rien dans le registre. Les deux peuvent être installées par-dessus une ancienne version.`,
+          'download.setup': `Télécharger l'installateur`,
+          'download.portable': `Télécharger la version portable`,
+          'download.noteLoading': `Lecture de la dernière version… Vous pouvez aussi consulter toutes les versions sur <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a>.`,
+          'download.noteReady': `Vous pouvez installer par-dessus une ancienne version ; les sommes de contrôle sont dans SHA256SUMS.txt.`,
+          'download.noteIncomplete': `Cette release ne contient pas encore l'installateur et la version portable. Consultez GitHub Releases pour tous les fichiers.`,
+          'download.noteUnavailable': `Aucune release n'a encore été publiée, ou l'API GitHub est inaccessible. Vous pouvez aussi consulter <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> pour les artefacts.`,
+          'download.latest': `Dernière version`,
+          'download.system': `Système`,
+          'download.runtime': `Environnement`,
+          'download.runtimeValue': `Aucun .NET / WebView2 requis`,
+          'download.license': `Licence`,
+          'download.checksums': `Sommes de contrôle`,
+          'docs.kicker': `Documentation`,
+          'docs.title': `Documentation et code source`,
+          'docs.lede': `Conception, architecture, conventions de nommage et processus de publication sont publics dans le dépôt.`,
+          'docs.readmeTitle': `README`,
+          'docs.readmeDesc': `Fonctionnalités, compilation et utilisation`,
+          'docs.designTitle': `Documents de conception`,
+          'docs.designDesc': `Exigences, architecture, prototypes UI et feuille de route`,
+          'docs.repoTitle': `Dépôt GitHub`,
+          'docs.repoDesc': `Code source, issues et releases`,
+          'page.title': `UsbScan — Transformez n'importe quelle caméra USB en scanner de documents`,
+          'page.description': `UsbScan est une application Windows de numérisation hors ligne : toute caméra UVC, recadrage automatique et correction de perspective, OCR hors ligne, export PDF et enregistrement MP4.`
+        },
+        'it': {
+          'nav.features': `Funzionalità`,
+          'nav.workflow': `Flusso`,
+          'nav.download': `Download`,
+          'nav.docs': `Documenti`,
+          'nav.language': `Lingua`,
+          'nav.label': `Navigazione principale`,
+          'brand.home': `Pagina iniziale di UsbScan`,
+          'brand.alt': `Icona di UsbScan`,
+          'hero.badge': `Windows 10 / 11 · Completamente offline · Open source`,
+          'hero.title1': `Trasforma qualsiasi webcam USB`,
+          'hero.title2': `in uno scanner per documenti.`,
+          'hero.lede': `Acquisizione, ritaglio automatico, correzione prospettica, OCR offline e archiviazione PDF: un flusso completo. Nessuno scanner dedicato e nessun caricamento nel cloud.`,
+          'hero.download': `Scarica per Windows`,
+          'hero.source': `Vedi il codice`,
+          'hero.alt': `Interfaccia di UsbScan: anteprima live, cornice di ritaglio, elenco pagine e impostazioni di scansione`,
+          'meta.offline': `Tutta l'elaborazione resta sul dispositivo`,
+          'meta.backend': `Media Foundation + DirectShow`,
+          'meta.license': `GPL-3.0-or-later`,
+          'features.kicker': `Funzionalità`,
+          'features.title': `Un flusso di lavoro pensato per la carta`,
+          'features.lede': `Dall'inquadratura all'archivio, ogni passaggio è progettato per la scansione di documenti reali, non per semplici foto.`,
+          'features.cameraTitle': `Qualsiasi webcam UVC`,
+          'features.cameraDesc': `Media Foundation come backend principale, DirectShow come fallback. Webcam, scanner da tavolo, moduli industriali e fotocamere integrate nei notebook funzionano.`,
+          'features.cropTitle': `Ritaglio live + correzione prospettica`,
+          'features.cropDesc': `Gli angoli del documento sono disegnati in tempo reale sull'anteprima. Allo scatto lo sfondo viene ritagliato e la prospettiva corretta; se il rilevamento non è affidabile viene saltato.`,
+          'features.ocrTitle': `OCR offline`,
+          'features.ocrDesc': `Usa Tesseract 5 installato localmente: nessuna rete, nessun caricamento. I risultati confluiscono direttamente in PDF ricercabili.`,
+          'features.pdfTitle': `Archiviazione PDF / JPG`,
+          'features.pdfDesc': `PDF multipagina, JPG a pagina singola o esportazione dell'intera sessione, con modelli di nome file e sottocartella configurabili prima dello scatto.`,
+          'features.uiTitle': `Interfaccia in stile macOS`,
+          'features.uiDesc': `Un'interfaccia arrotondata disegnata con Slint che segue il tema chiaro/scuro di sistema; interruttori, barra degli strumenti e schede condividono lo stesso linguaggio visivo macOS.`,
+          'features.updateTitle': `Aggiornamenti automatici`,
+          'features.updateDesc': `Nella finestra Informazioni scegli se cercare aggiornamenti. Se attivo, all'avvio viene interrogato GitHub Releases e la nuova versione può essere scaricata e installata dal basso a destra.`,
+          'workflow.kicker': `Flusso`,
+          'workflow.title': `Tre passaggi per una scansione completa`,
+          'workflow.lede': `Nessun editor di immagini complicato: gran parte delle correzioni avviene automaticamente allo scatto.`,
+          'workflow.s1Title': `Collega una webcam`,
+          'workflow.s1Desc': `Collega qualsiasi webcam USB, poi scegli dispositivo e risoluzione.`,
+          'workflow.s2Title': `Inserisci il documento e scatta`,
+          'workflow.s2Desc': `L'anteprima mostra il ritaglio in tempo reale; lo scatto ritaglia, raddrizza e salva.`,
+          'workflow.s3Title': `Organizza ed esporta`,
+          'workflow.s3Desc': `Rinomina, elimina, esegui l'OCR, poi esporta in PDF o JPG.`,
+          'download.kicker': `Download`,
+          'download.title': `Scarica UsbScan`,
+          'download.desc': `L'installer è adatto alla maggior parte degli utenti; la versione portatile funziona dopo l'estrazione e non scrive nel registro. Entrambe possono essere installate sopra una versione precedente.`,
+          'download.setup': `Scarica l'installer`,
+          'download.portable': `Scarica la versione portatile`,
+          'download.noteLoading': `Lettura dell'ultima versione… Puoi anche consultare tutte le versioni su <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a>.`,
+          'download.noteReady': `Puoi installare sopra una versione precedente; i checksum sono in SHA256SUMS.txt.`,
+          'download.noteIncomplete': `Questa release non include ancora installer e versione portatile. Vedi GitHub Releases per tutti i file.`,
+          'download.noteUnavailable': `Nessuna release è ancora stata pubblicata, oppure l'API GitHub non è raggiungibile. Puoi anche consultare <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> per gli artefatti.`,
+          'download.latest': `Ultima versione`,
+          'download.system': `Sistema`,
+          'download.runtime': `Runtime`,
+          'download.runtimeValue': `Nessun .NET / WebView2 richiesto`,
+          'download.license': `Licenza`,
+          'download.checksums': `Checksum`,
+          'docs.kicker': `Documenti`,
+          'docs.title': `Documentazione e codice`,
+          'docs.lede': `Progettazione, architettura, regole di denominazione e processo di rilascio sono pubblici nel repository.`,
+          'docs.readmeTitle': `README`,
+          'docs.readmeDesc': `Funzionalità, build e utilizzo`,
+          'docs.designTitle': `Documenti di progetto`,
+          'docs.designDesc': `Requisiti, architettura, prototipi UI e roadmap`,
+          'docs.repoTitle': `Repository GitHub`,
+          'docs.repoDesc': `Codice sorgente, issue e release`,
+          'page.title': `UsbScan — Trasforma qualsiasi webcam USB in uno scanner per documenti`,
+          'page.description': `UsbScan è un'app Windows per la scansione offline di documenti: qualsiasi webcam UVC, ritaglio automatico e correzione prospettica, OCR offline, esportazione PDF e registrazione MP4.`
+        },
+        'es': {
+          'nav.features': `Funciones`,
+          'nav.workflow': `Flujo`,
+          'nav.download': `Descargar`,
+          'nav.docs': `Documentación`,
+          'nav.language': `Idioma`,
+          'nav.label': `Navegación principal`,
+          'brand.home': `Inicio de UsbScan`,
+          'brand.alt': `Icono de UsbScan`,
+          'hero.badge': `Windows 10 / 11 · Totalmente sin conexión · Código abierto`,
+          'hero.title1': `Convierte cualquier cámara USB`,
+          'hero.title2': `en un escáner de documentos.`,
+          'hero.lede': `Captura, recorte automático, corrección de perspectiva, OCR sin conexión y archivado en PDF: un flujo completo. Sin escáner dedicado y sin subir nada a la nube.`,
+          'hero.download': `Descargar para Windows`,
+          'hero.source': `Ver código`,
+          'hero.alt': `Interfaz de UsbScan: vista previa en vivo, marco de recorte, lista de páginas y ajustes de escaneo`,
+          'meta.offline': `Todo el procesamiento se queda en tu equipo`,
+          'meta.backend': `Media Foundation + DirectShow`,
+          'meta.license': `GPL-3.0-or-later`,
+          'features.kicker': `Funciones`,
+          'features.title': `Un flujo de trabajo pensado para el papel`,
+          'features.lede': `Desde el encuadre hasta el archivo, cada paso está diseñado para digitalizar documentos reales, no solo para hacer fotos.`,
+          'features.cameraTitle': `Cualquier cámara UVC`,
+          'features.cameraDesc': `Media Foundation como backend principal y DirectShow como respaldo. Funcionan webcams, escáneres de documentos, módulos industriales y cámaras integradas en portátiles.`,
+          'features.cropTitle': `Recorte en vivo + perspectiva`,
+          'features.cropDesc': `Las esquinas del documento se dibujan en vivo sobre la vista previa. Al capturar, el fondo se recorta y la perspectiva se corrige; si la detección no es fiable, se omite.`,
+          'features.ocrTitle': `OCR sin conexión`,
+          'features.ocrDesc': `Usa Tesseract 5 instalado localmente: sin red y sin subidas. Los resultados pasan directamente a PDF con texto buscable.`,
+          'features.pdfTitle': `Archivado PDF / JPG`,
+          'features.pdfDesc': `PDF de varias páginas, JPG de una página o exportación de toda la sesión, con plantillas de nombre y subcarpeta configurables antes de capturar.`,
+          'features.uiTitle': `Interfaz estilo macOS`,
+          'features.uiDesc': `Una interfaz redondeada dibujada con Slint que sigue el tema claro/oscuro del sistema; interruptores, barra de herramientas y tarjetas comparten el mismo lenguaje visual de macOS.`,
+          'features.updateTitle': `Actualizaciones automáticas`,
+          'features.updateDesc': `En la ventana Acerca de eliges si buscar actualizaciones. Si está activado, al iniciar se consulta GitHub Releases y la nueva versión se puede descargar e instalar desde la esquina inferior derecha.`,
+          'workflow.kicker': `Flujo`,
+          'workflow.title': `Tres pasos para un escaneo terminado`,
+          'workflow.lede': `Sin editor de imágenes complicado: la mayor parte de la corrección ocurre automáticamente al capturar.`,
+          'workflow.s1Title': `Conecta una cámara`,
+          'workflow.s1Desc': `Conecta cualquier cámara USB y elige el dispositivo y la resolución.`,
+          'workflow.s2Title': `Coloca el documento y captura`,
+          'workflow.s2Desc': `La vista previa muestra el recorte en vivo; el disparador recorta, endereza y guarda.`,
+          'workflow.s3Title': `Organiza y exporta`,
+          'workflow.s3Desc': `Renombra, elimina, ejecuta OCR y exporta a PDF o JPG.`,
+          'download.kicker': `Descarga`,
+          'download.title': `Descargar UsbScan`,
+          'download.desc': `El instalador es lo más cómodo para la mayoría; la versión portátil funciona tras descomprimirla y no escribe en el registro. Ambas pueden instalarse sobre una versión anterior.`,
+          'download.setup': `Descargar instalador`,
+          'download.portable': `Descargar portátil`,
+          'download.noteLoading': `Leyendo la última versión… También puedes ver todas las versiones en <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a>.`,
+          'download.noteReady': `Puedes instalar sobre una versión anterior; las sumas de verificación están en SHA256SUMS.txt.`,
+          'download.noteIncomplete': `Esta release aún no incluye el instalador y la versión portátil. Consulta GitHub Releases para ver todos los archivos.`,
+          'download.noteUnavailable': `Aún no se ha publicado ninguna release o la API de GitHub no está disponible. También puedes consultar <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> para los artefactos.`,
+          'download.latest': `Última versión`,
+          'download.system': `Sistema`,
+          'download.runtime': `Entorno`,
+          'download.runtimeValue': `No requiere .NET / WebView2`,
+          'download.license': `Licencia`,
+          'download.checksums': `Sumas de verificación`,
+          'docs.kicker': `Documentación`,
+          'docs.title': `Documentación y código`,
+          'docs.lede': `El diseño, la arquitectura, las reglas de nombres y el proceso de publicación son públicos en el repositorio.`,
+          'docs.readmeTitle': `README`,
+          'docs.readmeDesc': `Funciones, compilación y uso`,
+          'docs.designTitle': `Documentos de diseño`,
+          'docs.designDesc': `Requisitos, arquitectura, prototipos de UI y hoja de ruta`,
+          'docs.repoTitle': `Repositorio de GitHub`,
+          'docs.repoDesc': `Código fuente, issues y releases`,
+          'page.title': `UsbScan — Convierte cualquier cámara USB en un escáner de documentos`,
+          'page.description': `UsbScan es una app de Windows para escanear documentos sin conexión: cualquier cámara UVC, recorte automático y corrección de perspectiva, OCR sin conexión, exportación a PDF y grabación MP4.`
+        },
+        'ja': {
+          'nav.features': `機能`,
+          'nav.workflow': `ワークフロー`,
+          'nav.download': `ダウンロード`,
+          'nav.docs': `ドキュメント`,
+          'nav.language': `言語`,
+          'nav.label': `メインナビゲーション`,
+          'brand.home': `UsbScan ホーム`,
+          'brand.alt': `UsbScan のアイコン`,
+          'hero.badge': `Windows 10 / 11 · 完全オフライン · オープンソース`,
+          'hero.title1': `どんな USB カメラも、`,
+          'hero.title2': `ドキュメントスキャナーに。`,
+          'hero.lede': `撮影、自動トリミング、台形補正、オフライン OCR、PDF 保存までを一つの流れで。専用スキャナーも、クラウドへのアップロードも不要です。`,
+          'hero.download': `Windows 版をダウンロード`,
+          'hero.source': `ソースを見る`,
+          'hero.alt': `UsbScan の画面：ライブプレビュー、書類の切り抜き枠、ページ一覧、スキャン設定`,
+          'meta.offline': `処理はすべて端末内で完結`,
+          'meta.backend': `Media Foundation + DirectShow`,
+          'meta.license': `GPL-3.0-or-later`,
+          'features.kicker': `機能`,
+          'features.title': `紙の書類のためのカメラワークフロー`,
+          'features.lede': `構図合わせから保存まで、単なる写真撮影ではなく実際の書類スキャンのために設計された各ステップです。`,
+          'features.cameraTitle': `あらゆる UVC カメラ`,
+          'features.cameraDesc': `Media Foundation をメインに、DirectShow をフォールバックとして使用。Web カメラ、書画カメラ、産業用モジュール、ノート PC 内蔵カメラに対応します。`,
+          'features.cropTitle': `リアルタイム裁ち落とし + 台形補正`,
+          'features.cropDesc': `プレビュー上に書類の四隅をリアルタイム表示。撮影時に背景を自動で切り取り、台形の歪みを補正します。検出が不確かな場合は安全にスキップします。`,
+          'features.ocrTitle': `オフライン OCR`,
+          'features.ocrDesc': `ローカルの Tesseract 5 を使用。ネットワークもアップロードも不要です。認識結果はそのまま検索可能な PDF に反映されます。`,
+          'features.pdfTitle': `PDF / JPG 保存`,
+          'features.pdfDesc': `複数ページ PDF、単ページ JPG、セッション全体の書き出しに対応。ファイル名とサブフォルダーのテンプレートは撮影前に設定できます。`,
+          'features.uiTitle': `macOS 風インターフェース`,
+          'features.uiDesc': `Slint で描画した角丸 UI がシステムのライト/ダークテーマに追従。スイッチ、ツールバー、カードが統一された macOS の視覚言語を共有します。`,
+          'features.updateTitle': `自動アップデート`,
+          'features.updateDesc': `「このアプリについて」で更新確認の有無を選択できます。有効にすると起動時に GitHub Releases を確認し、新しいバージョンを右下からワンクリックでダウンロード・インストールできます。`,
+          'workflow.kicker': `ワークフロー`,
+          'workflow.title': `3 ステップでスキャン完了`,
+          'workflow.lede': `複雑な画像編集ソフトは不要。ほとんどの補正は撮影時に自動で行われます。`,
+          'workflow.s1Title': `カメラを接続`,
+          'workflow.s1Desc': `USB カメラを接続し、デバイスと解像度を選択します。`,
+          'workflow.s2Title': `書類を置いて撮影`,
+          'workflow.s2Desc': `プレビューに裁ち落とし枠を表示。シャッターを押すと自動で切り抜き、傾きを補正して保存します。`,
+          'workflow.s3Title': `整理して書き出し`,
+          'workflow.s3Desc': `名前変更、削除、OCR を実行し、PDF または JPG に書き出します。`,
+          'download.kicker': `ダウンロード`,
+          'download.title': `UsbScan をダウンロード`,
+          'download.desc': `ほとんどの方にはインストーラーがおすすめです。ポータブル版は展開するだけで使え、レジストリに書き込みません。どちらも旧バージョンに上書きインストールできます。`,
+          'download.setup': `インストーラーをダウンロード`,
+          'download.portable': `ポータブル版をダウンロード`,
+          'download.noteLoading': `最新バージョンを取得しています…すべてのバージョンは <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> でも確認できます。`,
+          'download.noteReady': `旧バージョンに上書きインストールできます。チェックサムは SHA256SUMS.txt に記載されています。`,
+          'download.noteIncomplete': `この Release にはまだインストーラーとポータブル版が含まれていません。GitHub Releases ですべてのファイルを確認してください。`,
+          'download.noteUnavailable': `まだ Release が公開されていないか、GitHub API にアクセスできません。ビルド成果物は <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> でも確認できます。`,
+          'download.latest': `最新バージョン`,
+          'download.system': `システム`,
+          'download.runtime': `実行環境`,
+          'download.runtimeValue': `.NET / WebView2 不要`,
+          'download.license': `ライセンス`,
+          'download.checksums': `チェックサム`,
+          'docs.kicker': `ドキュメント`,
+          'docs.title': `ドキュメントとソースコード`,
+          'docs.lede': `設計、アーキテクチャ、命名規則、リリース手順はリポジトリで公開しています。`,
+          'docs.readmeTitle': `README`,
+          'docs.readmeDesc': `機能、ビルド、使い方`,
+          'docs.designTitle': `設計ドキュメント`,
+          'docs.designDesc': `要件、アーキテクチャ、UI プロトタイプ、開発計画`,
+          'docs.repoTitle': `GitHub リポジトリ`,
+          'docs.repoDesc': `ソースコード、Issue、Release`,
+          'page.title': `UsbScan — どんな USB カメラもドキュメントスキャナーに`,
+          'page.description': `UsbScan は Windows 向けのオフライン書類スキャンアプリです。あらゆる UVC カメラ、自動トリミングと台形補正、オフライン OCR、PDF 書き出し、MP4 録画に対応します。`
+        },
+        'ko': {
+          'nav.features': `기능`,
+          'nav.workflow': `워크플로`,
+          'nav.download': `다운로드`,
+          'nav.docs': `문서`,
+          'nav.language': `언어`,
+          'nav.label': `주요 탐색`,
+          'brand.home': `UsbScan 홈`,
+          'brand.alt': `UsbScan 아이콘`,
+          'hero.badge': `Windows 10 / 11 · 완전 오프라인 · 오픈 소스`,
+          'hero.title1': `어떤 USB 카메라든,`,
+          'hero.title2': `문서 스캐너로.`,
+          'hero.lede': `촬영, 자동 자르기, 원근 보정, 오프라인 OCR, PDF 보관까지 하나의 흐름으로. 전용 스캐너도, 클라우드 업로드도 필요 없습니다.`,
+          'hero.download': `Windows용 다운로드`,
+          'hero.source': `소스 보기`,
+          'hero.alt': `UsbScan 화면: 실시간 미리보기, 문서 자르기 프레임, 페이지 목록, 스캔 설정`,
+          'meta.offline': `모든 처리는 기기에서만`,
+          'meta.backend': `Media Foundation + DirectShow`,
+          'meta.license': `GPL-3.0-or-later`,
+          'features.kicker': `기능`,
+          'features.title': `종이 문서를 위한 카메라 워크플로`,
+          'features.lede': `구도 잡기부터 보관까지, 단순한 사진 촬영이 아닌 실제 문서 스캔을 위해 설계된 단계입니다.`,
+          'features.cameraTitle': `모든 UVC 카메라`,
+          'features.cameraDesc': `Media Foundation을 기본으로, DirectShow를 대체 수단으로 사용합니다. 웹캠, 문서 카메라, 산업용 모듈, 노트북 내장 카메라 모두 사용할 수 있습니다.`,
+          'features.cropTitle': `실시간 자르기 + 원근 보정`,
+          'features.cropDesc': `미리보기 위에 문서 네 모서리를 실시간으로 표시합니다. 촬영 시 배경을 자동으로 잘라내고 원근 왜곡을 보정하며, 감지가 불확실하면 안전하게 건너뜁니다.`,
+          'features.ocrTitle': `오프라인 OCR`,
+          'features.ocrDesc': `로컬 Tesseract 5를 사용합니다. 네트워크도 업로드도 없습니다. 인식 결과는 바로 검색 가능한 PDF에 반영됩니다.`,
+          'features.pdfTitle': `PDF / JPG 보관`,
+          'features.pdfDesc': `여러 페이지 PDF, 단일 페이지 JPG 또는 전체 세션 내보내기를 지원합니다. 파일 이름과 하위 폴더 템플릿은 촬영 전에 설정할 수 있습니다.`,
+          'features.uiTitle': `macOS 스타일 인터페이스`,
+          'features.uiDesc': `Slint로 그린 둥근 인터페이스가 시스템 라이트/다크 테마를 따릅니다. 스위치, 도구 모음, 카드가 하나의 macOS 시각 언어를 공유합니다.`,
+          'features.updateTitle': `자동 업데이트`,
+          'features.updateDesc': `정보 창에서 업데이트 확인 여부를 선택할 수 있습니다. 활성화하면 시작 시 GitHub Releases를 확인하고, 새 버전을 오른쪽 아래에서 한 번에 내려받아 설치할 수 있습니다.`,
+          'workflow.kicker': `워크플로`,
+          'workflow.title': `세 단계로 스캔 완료`,
+          'workflow.lede': `복잡한 이미지 편집기를 배울 필요가 없습니다. 대부분의 보정은 촬영할 때 자동으로 이루어집니다.`,
+          'workflow.s1Title': `카메라 연결`,
+          'workflow.s1Desc': `USB 카메라를 연결하고 장치와 해상도를 선택합니다.`,
+          'workflow.s2Title': `문서를 놓고 촬영`,
+          'workflow.s2Desc': `미리보기에 자르기 프레임이 실시간으로 표시됩니다. 셔터를 누르면 자동으로 자르고 기울기를 보정해 저장합니다.`,
+          'workflow.s3Title': `정리 및 내보내기`,
+          'workflow.s3Desc': `이름 변경, 삭제, OCR 실행 후 PDF 또는 JPG로 내보냅니다.`,
+          'download.kicker': `다운로드`,
+          'download.title': `UsbScan 다운로드`,
+          'download.desc': `대부분의 사용자에게는 설치 버전이 적합합니다. 포터블 버전은 압축을 풀면 바로 실행되며 레지스트리에 쓰지 않습니다. 둘 다 이전 버전 위에 설치할 수 있습니다.`,
+          'download.setup': `설치 버전 다운로드`,
+          'download.portable': `포터블 버전 다운로드`,
+          'download.noteLoading': `최신 버전을 확인하는 중… 모든 버전은 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a>에서도 확인할 수 있습니다.`,
+          'download.noteReady': `이전 버전 위에 설치할 수 있습니다. 체크섬은 SHA256SUMS.txt에 있습니다.`,
+          'download.noteIncomplete': `이 Release에는 아직 설치 버전과 포터블 버전이 모두 포함되지 않았습니다. GitHub Releases에서 모든 파일을 확인하세요.`,
+          'download.noteUnavailable': `아직 Release가 게시되지 않았거나 GitHub API에 접근할 수 없습니다. 빌드 결과물은 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a>에서도 확인할 수 있습니다.`,
+          'download.latest': `최신 버전`,
+          'download.system': `시스템`,
+          'download.runtime': `실행 환경`,
+          'download.runtimeValue': `.NET / WebView2 필요 없음`,
+          'download.license': `라이선스`,
+          'download.checksums': `체크섬`,
+          'docs.kicker': `문서`,
+          'docs.title': `문서 및 소스 코드`,
+          'docs.lede': `설계, 아키텍처, 이름 규칙, 릴리스 절차가 저장소에 공개되어 있습니다.`,
+          'docs.readmeTitle': `README`,
+          'docs.readmeDesc': `기능, 빌드 및 사용법`,
+          'docs.designTitle': `설계 문서`,
+          'docs.designDesc': `요구 사항, 아키텍처, UI 프로토타입, 개발 계획`,
+          'docs.repoTitle': `GitHub 저장소`,
+          'docs.repoDesc': `소스 코드, 이슈 및 릴리스`,
+          'page.title': `UsbScan — 어떤 USB 카메라든 문서 스캐너로`,
+          'page.description': `UsbScan은 Windows용 오프라인 문서 스캔 앱입니다. 모든 UVC 카메라, 자동 자르기와 원근 보정, 오프라인 OCR, PDF 내보내기, MP4 녹화를 지원합니다.`
+        }
+      };
+
+      var STORAGE_KEY = 'usbscan-lang';
+      var currentLang = 'en';
+      var releaseState = { kind: 'loading' };
+
+      function normalizeLang(value) {
+        if (!value) return null;
+        var tag = String(value).toLowerCase().replace(/_/g, '-');
+        if (tag.indexOf('zh') === 0) {
+          return /hant|tw|hk|mo/.test(tag) ? 'zh-Hant' : 'zh-Hans';
+        }
+        var base = tag.split('-')[0];
+        if (['en', 'de', 'fr', 'it', 'es', 'ja', 'ko'].indexOf(base) !== -1) return base;
+        return null;
+      }
+
+      function pickInitialLang() {
+        var query = null;
+        try { query = new URLSearchParams(location.search).get('lang'); } catch (e) {}
+        var saved = null;
+        try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+        var candidates = [query, saved].concat(navigator.languages || [navigator.language || 'en']);
+        for (var i = 0; i < candidates.length; i++) {
+          var lang = normalizeLang(candidates[i]);
+          if (lang) return lang;
+        }
+        return 'en';
+      }
+
+      function dict() {
+        return I18N[currentLang] || I18N.en;
+      }
+
+      function setMeta(attr, name, content) {
+        if (!content) return;
+        var el = document.querySelector('meta[' + attr + '="' + name + '"]');
+        if (el) el.setAttribute('content', content);
+      }
+
+      function renderReleaseNote() {
+        var note = document.getElementById('release-note');
+        if (!note) return;
+        var d = dict();
+        var key = releaseState.kind === 'ready' ? 'download.noteReady'
+          : releaseState.kind === 'incomplete' ? 'download.noteIncomplete'
+          : releaseState.kind === 'unavailable' ? 'download.noteUnavailable'
+          : 'download.noteLoading';
+        note.innerHTML = d[key];
+      }
+
+      function applyLanguage(lang, persist) {
+        currentLang = I18N[lang] ? lang : 'en';
+        var d = dict();
+
+        document.documentElement.lang = currentLang;
+        document.querySelectorAll('[data-i18n]').forEach(function (el) {
+          var value = d[el.getAttribute('data-i18n')];
+          if (value != null) el.textContent = value;
         });
+        document.querySelectorAll('[data-i18n-aria]').forEach(function (el) {
+          var value = d[el.getAttribute('data-i18n-aria')];
+          if (value != null) el.setAttribute('aria-label', value);
+        });
+        document.querySelectorAll('[data-i18n-alt]').forEach(function (el) {
+          var value = d[el.getAttribute('data-i18n-alt')];
+          if (value != null) el.setAttribute('alt', value);
+        });
+
+        document.title = d['page.title'];
+        setMeta('name', 'description', d['page.description']);
+        setMeta('property', 'og:title', d['page.title']);
+        setMeta('property', 'og:description', d['page.description']);
+
+        var select = document.getElementById('lang-select');
+        if (select) select.value = currentLang;
+        renderReleaseNote();
+
+        if (persist) {
+          try { localStorage.setItem(STORAGE_KEY, currentLang); } catch (e) {}
+          try {
+            var url = new URL(location.href);
+            url.searchParams.set('lang', currentLang);
+            history.replaceState(null, '', url);
+          } catch (e) {}
+        }
+      }
+
+      var select = document.getElementById('lang-select');
+      LANGUAGES.forEach(function (item) {
+        var option = document.createElement('option');
+        option.value = item[0];
+        option.textContent = item[1];
+        select.appendChild(option);
+      });
+      select.addEventListener('change', function () {
+        applyLanguage(select.value, true);
+      });
+
+      applyLanguage(pickInitialLang(), false);
+
+      function bindRelease() {
+        var api = 'https://api.github.com/repos/Kaiyuan/usbscan/releases/latest';
+        fetch(api, { headers: { Accept: 'application/vnd.github+json' } })
+          .then(function (response) {
+            if (!response.ok) throw new Error('no release');
+            return response.json();
+          })
+          .then(function (release) {
+            document.getElementById('latest-version').textContent = release.tag_name || '—';
+            var assets = release.assets || [];
+            var setup = assets.find(function (a) { return /setup.*\.exe$/i.test(a.name); });
+            var portable = assets.find(function (a) { return /portable.*\.zip$/i.test(a.name); });
+            var checksums = assets.find(function (a) { return /SHA256SUMS\.txt$/i.test(a.name); });
+            if (setup) document.getElementById('setup-link').href = setup.browser_download_url;
+            if (portable) document.getElementById('portable-link').href = portable.browser_download_url;
+            if (checksums) document.getElementById('checksums-link').href = checksums.browser_download_url;
+            releaseState = { kind: setup && portable ? 'ready' : 'incomplete' };
+            renderReleaseNote();
+          })
+          .catch(function () {
+            document.getElementById('latest-version').textContent = '—';
+            releaseState = { kind: 'unavailable' };
+            renderReleaseNote();
+          });
+      }
+
+      bindRelease();
     })();
   </script>
 </body>

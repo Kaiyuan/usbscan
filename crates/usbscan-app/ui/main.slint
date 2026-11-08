@@ -78,12 +78,17 @@ component IconPill inherits TouchArea {
             padding-right: 11px;
             spacing: 6px;
             alignment: center;
-            if (root.has-icon) : Image {
-                width: 17px;
-                height: 17px;
-                source: root.icon;
-                image-fit: contain;
-                colorize: root.primary ? #ffffff : root.icon-color;
+            if (root.has-icon) : Rectangle {
+                width: 16px;
+                height: 20px;
+                Image {
+                    width: 16px;
+                    height: 16px;
+                    y: 5px;
+                    source: root.icon;
+                    image-fit: contain;
+                    colorize: root.primary ? #ffffff : root.icon-color;
+                }
             }
             if (!root.has-icon) : Text {
                 text: root.glyph;
@@ -263,7 +268,7 @@ component Dropdown inherits Rectangle {
 export component MainWindow inherits Window {
     title: "usbscan — 文档扫描";
     min-width: 1000px;
-    min-height: 660px;
+    min-height: 700px;
     background: Theme.bg;
     default-font-size: 13px;
     default-font-family: "Segoe UI Variable Text";
@@ -512,7 +517,7 @@ export component MainWindow inherits Window {
 
                     Section {
                         title: "扫描设置";
-                            content-height: 217px;
+                            content-height: 264px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;

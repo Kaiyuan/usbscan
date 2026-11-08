@@ -133,9 +133,25 @@ pub fn validate_language(language: &str) -> Result<(), OcrError> {
 
 /// 识别单张图片，返回纯文本。
 pub fn recognize(executable: &Path, image: &Path, language: &str) -> Result<String, OcrError> {
+    recognize_with_tessdata(executable, None, image, language)
+}
+
+/// 使用指定的 tessdata 目录识别图片并返回纯文本。
+///
+/// `tessdata` 为空时沿用 Tesseract 默认目录与便携目录逻辑。
+pub fn recognize_with_tessdata(
+    executable: &Path,
+    tessdata: Option<&Path>,
+    image: &Path,
+    language: &str,
+) -> Result<String, OcrError> {
     validate_language(language)?;
     let mut command = Command::new(executable);
-    apply_portable_tessdata(&mut command, executable);
+    if let Some(directory) = tessdata {
+        command.env("TESSDATA_PREFIX", directory);
+    } else {
+        apply_portable_tessdata(&mut command, executable);
+    }
     command
         .arg(image)
         .arg("stdout")

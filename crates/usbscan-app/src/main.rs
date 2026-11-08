@@ -29,6 +29,8 @@ use usbscan_win::theme;
 
 slint::include_modules!();
 
+mod i18n;
+mod tesseract_install;
 mod update;
 
 const CAMERA_SOUND: &[u8] = include_bytes!("../../../assets/camera.mp3");
@@ -103,7 +105,7 @@ impl Default for WorkerShared {
             devices_version: 0,
             formats: Vec::new(),
             formats_version: 0,
-            status: "正在检测摄像头…".to_string(),
+            status: i18n::t("status.detecting").to_string(),
             connected: false,
             corners: None,
             corners_frame: None,
@@ -184,7 +186,11 @@ impl Drop for Worker {
 fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
     let _com = capture::init_thread();
     if let Err(err) = capture::ensure_platform() {
-        set_status(shared, false, format!("Media Foundation 初始化失败：{err}"));
+        set_status(
+            shared,
+            false,
+            i18n::t_args("status.mfInitFailed", &[&err.to_string()]),
+        );
         return;
     }
 
@@ -200,7 +206,11 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
         let cameras = match capture::list_cameras() {
             Ok(cameras) => cameras,
             Err(err) => {
-                set_status(shared, false, format!("枚举摄像头失败：{err}"));
+                set_status(
+                    shared,
+                    false,
+                    i18n::t_args("status.enumerateFailed", &[&err.to_string()]),
+                );
                 sleep_interruptible(stop, Duration::from_millis(1000));
                 continue;
             }
@@ -222,24 +232,19 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
                 .iter()
                 .all(|camera| Some(&camera.id) != selected.as_ref())
         {
+            let saved_name =
+                selected_name.unwrap_or_else(|| i18n::t("status.savedDevice").to_string());
             set_status(
                 shared,
                 false,
-                format!(
-                    "等待摄像头：{}",
-                    selected_name.unwrap_or_else(|| "已保存的设备".to_string())
-                ),
+                i18n::t_args("status.waitingCamera", &[&saved_name]),
             );
             sleep_interruptible(stop, Duration::from_millis(1000));
             continue;
         }
         let Some(info) = select_camera(&cameras, selected.as_deref(), selected_name.as_deref())
         else {
-            set_status(
-                shared,
-                false,
-                "未检测到摄像头，请插入 USB 摄像头".to_string(),
-            );
+            set_status(shared, false, i18n::t("status.noCamera").to_string());
             sleep_interruptible(stop, Duration::from_millis(1000));
             continue;
         };
@@ -247,7 +252,11 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
         let mut camera = match capture::Camera::open(info, preferred) {
             Ok(camera) => camera,
             Err(err) => {
-                set_status(shared, false, format!("无法打开摄像头：{err}"));
+                set_status(
+                    shared,
+                    false,
+                    i18n::t_args("status.openCameraFailed", &[&err.to_string()]),
+                );
                 sleep_interruptible(stop, Duration::from_millis(1000));
                 continue;
             }
@@ -262,7 +271,10 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
             guard.selected = Some(info.id.clone());
             guard.selected_name = Some(info.name.clone());
             guard.connected = true;
-            guard.status = format!("已连接 {}  {}×{}", info.name, width, height);
+            guard.status = i18n::t_args(
+                "status.connected",
+                &[&info.name, &width.to_string(), &height.to_string()],
+            );
             guard.corners_frame = Some((width, height));
         }
 
@@ -285,10 +297,16 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
                         if guard.frame_size != Some((frame.width, frame.height)) {
                             guard.frame_size = Some((frame.width, frame.height));
-                            if guard.status.starts_with("已连接 ") {
+                            if guard.connected {
                                 if let Some(name) = &guard.selected_name {
-                                    guard.status =
-                                        format!("已连接 {name}  {}×{}", frame.width, frame.height);
+                                    guard.status = i18n::t_args(
+                                        "status.connected",
+                                        &[
+                                            name,
+                                            &frame.width.to_string(),
+                                            &frame.height.to_string(),
+                                        ],
+                                    );
                                 }
                             }
                         }
@@ -314,7 +332,7 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
                         guard.frame = None;
                         guard.corners = None;
                         guard.connected = false;
-                        guard.status = format!("摄像头错误：{err}");
+                        guard.status = i18n::t_args("status.cameraError", &[&err.to_string()]);
                     }
                     sleep_interruptible(stop, Duration::from_millis(600));
                     break;
@@ -439,6 +457,7 @@ fn sleep_interruptible(stop: &AtomicBool, duration: Duration) {
 type UpdateCheckSlot = Arc<Mutex<Option<Result<Option<update::UpdateInfo>, String>>>>;
 type UpdateDownloadSlot = Arc<Mutex<Option<Result<PathBuf, String>>>>;
 
+#[allow(clippy::struct_excessive_bools)]
 struct AppState {
     ui: slint::Weak<MainWindow>,
     worker: Worker,
@@ -465,6 +484,9 @@ struct AppState {
     update_info: Option<update::UpdateInfo>,
     update_checking: bool,
     update_downloading: bool,
+    tessdata_dir: Option<PathBuf>,
+    tesseract_install: Arc<Mutex<Option<Result<tesseract_install::Installed, String>>>>,
+    tesseract_installing: bool,
     timer: Option<slint::Timer>,
 }
 
@@ -479,18 +501,18 @@ impl AppState {
 
     fn capture_feedback(&mut self) -> bool {
         if self.frame().is_none() {
-            self.set_status("尚未取得画面，请稍候再拍");
+            self.set_status(i18n::t("status.noFrameCapture"));
             return false;
         }
         self.play_sound(CAMERA_SOUND);
         self.flash();
-        self.show_toast("已拍照");
+        self.show_toast(i18n::t("toast.captured"));
         true
     }
 
     fn capture_now(&mut self) {
         let Some(frame) = self.frame() else {
-            self.set_status("尚未取得画面，请稍候再拍");
+            self.set_status(i18n::t("status.noFrameCapture"));
             return;
         };
         let ui = self.ui();
@@ -500,7 +522,7 @@ impl AppState {
         let path = self.new_image_path(enhanced.width, enhanced.height);
         if let Some(parent) = path.parent() {
             if let Err(err) = fs::create_dir_all(parent) {
-                self.set_status(&format!("创建目录失败：{err}"));
+                self.set_status(&i18n::t_args("status.createDirFailed", &[&err.to_string()]));
                 return;
             }
         }
@@ -511,7 +533,7 @@ impl AppState {
             &enhanced.bgra,
             self.config.jpeg_quality.unwrap_or(92),
         ) {
-            self.set_status(&format!("保存图片失败：{err}"));
+            self.set_status(&i18n::t_args("status.saveImageFailed", &[&err]));
             return;
         }
         let raw_relative = self.write_raw(&frame);
@@ -544,11 +566,13 @@ impl AppState {
         if let Some(ui) = ui {
             ui.set_selected_page(self.selected_row.map_or(-1, |row| row as i32));
         }
-        self.set_status(&format!(
-            "已保存：{}（{}×{}）",
-            path.file_name().unwrap_or_default().to_string_lossy(),
-            enhanced.width,
-            enhanced.height
+        self.set_status(&i18n::t_args(
+            "status.savedPage",
+            &[
+                &path.file_name().unwrap_or_default().to_string_lossy(),
+                &enhanced.width.to_string(),
+                &enhanced.height.to_string(),
+            ],
         ));
     }
 
@@ -641,7 +665,8 @@ impl AppState {
         let rendered = engine.render(&self.rule, &context).map_or_else(
             |_| {
                 self.output_root.join(format!(
-                    "扫描_{}.jpg",
+                    "{}_{}.jpg",
+                    i18n::t("file.scan"),
                     naming::TimeStamp::now().format("yyyyMMdd_HHmmss")
                 ))
             },
@@ -652,11 +677,11 @@ impl AppState {
 
     fn new_import_path(&self) -> PathBuf {
         let now = naming::TimeStamp::now();
-        unique_path(
-            &self
-                .output_root
-                .join(format!("导入_{}.jpg", now.format("yyyyMMdd_HHmmss"))),
-        )
+        unique_path(&self.output_root.join(format!(
+            "{}_{}.jpg",
+            i18n::t("file.import"),
+            now.format("yyyyMMdd_HHmmss")
+        )))
     }
 
     fn write_raw(&mut self, frame: &capture::Frame) -> Option<PathBuf> {
@@ -703,7 +728,7 @@ impl AppState {
         }
         self.rows = rows;
         ui.set_pages(ModelRc::from(Rc::new(VecModel::from(items))));
-        ui.set_page_count_text(format!("{} 页", self.session.pages.len()).into());
+        ui.set_page_count_text(i18n::page_count(self.session.pages.len()).into());
         let selected = self
             .selected_row
             .filter(|row| *row < self.rows.len())
@@ -772,7 +797,7 @@ impl AppState {
         if formats_version != self.last_formats_version {
             self.last_formats_version = formats_version;
             self.formats = formats;
-            let mut names = vec![slint::SharedString::from("自动")];
+            let mut names = vec![slint::SharedString::from(i18n::t("ui.auto"))];
             names.extend(
                 self.formats
                     .iter()
@@ -808,6 +833,42 @@ impl AppState {
     fn set_status(&self, message: &str) {
         if let Some(ui) = self.ui() {
             ui.set_status_text(message.into());
+        }
+    }
+
+    fn set_language(&mut self, lang: i18n::Lang) {
+        i18n::set_language(lang);
+        self.config.language = Some(lang.code().to_string());
+        self.config.save();
+        let Some(ui) = self.ui() else {
+            return;
+        };
+        apply_ui_language(&ui);
+        ui.set_page_count_text(i18n::page_count(self.session.pages.len()).into());
+
+        let mut names = vec![slint::SharedString::from(i18n::t("ui.auto"))];
+        names.extend(
+            self.formats
+                .iter()
+                .map(|(width, height)| format!("{width} × {height}").into()),
+        );
+        ui.set_format_options(ModelRc::from(Rc::new(VecModel::from(names))));
+
+        let message = i18n::t("status.languageChanged").to_string();
+        {
+            let mut guard = self.worker.lock();
+            guard.status.clone_from(&message);
+        }
+        self.last_status.clone_from(&message);
+        ui.set_status_text(message.into());
+
+        if let Some(info) = &self.update_info {
+            let text = if self.update_downloading {
+                i18n::t("status.downloadingUpdate").to_string()
+            } else {
+                i18n::t_args("status.newVersion", &[&info.version])
+            };
+            ui.set_update_text(text.into());
         }
     }
 
@@ -872,7 +933,7 @@ impl AppState {
                     if let Some(ui) = self.ui() {
                         ui.set_update_version(format!("v{}", info.version).into());
                         ui.set_update_text(
-                            format!("发现新版本 v{} · 点击更新", info.version).into(),
+                            i18n::t_args("status.newVersion", &[&info.version]).into(),
                         );
                         ui.set_has_update(true);
                     }
@@ -893,7 +954,7 @@ impl AppState {
             match result {
                 Ok(path) => {
                     if let Some(ui) = self.ui() {
-                        ui.set_update_text("正在安装更新…".into());
+                        ui.set_update_text(i18n::t("status.installingUpdate").into());
                     }
                     self.session.closed_cleanly = true;
                     let _ = self.store.save(&self.session);
@@ -902,9 +963,9 @@ impl AppState {
                     std::process::exit(0);
                 }
                 Err(err) => {
-                    self.set_status(&format!("更新下载失败：{err}"));
+                    self.set_status(&i18n::t_args("status.updateDownloadFailed", &[&err]));
                     if let Some(ui) = self.ui() {
-                        ui.set_update_text("更新失败，点击重试".into());
+                        ui.set_update_text(i18n::t("status.updateFailedRetry").into());
                     }
                 }
             }
@@ -924,7 +985,7 @@ impl AppState {
         }
         self.update_downloading = true;
         if let Some(ui) = self.ui() {
-            ui.set_update_text("正在下载更新…".into());
+            ui.set_update_text(i18n::t("status.downloadingUpdate").into());
         }
         let slot = Arc::clone(&self.update_download);
         thread::spawn(move || {
@@ -944,7 +1005,7 @@ impl AppState {
         self.config.last_camera_id = Some(camera.id);
         self.config.last_camera_name = Some(camera.name.clone());
         self.config.save();
-        self.set_status(&format!("正在切换到 {}…", camera.name));
+        self.set_status(&i18n::t_args("status.switchingCamera", &[&camera.name]));
     }
 
     fn select_format(&mut self, index: usize) {
@@ -956,8 +1017,13 @@ impl AppState {
         self.config.capture_height = format.and_then(|(_, height)| u16::try_from(height).ok());
         self.config.save();
         self.set_status(&format.map_or_else(
-            || "分辨率：自动".to_string(),
-            |(width, height)| format!("分辨率：{width} × {height}"),
+            || i18n::t("status.resolutionAuto").to_string(),
+            |(width, height)| {
+                i18n::t_args(
+                    "status.resolution",
+                    &[&width.to_string(), &height.to_string()],
+                )
+            },
         ));
     }
 
@@ -970,7 +1036,7 @@ impl AppState {
         };
         self.config.record_fps = Some(fps as u8);
         self.config.save();
-        self.set_status(&format!("录像帧率：{fps} fps"));
+        self.set_status(&i18n::t_args("status.recordFps", &[&fps.to_string()]));
     }
 
     fn toggle_record(&mut self) {
@@ -979,10 +1045,13 @@ impl AppState {
             self.worker.set_record_sink(None);
             match recorder.stop() {
                 Ok(path) => {
-                    self.set_status(&format!("录像已保存：{}", path.display()));
-                    self.show_toast("录像已保存");
+                    self.set_status(&i18n::t_args(
+                        "status.recordingSaved",
+                        &[&path.display().to_string()],
+                    ));
+                    self.show_toast(i18n::t("toast.recordingSaved"));
                 }
-                Err(err) => self.set_status(&format!("录像保存失败：{err}")),
+                Err(err) => self.set_status(&i18n::t_args("status.recordingSaveFailed", &[&err])),
             }
             if let Some(ui) = self.ui() {
                 ui.set_recording(false);
@@ -990,16 +1059,20 @@ impl AppState {
             return;
         }
         let Some(frame) = self.frame() else {
-            self.set_status("尚未取得画面，无法开始录像");
+            self.set_status(i18n::t("status.noFrameRecord"));
             return;
         };
-        let directory = self.output_root.join("录像");
+        let directory = self.output_root.join(i18n::t("dir.recordings"));
         if let Err(err) = fs::create_dir_all(&directory) {
-            self.set_status(&format!("创建录像目录失败：{err}"));
+            self.set_status(&i18n::t_args(
+                "status.createRecordDirFailed",
+                &[&err.to_string()],
+            ));
             return;
         }
         let name = format!(
-            "录像_{}.mp4",
+            "{}_{}.mp4",
+            i18n::t("file.recording"),
             naming::TimeStamp::now().format("yyyyMMdd_HHmmss")
         );
         let path = unique_path(&directory.join(name));
@@ -1012,10 +1085,15 @@ impl AppState {
         if let Some(ui) = self.ui() {
             ui.set_recording(true);
         }
-        self.set_status(&format!(
-            "录像中… {record_width}×{record_height} @ {fps} fps"
+        self.set_status(&i18n::t_args(
+            "status.recordingNow",
+            &[
+                &record_width.to_string(),
+                &record_height.to_string(),
+                &fps.to_string(),
+            ],
         ));
-        self.show_toast("开始录像");
+        self.show_toast(i18n::t("toast.recordingStarted"));
     }
 
     fn auto_fix_page(&mut self, row: usize, crop: bool) {
@@ -1029,12 +1107,12 @@ impl AppState {
         let (width, height, data) = match imaging::load_bgra(&path) {
             Ok(image) => image,
             Err(err) => {
-                self.set_status(&format!("读取图片失败：{err}"));
+                self.set_status(&i18n::t_args("status.loadImageFailed", &[&err.to_string()]));
                 return;
             }
         };
         if imaging::detect_document_corners(width, height, &data).is_none() {
-            self.set_status("未检测到可信的文档边界，已跳过");
+            self.set_status(i18n::t("status.noBoundary"));
             return;
         }
         let options = imaging::EnhanceOptions {
@@ -1047,12 +1125,15 @@ impl AppState {
         let fixed = match imaging::enhance(width, height, &data, options) {
             Ok(image) => image,
             Err(err) => {
-                self.set_status(&format!("自动处理失败：{err}"));
+                self.set_status(&i18n::t_args(
+                    "status.autoProcessFailed",
+                    &[&err.to_string()],
+                ));
                 return;
             }
         };
         if fixed.width == width && fixed.height == height && fixed.bgra == data {
-            self.set_status("无需校正");
+            self.set_status(i18n::t("status.noCorrectionNeeded"));
             return;
         }
         if let Err(err) = write_jpeg_atomic(
@@ -1062,7 +1143,7 @@ impl AppState {
             &fixed.bgra,
             self.config.jpeg_quality.unwrap_or(92),
         ) {
-            self.set_status(&format!("写回失败：{err}"));
+            self.set_status(&i18n::t_args("status.writeBackFailed", &[&err]));
             return;
         }
         if let Some(page) = self.session.pages.get_mut(index) {
@@ -1075,9 +1156,9 @@ impl AppState {
         self.selected_row = Some(row);
         self.rebuild_pages();
         self.set_status(if crop {
-            "已自动裁边并纠正畸变"
+            i18n::t("status.autoCropped")
         } else {
-            "已自动纠偏"
+            i18n::t("status.deskewed")
         });
     }
 
@@ -1100,7 +1181,15 @@ impl AppState {
     }
 
     fn show_page_menu(&mut self, row: usize) {
-        match usbscan_win::page_menu::show_page_menu() {
+        let labels = usbscan_win::page_menu::PageMenuLabels {
+            rename: i18n::t("menu.rename"),
+            auto_crop: i18n::t("menu.autoCrop"),
+            auto_deskew: i18n::t("menu.autoDeskew"),
+            ocr: i18n::t("menu.ocr"),
+            export_jpg: i18n::t("menu.exportJpg"),
+            delete: i18n::t("menu.delete"),
+        };
+        match usbscan_win::page_menu::show_page_menu(&labels) {
             usbscan_win::page_menu::PageMenuCommand::Rename => self.rename_page(row),
             usbscan_win::page_menu::PageMenuCommand::AutoCrop => self.auto_fix_page(row, true),
             usbscan_win::page_menu::PageMenuCommand::AutoDeskew => self.auto_fix_page(row, false),
@@ -1138,7 +1227,7 @@ impl AppState {
                     || matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
             })
         {
-            self.set_status("文件名无效");
+            self.set_status(i18n::t("status.invalidFileName"));
             return;
         }
         let extension = old_path
@@ -1147,11 +1236,11 @@ impl AppState {
             .unwrap_or("jpg");
         let new_path = old_path.with_file_name(format!("{stem}.{extension}"));
         if new_path.exists() {
-            self.set_status("同名文件已存在");
+            self.set_status(i18n::t("status.fileExists"));
             return;
         }
         if let Err(err) = fs::rename(&old_path, &new_path) {
-            self.set_status(&format!("重命名失败：{err}"));
+            self.set_status(&i18n::t_args("status.renameFailed", &[&err.to_string()]));
             return;
         }
         for sidecar in ["txt", "ocr.tsv"] {
@@ -1174,7 +1263,7 @@ impl AppState {
         self.rename_row = None;
         self.selected_row = Some(row);
         self.rebuild_pages();
-        self.set_status("已重命名");
+        self.set_status(i18n::t("status.renamed"));
     }
 
     fn delete_page(&mut self, row: usize) {
@@ -1203,12 +1292,12 @@ impl AppState {
         let _ = self.store.save(&self.session);
         self.selected_row = None;
         self.rebuild_pages();
-        self.set_status("已移到回收目录");
+        self.set_status(i18n::t("status.movedToTrash"));
     }
 
     fn import_images(&mut self) {
         let Some(files) = rfd::FileDialog::new()
-            .add_filter("图片", &["jpg", "jpeg", "png", "bmp"])
+            .add_filter(i18n::t("dialog.images"), &["jpg", "jpeg", "png", "bmp"])
             .pick_files()
         else {
             return;
@@ -1248,12 +1337,12 @@ impl AppState {
         self.session.updated_at = doc::now_unix();
         let _ = self.store.save(&self.session);
         self.rebuild_pages();
-        self.set_status("图片导入完成");
+        self.set_status(i18n::t("status.imagesImported"));
     }
 
     fn export_pdf(&mut self) {
         if self.session.pages.is_empty() {
-            self.set_status("没有可导出的页面");
+            self.set_status(i18n::t("status.noPagesToExport"));
             return;
         }
         let Some(path) = rfd::FileDialog::new()
@@ -1283,14 +1372,19 @@ impl AppState {
         let result = fs::File::create(&path)
             .and_then(|file| export::write_pdf(std::io::BufWriter::new(file), &images));
         match result {
-            Ok(()) => self.set_status(&format!("已导出 PDF：{}", path.display())),
-            Err(err) => self.set_status(&format!("导出 PDF 失败：{err}")),
+            Ok(()) => self.set_status(&i18n::t_args(
+                "status.pdfExported",
+                &[&path.display().to_string()],
+            )),
+            Err(err) => {
+                self.set_status(&i18n::t_args("status.pdfExportFailed", &[&err.to_string()]));
+            }
         }
     }
 
     fn export_jpg(&mut self) {
         let Some(row) = self.selected_row else {
-            self.set_status("请先选择页面");
+            self.set_status(i18n::t("status.selectPageFirst"));
             return;
         };
         let Some(index) = self.session_index(row) else {
@@ -1308,14 +1402,19 @@ impl AppState {
             return;
         };
         match fs::copy(source, &path) {
-            Ok(_) => self.set_status(&format!("已导出：{}", path.display())),
-            Err(err) => self.set_status(&format!("导出失败：{err}")),
+            Ok(_) => self.set_status(&i18n::t_args(
+                "status.exported",
+                &[&path.display().to_string()],
+            )),
+            Err(err) => {
+                self.set_status(&i18n::t_args("status.exportFailed", &[&err.to_string()]));
+            }
         }
     }
 
     fn ocr_page(&mut self) {
         let Some(row) = self.selected_row else {
-            self.set_status("请先选择页面");
+            self.set_status(i18n::t("status.selectPageFirst"));
             return;
         };
         let Some(index) = self.session_index(row) else {
@@ -1327,7 +1426,7 @@ impl AppState {
         let Some(executable) =
             ocr::find_tesseract(self.config.tesseract_path.as_deref().map(Path::new))
         else {
-            self.set_status("未找到 Tesseract，请安装或在设置中指定路径");
+            self.prompt_tesseract_install();
             return;
         };
         let language = self
@@ -1336,13 +1435,98 @@ impl AppState {
             .clone()
             .unwrap_or_else(|| ocr::DEFAULT_LANGUAGE.to_string());
         let path = self.output_root.join(&page.path);
-        match ocr::recognize(&executable, &path, &language) {
+        match ocr::recognize_with_tessdata(
+            &executable,
+            self.tessdata_dir.as_deref(),
+            &path,
+            &language,
+        ) {
             Ok(text) => {
                 let text_path = path.with_extension("txt");
                 let _ = fs::write(&text_path, text.as_bytes());
-                self.set_status(&format!("OCR 完成：{} 个字符", text.chars().count()));
+                self.set_status(&i18n::t_args(
+                    "status.ocrDone",
+                    &[&text.chars().count().to_string()],
+                ));
             }
-            Err(err) => self.set_status(&format!("OCR 失败：{err}")),
+            Err(err) => self.set_status(&i18n::t_args("status.ocrFailed", &[&err.to_string()])),
+        }
+    }
+
+    fn prompt_tesseract_install(&mut self) {
+        self.set_status(i18n::t("status.tesseractNotFound"));
+        if let Some(ui) = self.ui() {
+            ui.set_show_about(false);
+            ui.set_tesseract_installing(false);
+            ui.set_tesseract_status(i18n::t("tesseract.body").into());
+            ui.set_show_tesseract_prompt(true);
+        }
+    }
+
+    fn install_tesseract(&mut self) {
+        if self.tesseract_installing {
+            return;
+        }
+        self.tesseract_installing = true;
+        if let Some(ui) = self.ui() {
+            ui.set_tesseract_installing(true);
+            ui.set_tesseract_status(i18n::t("tesseract.installing").into());
+        }
+        let slot = Arc::clone(&self.tesseract_install);
+        let languages = self
+            .config
+            .ocr_language
+            .clone()
+            .unwrap_or_else(|| ocr::DEFAULT_LANGUAGE.to_string());
+        thread::spawn(move || {
+            let result = tesseract_install::install(&languages);
+            if let Ok(mut guard) = slot.lock() {
+                *guard = Some(result);
+            }
+        });
+    }
+
+    fn poll_tesseract(&mut self) {
+        let result = self
+            .tesseract_install
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take());
+        let Some(result) = result else {
+            return;
+        };
+        self.tesseract_installing = false;
+        let Some(ui) = self.ui() else {
+            return;
+        };
+        ui.set_tesseract_installing(false);
+        match result {
+            Ok(installed) => {
+                self.config.tesseract_path =
+                    Some(installed.executable.to_string_lossy().into_owned());
+                self.config.tessdata_dir = installed
+                    .tessdata
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned());
+                self.config.save();
+                self.tessdata_dir = installed.tessdata;
+                ui.set_show_tesseract_prompt(false);
+                ui.set_tesseract_status(i18n::t("tesseract.installed").into());
+                self.set_status(i18n::t("status.tesseractInstalled"));
+                self.ocr_page();
+            }
+            Err(err) => {
+                ui.set_tesseract_status(i18n::t_args("tesseract.failed", &[&err]).into());
+            }
+        }
+    }
+
+    fn cancel_tesseract_install(&mut self) {
+        if self.tesseract_installing {
+            return;
+        }
+        if let Some(ui) = self.ui() {
+            ui.set_show_tesseract_prompt(false);
         }
     }
 
@@ -1361,7 +1545,7 @@ impl AppState {
         self.config.white_background = Some(ui.get_white_background());
         self.config.enhance_strength = Some(ui.get_strength().round() as u8);
         self.config.save();
-        self.set_status("设置已保存");
+        self.set_status(i18n::t("status.settingsSaved"));
     }
 
     fn browse_output(&mut self) {
@@ -1377,11 +1561,11 @@ impl AppState {
             self.config.output_root = Some(folder.clone());
             self.config.save();
             ui.set_output_dir(folder.to_string_lossy().to_string().into());
-            self.set_status("输出目录已更新");
+            self.set_status(i18n::t("status.outputDirUpdated"));
         } else {
             self.config.output_root = Some(folder);
             self.config.save();
-            self.set_status("输出目录已保存，将在新文档中生效");
+            self.set_status(i18n::t("status.outputDirSaved"));
         }
     }
 
@@ -1410,10 +1594,69 @@ fn main() {
     }
 }
 
+fn apply_ui_language(ui: &MainWindow) {
+    ui.set_t_device(i18n::t("ui.device").into());
+    ui.set_t_resolution(i18n::t("ui.resolution").into());
+    ui.set_t_fps(i18n::t("ui.fps").into());
+    ui.set_t_refresh(i18n::t("ui.refresh").into());
+    ui.set_t_record_start(i18n::t("ui.recordStart").into());
+    ui.set_t_record_stop(i18n::t("ui.recordStop").into());
+    ui.set_t_capture(i18n::t("ui.capture").into());
+    ui.set_t_pages(i18n::t("ui.pages").into());
+    ui.set_t_waiting(i18n::t("ui.waiting").into());
+    ui.set_t_scan_settings(i18n::t("ui.scanSettings").into());
+    ui.set_t_output_dir(i18n::t("ui.outputDir").into());
+    ui.set_t_browse(i18n::t("ui.browse").into());
+    ui.set_t_file_template(i18n::t("ui.fileTemplate").into());
+    ui.set_t_folder_template(i18n::t("ui.folderTemplate").into());
+    ui.set_t_apply_settings(i18n::t("ui.applySettings").into());
+    ui.set_t_import_images(i18n::t("ui.importImages").into());
+    ui.set_t_export_pdf(i18n::t("ui.exportPdf").into());
+    ui.set_t_enhance(i18n::t("ui.enhance").into());
+    ui.set_t_auto_crop(i18n::t("ui.autoCrop").into());
+    ui.set_t_auto_deskew(i18n::t("ui.autoDeskew").into());
+    ui.set_t_perspective(i18n::t("ui.perspective").into());
+    ui.set_t_remove_shadow(i18n::t("ui.removeShadow").into());
+    ui.set_t_white_background(i18n::t("ui.whiteBackground").into());
+    ui.set_t_strength(i18n::t("ui.strength").into());
+    ui.set_t_rename_title(i18n::t("ui.renameTitle").into());
+    ui.set_t_cancel(i18n::t("ui.cancel").into());
+    ui.set_t_save(i18n::t("ui.save").into());
+    ui.set_t_about(i18n::t("ui.about").into());
+    ui.set_t_auto_check(i18n::t("ui.autoCheckUpdates").into());
+    ui.set_t_update_hint(i18n::t("ui.updateHint").into());
+    ui.set_t_view_github(i18n::t("ui.viewOnGithub").into());
+    ui.set_t_close(i18n::t("ui.close").into());
+    ui.set_t_language(i18n::t("ui.language").into());
+    ui.set_t_page_prefix(i18n::t("ui.pagePrefix").into());
+    ui.set_t_page_suffix(i18n::t("ui.pageSuffix").into());
+    ui.set_tesseract_title(i18n::t("tesseract.title").into());
+    ui.set_tesseract_install_label(i18n::t("tesseract.install").into());
+
+    let options: Vec<slint::SharedString> = i18n::Lang::ALL
+        .iter()
+        .map(|lang| lang.native_name().into())
+        .collect();
+    ui.set_language_options(ModelRc::from(Rc::new(VecModel::from(options))));
+    ui.set_language_index(i18n::current().index() as i32);
+}
+
 #[allow(clippy::too_many_lines)]
 fn run() -> Result<(), Box<dyn Error>> {
-    let ui = MainWindow::new()?;
     let config = Config::load();
+    let language = config
+        .language
+        .as_deref()
+        .and_then(i18n::Lang::from_code)
+        .unwrap_or_else(i18n::Lang::from_system);
+    i18n::set_language(language);
+
+    let ui = MainWindow::new()?;
+    apply_ui_language(&ui);
+    ui.set_status_text(i18n::t("status.detecting").into());
+    ui.set_format_options(ModelRc::from(Rc::new(VecModel::from(vec![
+        slint::SharedString::from(i18n::t("ui.auto")),
+    ]))));
     let window_width = config.window_width.unwrap_or(1280).clamp(1100, 10000);
     let window_height = config.window_height.unwrap_or(800).clamp(680, 10000);
     let saved_position = match (config.window_x, config.window_y) {
@@ -1436,6 +1679,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut session = store.load().ok().flatten().unwrap_or_default();
     session.closed_cleanly = false;
     let mut rule = naming::NamingRule::default();
+    if config.file_template.is_none() {
+        rule.template = format!(
+            "{}_{{date:yyyyMMdd}}_{{time:HHmmss}}_{{seq:3}}",
+            i18n::t("file.scan")
+        );
+    }
     if let Some(template) = &config.file_template {
         rule.template.clone_from(template);
     }
@@ -1474,6 +1723,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         };
     }
 
+    let tessdata_dir = config
+        .tessdata_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir());
     let state = std::rc::Rc::new(std::cell::RefCell::new(AppState {
         ui: ui.as_weak(),
         worker,
@@ -1500,6 +1754,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         update_info: None,
         update_checking: false,
         update_downloading: false,
+        tessdata_dir,
+        tesseract_install: Arc::new(Mutex::new(None)),
+        tesseract_installing: false,
         timer: None,
     }));
 
@@ -1523,6 +1780,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                     let mut app = timer_state.borrow_mut();
                     app.poll();
                     app.poll_updates();
+                    app.poll_tesseract();
                 }
             },
         );
@@ -1687,7 +1945,7 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
         let state = std::rc::Rc::clone(state);
         ui.on_refresh_devices(move || {
             state.borrow_mut().worker.refresh();
-            state.borrow_mut().set_status("正在重新检测设备…");
+            state.borrow_mut().set_status(i18n::t("status.redetecting"));
         });
     }
     {
@@ -1721,6 +1979,22 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     {
         let state = std::rc::Rc::clone(state);
         ui.on_install_update(move || state.borrow_mut().start_update_download());
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_language_changed(move |index| {
+            state
+                .borrow_mut()
+                .set_language(i18n::Lang::from_index(index as usize));
+        });
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_install_tesseract(move || state.borrow_mut().install_tesseract());
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_cancel_tesseract(move || state.borrow_mut().cancel_tesseract_install());
     }
 }
 

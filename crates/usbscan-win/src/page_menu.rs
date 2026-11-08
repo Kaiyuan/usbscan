@@ -38,9 +38,20 @@ impl PageMenuCommand {
     }
 }
 
+/// 右键菜单标签。由主程序按当前语言提供。
+#[derive(Clone, Copy, Debug)]
+pub struct PageMenuLabels<'a> {
+    pub rename: &'a str,
+    pub auto_crop: &'a str,
+    pub auto_deskew: &'a str,
+    pub ocr: &'a str,
+    pub export_jpg: &'a str,
+    pub delete: &'a str,
+}
+
 /// 在鼠标位置弹出页面右键菜单并返回用户选择。
 #[must_use]
-pub fn show_page_menu() -> PageMenuCommand {
+pub fn show_page_menu(labels: &PageMenuLabels<'_>) -> PageMenuCommand {
     let hwnd = main_window();
     if hwnd.is_null() {
         return PageMenuCommand::None;
@@ -56,17 +67,21 @@ pub fn show_page_menu() -> PageMenuCommand {
             return PageMenuCommand::None;
         }
         for (id, label) in [
-            (1usize, "重命名"),
-            (2, "自动裁边"),
-            (3, "自动纠偏"),
-            (4, "OCR 识别"),
-            (5, "导出 JPG"),
+            (1usize, labels.rename),
+            (2, labels.auto_crop),
+            (3, labels.auto_deskew),
+            (4, labels.ocr),
+            (5, labels.export_jpg),
         ] {
             let label: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
             AppendMenuW(menu, MF_STRING, id, label.as_ptr());
         }
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-        let label: Vec<u16> = "删除".encode_utf16().chain(std::iter::once(0)).collect();
+        let label: Vec<u16> = labels
+            .delete
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
         AppendMenuW(menu, MF_STRING, 6, label.as_ptr());
 
         // 让菜单在点击外部时能正常关闭。

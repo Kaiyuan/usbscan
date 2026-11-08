@@ -56,12 +56,12 @@ CI 通过 `cargo deny check licenses` 强制校验，白名单配置见 `deny.to
 
 | 组件 | 用途 | 许可证 | 分发形式 | 合规动作 |
 |---|---|---|---|---|
-| **Tesseract 5** | OCR 引擎 | Apache-2.0 | 运行时调用用户本机安装的 `tesseract.exe`，不随安装包捆绑 | 在界面/文档中说明需用户自行安装 |
+| **Tesseract 5** | OCR 引擎 | Apache-2.0 | 运行时调用用户本机安装的 `tesseract.exe`，不随安装包捆绑 | 在界面/文档中说明安装来源；用户确认后可一键从官方 GitHub Releases 下载安装 |
 | **Leptonica** | Tesseract 依赖 | BSD-2-Clause | 由用户安装的 Tesseract 提供 | 不随包分发 |
-| **tessdata**（`chi_sim`、`eng`） | OCR 语言模型 | Apache-2.0 | 用户自行下载或随 Tesseract 安装 | 不随包分发；程序只读取本机模型 |
+| **tessdata**（`chi_sim`、`eng`） | OCR 语言模型 | Apache-2.0 | 用户自行下载或随 Tesseract 安装 | 不随包分发；用户确认后由程序从 `tessdata_fast` 下载到本机 |
 | **思源黑体**（Source Han Sans 子集） | 文档渲染字体 | SIL OFL-1.1 | 独立文件 `assets/fonts/*.otf` | 随包附 OFL 许可证；不修改字体名 |
 
-> Tesseract 与 Leptonica 由用户单独安装，usbscan 只通过命令行调用，不静态链接、不随包分发。整体二进制仍按 GPLv3 分发。
+> Tesseract 与 Leptonica 由用户单独安装，或在用户确认后由 usbscan 从官方 GitHub Releases 下载安装；usbscan 只通过命令行调用，不静态链接、不随包分发。整体二进制仍按 GPLv3 分发。
 
 ---
 

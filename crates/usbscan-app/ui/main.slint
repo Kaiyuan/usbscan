@@ -224,7 +224,7 @@ component Dropdown inherits Rectangle {
         x: 0px;
         y: root.height + 4px;
         width: max(root.width, 160px);
-        height: min(root.model.length, 8) * 30px + 12px;
+        height: min(root.model.length, 12) * 30px + 12px;
         close-policy: close-on-click-outside;
 
         Rectangle {
@@ -315,6 +315,50 @@ export component MainWindow inherits Window {
     in-out property <bool> show-toast: false;
     in-out property <string> toast-text;
     in-out property <string> version-text: "v0.1.0";
+    in property <[string]> language-options;
+    in-out property <int> language-index: 0;
+
+    // Localized labels (set from Rust)
+    in property <string> t-device: "设备";
+    in property <string> t-resolution: "分辨率";
+    in property <string> t-fps: "FPS";
+    in property <string> t-refresh: "刷新";
+    in property <string> t-record-start: "录像";
+    in property <string> t-record-stop: "停止";
+    in property <string> t-capture: "拍照";
+    in property <string> t-pages: "页面";
+    in property <string> t-waiting: "等待摄像头\n插上任一 USB 摄像头即可开始";
+    in property <string> t-scan-settings: "扫描设置";
+    in property <string> t-output-dir: "输出目录";
+    in property <string> t-browse: "浏览…";
+    in property <string> t-file-template: "文件名模板";
+    in property <string> t-folder-template: "子目录模板";
+    in property <string> t-apply-settings: "应用设置";
+    in property <string> t-import-images: "导入图片";
+    in property <string> t-export-pdf: "导出 PDF";
+    in property <string> t-enhance: "图像增强";
+    in property <string> t-auto-crop: "自动裁边（实时显示裁剪框）";
+    in property <string> t-auto-deskew: "自动纠偏";
+    in property <string> t-perspective: "透视校正";
+    in property <string> t-remove-shadow: "去阴影";
+    in property <string> t-white-background: "白底净化";
+    in property <string> t-strength: "强度";
+    in property <string> t-rename-title: "重命名页面";
+    in property <string> t-cancel: "取消";
+    in property <string> t-save: "保存";
+    in property <string> t-about: "把任意 USB 摄像头变成文档扫描仪。拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，全程本地完成。";
+    in property <string> t-auto-check: "自动检查更新";
+    in property <string> t-update-hint: "勾选后每次启动会访问 GitHub Releases 检查新版本。";
+    in property <string> t-view-github: "在 GitHub 查看";
+    in property <string> t-close: "关闭";
+    in property <string> t-language: "语言";
+    in property <string> t-page-prefix: "第 ";
+    in property <string> t-page-suffix: " 页";
+    in-out property <bool> show-tesseract-prompt: false;
+    in-out property <bool> tesseract-installing: false;
+    in property <string> tesseract-title: "未找到 Tesseract";
+    in property <string> tesseract-status: "OCR 需要 Tesseract。是否现在从 GitHub 下载并安装？安装可能需要管理员权限，完成后会自动继续识别。";
+    in property <string> tesseract-install-label: "下载并安装";
 
     callback capture();
     callback toggle-record();
@@ -343,6 +387,9 @@ export component MainWindow inherits Window {
     callback auto-check-changed(bool);
     callback install-update();
     callback refresh-devices();
+    callback language-changed(int);
+    callback install-tesseract();
+    callback cancel-tesseract();
 
     Rectangle {
         width: 100%;
@@ -356,11 +403,11 @@ export component MainWindow inherits Window {
             Rectangle { y: parent.height - 1px; height: 1px; width: 100%; background: Theme.border; }
 
             HorizontalLayout {
-                padding-left: 16px;
-                padding-right: 16px;
+                padding-left: 12px;
+                padding-right: 12px;
                 padding-top: 12px;
                 padding-bottom: 12px;
-                spacing: 10px;
+                spacing: 8px;
 
                 Rectangle {
                     width: 106px;
@@ -396,23 +443,23 @@ export component MainWindow inherits Window {
                 }
                 Rectangle { width: 1px; height: 20px; background: Theme.separator; }
 
-                Text { text: "设备"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Text { text: root.t-device; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                 Dropdown {
-                    width: 170px;
+                    width: 150px;
                     model: root.device-options;
                     current-index <=> root.device-index;
                     selected(index) => { root.device-changed(index); }
                 }
-                Text { text: "分辨率"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Text { text: root.t-resolution; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                 Dropdown {
-                    width: 126px;
+                    width: 112px;
                     model: root.format-options;
                     current-index <=> root.format-index;
                     selected(index) => { root.format-changed(index); }
                 }
-                Text { text: "录像"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Text { text: root.t-fps; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                 Dropdown {
-                    width: 86px;
+                    width: 78px;
                     model: root.fps-options;
                     current-index <=> root.fps-index;
                     selected(index) => { root.fps-changed(index); }
@@ -421,20 +468,20 @@ export component MainWindow inherits Window {
                 IconPill {
                     icon: @image-url("../../../assets/icons/svg/refresh.svg");
                     has-icon: true;
-                    text: "刷新";
+                    text: root.t-refresh;
                     clicked => { root.refresh-devices(); }
                 }
                 IconPill {
                     icon: root.recording ? @image-url("../../../assets/icons/svg/player-stop.svg") : @image-url("../../../assets/icons/svg/player-record.svg");
                     has-icon: true;
                     icon-color: #ff453a;
-                    text: root.recording ? "停止" : "录像";
+                    text: root.recording ? root.t-record-stop : root.t-record-start;
                     clicked => { root.toggle-record(); }
                 }
                 IconPill {
                     icon: @image-url("../../../assets/icons/svg/camera.svg");
                     has-icon: true;
-                    text: "拍照";
+                    text: root.t-capture;
                     primary: true;
                     clicked => { root.capture(); }
                 }
@@ -453,7 +500,7 @@ export component MainWindow inherits Window {
                     padding: 12px;
                     spacing: 8px;
                     HorizontalLayout {
-                        Text { text: "页面"; color: Theme.muted; font-size: 12px; font-weight: 600; }
+                        Text { text: root.t-pages; color: Theme.muted; font-size: 12px; font-weight: 600; }
                         Rectangle { horizontal-stretch: 1; }
                         Text { text: root.page-count-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                     }
@@ -489,7 +536,7 @@ export component MainWindow inherits Window {
                                         alignment: center;
                                         horizontal-stretch: 1;
                                         Text {
-                                            text: "第 \{page.seq} 页";
+                                            text: root.t-page-prefix + "\{page.seq}" + root.t-page-suffix;
                                             color: Theme.text;
                                             font-size: 13px;
                                             font-weight: 600;
@@ -535,7 +582,7 @@ export component MainWindow inherits Window {
                 if (!root.has-camera) : Rectangle {
                     background: Theme.dark ? #111113 : #d9d9de;
                     Text {
-                        text: "等待摄像头\n插上任一 USB 摄像头即可开始";
+                        text: root.t-waiting;
                         color: Theme.muted;
                         font-size: 16px;
                         horizontal-alignment: center;
@@ -579,13 +626,13 @@ export component MainWindow inherits Window {
                     spacing: 10px;
 
                     Section {
-                        title: "扫描设置";
+                        title: root.t-scan-settings;
                             content-height: 264px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
                                 spacing: 7px;
-                                FieldLabel { text: "输出目录"; }
+                                FieldLabel { text: root.t-output-dir; }
                                 HorizontalLayout {
                                     spacing: 6px;
                                     LineEdit {
@@ -593,36 +640,36 @@ export component MainWindow inherits Window {
                                         edited(text) => { root.output-dir = text; }
                                         horizontal-stretch: 1;
                                     }
-                                    PillButton { text: "浏览…"; width: 62px; clicked => { root.browse-output(); } }
+                                    PillButton { text: root.t-browse; width: 96px; clicked => { root.browse-output(); } }
                                 }
-                                FieldLabel { text: "文件名模板"; }
+                                FieldLabel { text: root.t-file-template; }
                                 LineEdit { text: root.file-template; edited(text) => { root.file-template = text; } }
-                                FieldLabel { text: "子目录模板"; }
+                                FieldLabel { text: root.t-folder-template; }
                                 LineEdit { text: root.folder-template; edited(text) => { root.folder-template = text; } }
-                                PillButton { text: "应用设置"; primary: true; width: 96px; clicked => { root.apply-settings(); } }
+                                PillButton { text: root.t-apply-settings; primary: true; width: 160px; clicked => { root.apply-settings(); } }
                                 HorizontalLayout {
                                     spacing: 6px;
-                                    PillButton { text: "导入图片"; horizontal-stretch: 1; clicked => { root.import-images(); } }
-                                    PillButton { text: "导出 PDF"; horizontal-stretch: 1; clicked => { root.export-pdf(); } }
+                                    PillButton { text: root.t-import-images; horizontal-stretch: 1; clicked => { root.import-images(); } }
+                                    PillButton { text: root.t-export-pdf; horizontal-stretch: 1; clicked => { root.export-pdf(); } }
                                 }
                             }
                         }
 
                         Section {
-                            title: "图像增强";
+                            title: root.t-enhance;
                             content-height: 214px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
                                 spacing: 5px;
-                                ToggleRow { label: "自动裁边（实时显示裁剪框）"; checked <=> root.auto-crop; }
-                                ToggleRow { label: "自动纠偏"; checked <=> root.auto-deskew; }
-                                ToggleRow { label: "透视校正"; checked <=> root.perspective; }
-                                ToggleRow { label: "去阴影"; checked <=> root.remove-shadow; }
-                                ToggleRow { label: "白底净化"; checked <=> root.white-background; }
+                                ToggleRow { label: root.t-auto-crop; checked <=> root.auto-crop; }
+                                ToggleRow { label: root.t-auto-deskew; checked <=> root.auto-deskew; }
+                                ToggleRow { label: root.t-perspective; checked <=> root.perspective; }
+                                ToggleRow { label: root.t-remove-shadow; checked <=> root.remove-shadow; }
+                                ToggleRow { label: root.t-white-background; checked <=> root.white-background; }
                                 HorizontalLayout {
                                     spacing: 8px;
-                                    FieldLabel { text: "强度"; width: 34px; }
+                                    FieldLabel { text: root.t-strength; width: 34px; }
                                     Slider { minimum: 0; maximum: 100; value <=> root.strength; horizontal-stretch: 1; }
                                     Text { text: root.strength; color: Theme.text; width: 28px; horizontal-alignment: right; }
                                 }
@@ -693,17 +740,75 @@ export component MainWindow inherits Window {
             VerticalLayout {
                 padding: 16px;
                 spacing: 10px;
-                Text { text: "重命名页面"; color: Theme.text; font-size: 15px; font-weight: 600; }
+                Text { text: root.t-rename-title; color: Theme.text; font-size: 15px; font-weight: 600; }
                 LineEdit { text: root.rename-text; edited(text) => { root.rename-text = text; } }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
-                    PillButton { text: "取消"; width: 72px; clicked => { root.rename-cancel(); } }
+                    PillButton { text: root.t-cancel; width: 80px; clicked => { root.rename-cancel(); } }
                     PillButton {
-                        text: "保存";
+                        text: root.t-save;
                         primary: true;
-                        width: 72px;
+                        width: 90px;
                         clicked => { root.rename-confirm(root.rename-text); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Tesseract installation prompt
+    if (root.show-tesseract-prompt) : Rectangle {
+        background: #00000066;
+        width: 100%;
+        height: 100%;
+
+        TouchArea { width: 100%; height: 100%; }
+
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 520px;
+            height: 250px;
+            border-radius: 16px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.separator;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000055;
+            drop-shadow-offset-y: 8px;
+
+            VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text {
+                    text: root.tesseract-title;
+                    color: Theme.text;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: root.tesseract-status;
+                    color: Theme.muted;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                    vertical-stretch: 1;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PillButton {
+                        text: root.tesseract-install-label;
+                        primary: true;
+                        width: 170px;
+                        enabled: !root.tesseract-installing;
+                        clicked => { root.install-tesseract(); }
+                    }
+                    PillButton {
+                        text: root.t-cancel;
+                        width: 90px;
+                        enabled: !root.tesseract-installing;
+                        clicked => { root.cancel-tesseract(); }
                     }
                 }
             }
@@ -720,7 +825,7 @@ export component MainWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: 480px;
-            height: 340px;
+            height: 440px;
             border-radius: 16px;
             background: Theme.card;
             border-width: 1px;
@@ -748,7 +853,7 @@ export component MainWindow inherits Window {
                     }
                 }
                 Text {
-                    text: "把任意 USB 摄像头变成文档扫描仪。拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，全程本地完成。";
+                    text: root.t-about;
                     color: Theme.text;
                     font-size: 13px;
                     wrap: word-wrap;
@@ -764,13 +869,29 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                     }
                 }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text {
+                        text: root.t-language;
+                        color: Theme.text;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    Dropdown {
+                        width: 150px;
+                        model: root.language-options;
+                        current-index <=> root.language-index;
+                        selected(index) => { root.language-changed(index); }
+                    }
+                }
                 ToggleRow {
-                    label: "自动检查更新";
+                    label: root.t-auto-check;
                     checked <=> root.auto-check-updates;
                     toggled(value) => { root.auto-check-changed(value); }
                 }
                 Text {
-                    text: "勾选后每次启动会访问 GitHub Releases 检查新版本。";
+                    text: root.t-update-hint;
                     color: Theme.muted;
                     font-size: 11px;
                     wrap: word-wrap;
@@ -779,8 +900,8 @@ export component MainWindow inherits Window {
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
-                    PillButton { text: "在 GitHub 查看"; width: 120px; clicked => { root.open-github(); } }
-                    PillButton { text: "关闭"; primary: true; width: 76px; clicked => { root.close-about(); } }
+                    PillButton { text: root.t-view-github; width: 150px; clicked => { root.open-github(); } }
+                    PillButton { text: root.t-close; primary: true; width: 90px; clicked => { root.close-about(); } }
                 }
             }
         }

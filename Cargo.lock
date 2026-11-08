@@ -4674,6 +4674,7 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "sys-locale",
  "ureq",
  "usbscan-capture",
  "usbscan-doc",

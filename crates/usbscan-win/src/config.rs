@@ -42,6 +42,8 @@ pub struct Config {
     pub tesseract_path: Option<String>,
     /// OCR 语言，例如 `chi_sim+eng`。
     pub ocr_language: Option<String>,
+    /// 自动安装 Tesseract 后使用的 tessdata 目录。
+    pub tessdata_dir: Option<String>,
     /// 定时拍摄倒计时秒数。
     pub timer_seconds: Option<u8>,
     /// 连拍张数。
@@ -61,6 +63,8 @@ pub struct Config {
     pub window_height: Option<u32>,
     /// 是否在启动时自动检查 GitHub Releases 更新。
     pub auto_check_updates: Option<bool>,
+    /// 界面语言：`zh-Hans`、`zh-Hant`、`en`、`de`、`fr`、`it`、`es`、`ja`、`ko`。
+    pub language: Option<String>,
 }
 
 impl Config {
@@ -105,6 +109,8 @@ impl Config {
                 config.tesseract_path = Some(value);
             } else if let Some(value) = toml_string(line, "ocr_language") {
                 config.ocr_language = Some(value);
+            } else if let Some(value) = toml_string(line, "tessdata_dir") {
+                config.tessdata_dir = Some(value);
             } else if let Some(value) = toml_u8(line, "timer_seconds") {
                 config.timer_seconds = Some(value.clamp(1, 30));
             } else if let Some(value) = toml_u8(line, "burst_count") {
@@ -127,6 +133,8 @@ impl Config {
                 config.window_height = Some(value);
             } else if let Some(value) = toml_bool(line, "auto_check_updates") {
                 config.auto_check_updates = Some(value);
+            } else if let Some(value) = toml_string(line, "language") {
+                config.language = Some(value);
             }
         }
         config
@@ -134,6 +142,10 @@ impl Config {
 
     /// 原子写入配置；失败时静默忽略（配置不是关键路径）。
     pub fn save(&self) {
+        let _ = self.save_to(&config_path());
+    }
+
+    fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
         let mut text = String::from("# usbscan 配置（自动生成）\n[device]\n");
         push_option_string(&mut text, "last_id", self.last_camera_id.as_deref());
         push_option_string(&mut text, "last_name", self.last_camera_name.as_deref());
@@ -179,6 +191,7 @@ impl Config {
         text.push_str("\n[ocr]\n");
         push_option_string(&mut text, "tesseract_path", self.tesseract_path.as_deref());
         push_option_string(&mut text, "ocr_language", self.ocr_language.as_deref());
+        push_option_string(&mut text, "tessdata_dir", self.tessdata_dir.as_deref());
 
         text.push_str("\n[capture]\n");
         for (key, value) in [
@@ -226,14 +239,16 @@ impl Config {
             text.push('\n');
         }
 
-        let path = config_path();
+        text.push_str("\n[ui]\n");
+        push_option_string(&mut text, "language", self.language.as_deref());
+
         if let Some(dir) = path.parent() {
-            let _ = fs::create_dir_all(dir);
+            fs::create_dir_all(dir)?;
         }
         let temp = path.with_extension("toml.tmp");
-        if fs::write(&temp, text.as_bytes()).is_ok() {
-            let _ = fs::rename(&temp, &path);
-        }
+        fs::write(&temp, text.as_bytes())?;
+        fs::rename(&temp, path)?;
+        Ok(())
     }
 }
 
@@ -398,5 +413,25 @@ mod tests {
     #[test]
     fn parses_escape_sequences() {
         assert_eq!(unescape(r#"a\\b\"c\nd"#), "a\\b\"c\nd");
+    }
+
+    #[test]
+    fn saves_language_and_tessdata() {
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("target")
+            .join(format!("usbscan-config-{}", std::process::id()));
+        let path = directory.join("config.toml");
+        let config = Config {
+            language: Some("en".to_string()),
+            tessdata_dir: Some(r"C:\tessdata".to_string()),
+            ..Config::default()
+        };
+        config.save_to(&path).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("language = \"en\""));
+        assert!(text.contains(r#"tessdata_dir = "C:\\tessdata""#));
+        let _ = fs::remove_dir_all(directory);
     }
 }

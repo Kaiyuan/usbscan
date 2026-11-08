@@ -76,7 +76,7 @@ pub fn download_installer(info: &UpdateInfo) -> Result<PathBuf, String> {
     let url = info
         .installer_url
         .as_ref()
-        .ok_or_else(|| "该版本没有可自动安装的安装包".to_string())?;
+        .ok_or_else(|| crate::i18n::t("status.noInstaller").to_string())?;
     let directory = std::env::temp_dir().join("usbscan-update");
     fs::create_dir_all(&directory).map_err(|err| err.to_string())?;
     let path = directory.join(format!("usbscan-{}-setup.exe", info.version));

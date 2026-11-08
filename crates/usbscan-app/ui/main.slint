@@ -306,6 +306,11 @@ export component MainWindow inherits Window {
     in-out property <bool> recording: false;
     in-out property <bool> show-rename: false;
     in-out property <string> rename-text;
+    in-out property <bool> show-about: false;
+    in-out property <bool> auto-check-updates: false;
+    in-out property <bool> has-update: false;
+    in-out property <string> update-text;
+    in-out property <string> update-version;
     in-out property <bool> flash: false;
     in-out property <bool> show-toast: false;
     in-out property <string> toast-text;
@@ -332,6 +337,11 @@ export component MainWindow inherits Window {
     callback rename-confirm(string);
     callback rename-cancel();
     callback page-menu(int);
+    callback open-about();
+    callback close-about();
+    callback open-github();
+    callback auto-check-changed(bool);
+    callback install-update();
     callback refresh-devices();
 
     Rectangle {
@@ -352,18 +362,37 @@ export component MainWindow inherits Window {
                 padding-bottom: 12px;
                 spacing: 10px;
 
-                Image {
-                    source: @image-url("../../../assets/icons/usbscan_icons/usbscan_48x48.png");
-                    width: 26px;
-                    height: 26px;
-                    image-fit: contain;
-                }
-                Text {
-                    text: "UsbScan";
-                    color: Theme.text;
-                    font-size: 15px;
-                    font-weight: 600;
-                    vertical-alignment: center;
+                Rectangle {
+                    width: 106px;
+                    height: 30px;
+                    border-radius: 7px;
+                    background: brand-touch.has-hover ? Theme.hover : transparent;
+
+                    HorizontalLayout {
+                        width: 100%;
+                        height: 100%;
+                        padding-left: 4px;
+                        padding-right: 4px;
+                        spacing: 8px;
+                        Image {
+                            source: @image-url("../../../assets/icons/usbscan_icons/usbscan_48x48.png");
+                            width: 26px;
+                            height: 26px;
+                            image-fit: contain;
+                        }
+                        Text {
+                            text: "UsbScan";
+                            color: Theme.text;
+                            font-size: 15px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+                    brand-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => { root.open-about(); }
+                    }
                 }
                 Rectangle { width: 1px; height: 20px; background: Theme.separator; }
 
@@ -620,6 +649,35 @@ export component MainWindow inherits Window {
         }
     }
 
+    // Update available banner
+    if (root.has-update) : Rectangle {
+        x: parent.width - self.width - 16px;
+        y: parent.height - 24px - self.height - 12px;
+        width: 260px;
+        height: 44px;
+        border-radius: 10px;
+        background: Theme.accent;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #00000055;
+        drop-shadow-offset-y: 3px;
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { root.install-update(); }
+        }
+        Text {
+            x: 12px;
+            width: parent.width - 24px;
+            height: 100%;
+            text: root.update-text;
+            color: #ffffff;
+            font-size: 12px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
     // Rename dialog
     if (root.show-rename) : Rectangle {
         background: #00000066;
@@ -647,6 +705,82 @@ export component MainWindow inherits Window {
                         width: 72px;
                         clicked => { root.rename-confirm(root.rename-text); }
                     }
+                }
+            }
+        }
+    }
+
+    // About dialog
+    if (root.show-about) : Rectangle {
+        background: #00000066;
+        width: 100%;
+        height: 100%;
+
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 480px;
+            height: 340px;
+            border-radius: 16px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.separator;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000055;
+            drop-shadow-offset-y: 8px;
+
+            VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Image {
+                        source: @image-url("../../../assets/icons/usbscan_icons/usbscan_64x64.png");
+                        width: 56px;
+                        height: 56px;
+                        image-fit: contain;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "UsbScan"; color: Theme.text; font-size: 20px; font-weight: 600; }
+                        Text { text: root.version-text; color: Theme.muted; font-size: 12px; }
+                    }
+                }
+                Text {
+                    text: "把任意 USB 摄像头变成文档扫描仪。拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，全程本地完成。";
+                    color: Theme.text;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+                TouchArea {
+                    width: 100%;
+                    height: 22px;
+                    clicked => { root.open-github(); }
+                    Text {
+                        text: "https://github.com/Kaiyuan/usbscan";
+                        color: Theme.accent;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                }
+                ToggleRow {
+                    label: "自动检查更新";
+                    checked <=> root.auto-check-updates;
+                    toggled(value) => { root.auto-check-changed(value); }
+                }
+                Text {
+                    text: "勾选后每次启动会访问 GitHub Releases 检查新版本。";
+                    color: Theme.muted;
+                    font-size: 11px;
+                    wrap: word-wrap;
+                }
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PillButton { text: "在 GitHub 查看"; width: 120px; clicked => { root.open-github(); } }
+                    PillButton { text: "关闭"; primary: true; width: 76px; clicked => { root.close-about(); } }
                 }
             }
         }

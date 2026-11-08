@@ -29,6 +29,8 @@ use usbscan_win::theme;
 
 slint::include_modules!();
 
+mod update;
+
 const CAMERA_SOUND: &[u8] = include_bytes!("../../../assets/camera.mp3");
 const RECORD_SOUND: &[u8] = include_bytes!("../../../assets/record.mp3");
 
@@ -434,6 +436,9 @@ fn sleep_interruptible(stop: &AtomicBool, duration: Duration) {
 // 应用状态
 // ---------------------------------------------------------------------------
 
+type UpdateCheckSlot = Arc<Mutex<Option<Result<Option<update::UpdateInfo>, String>>>>;
+type UpdateDownloadSlot = Arc<Mutex<Option<Result<PathBuf, String>>>>;
+
 struct AppState {
     ui: slint::Weak<MainWindow>,
     worker: Worker,
@@ -455,6 +460,11 @@ struct AppState {
     recording: Option<Recorder>,
     rename_row: Option<usize>,
     audio: Option<Audio>,
+    update_check: UpdateCheckSlot,
+    update_download: UpdateDownloadSlot,
+    update_info: Option<update::UpdateInfo>,
+    update_checking: bool,
+    update_downloading: bool,
     timer: Option<slint::Timer>,
 }
 
@@ -833,6 +843,96 @@ impl AppState {
                 }
             });
         }
+    }
+
+    fn start_update_check(&mut self) {
+        if self.update_checking {
+            return;
+        }
+        self.update_checking = true;
+        let slot = Arc::clone(&self.update_check);
+        thread::spawn(move || {
+            let result = update::check_latest();
+            if let Ok(mut guard) = slot.lock() {
+                *guard = Some(result);
+            }
+        });
+    }
+
+    fn poll_updates(&mut self) {
+        let check = self
+            .update_check
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take());
+        if let Some(result) = check {
+            self.update_checking = false;
+            match result {
+                Ok(Some(info)) => {
+                    if let Some(ui) = self.ui() {
+                        ui.set_update_version(format!("v{}", info.version).into());
+                        ui.set_update_text(
+                            format!("发现新版本 v{} · 点击更新", info.version).into(),
+                        );
+                        ui.set_has_update(true);
+                    }
+                    self.update_info = Some(info);
+                }
+                Ok(None) => {}
+                Err(err) => eprintln!("update check failed: {err}"),
+            }
+        }
+
+        let download = self
+            .update_download
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take());
+        if let Some(result) = download {
+            self.update_downloading = false;
+            match result {
+                Ok(path) => {
+                    if let Some(ui) = self.ui() {
+                        ui.set_update_text("正在安装更新…".into());
+                    }
+                    self.session.closed_cleanly = true;
+                    let _ = self.store.save(&self.session);
+                    self.config.save();
+                    let _ = std::process::Command::new(&path).spawn();
+                    std::process::exit(0);
+                }
+                Err(err) => {
+                    self.set_status(&format!("更新下载失败：{err}"));
+                    if let Some(ui) = self.ui() {
+                        ui.set_update_text("更新失败，点击重试".into());
+                    }
+                }
+            }
+        }
+    }
+
+    fn start_update_download(&mut self) {
+        if self.update_downloading {
+            return;
+        }
+        let Some(info) = self.update_info.clone() else {
+            return;
+        };
+        if info.installer_url.is_none() {
+            let _ = webbrowser::open(&info.release_url);
+            return;
+        }
+        self.update_downloading = true;
+        if let Some(ui) = self.ui() {
+            ui.set_update_text("正在下载更新…".into());
+        }
+        let slot = Arc::clone(&self.update_download);
+        thread::spawn(move || {
+            let result = update::download_installer(&info);
+            if let Ok(mut guard) = slot.lock() {
+                *guard = Some(result);
+            }
+        });
     }
 
     fn select_device(&mut self, index: usize) {
@@ -1360,6 +1460,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         60 => 3,
         _ => 0,
     });
+    ui.set_version_text(format!("v{}", update::CURRENT_VERSION).into());
+    ui.set_auto_check_updates(config.auto_check_updates.unwrap_or(false));
 
     let worker = Worker::start();
     {
@@ -1393,6 +1495,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         recording: None,
         rename_row: None,
         audio: None,
+        update_check: Arc::new(Mutex::new(None)),
+        update_download: Arc::new(Mutex::new(None)),
+        update_info: None,
+        update_checking: false,
+        update_downloading: false,
         timer: None,
     }));
 
@@ -1413,11 +1520,17 @@ fn run() -> Result<(), Box<dyn Error>> {
             Duration::from_millis(40),
             move || {
                 if weak.upgrade().is_some() {
-                    timer_state.borrow_mut().poll();
+                    let mut app = timer_state.borrow_mut();
+                    app.poll();
+                    app.poll_updates();
                 }
             },
         );
         app.timer = Some(timer);
+    }
+
+    if state.borrow().config.auto_check_updates.unwrap_or(false) {
+        state.borrow_mut().start_update_check();
     }
 
     ui.show()?;
@@ -1478,6 +1591,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppState>>) {
     {
         let state = std::rc::Rc::clone(state);
@@ -1575,6 +1689,38 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
             state.borrow_mut().worker.refresh();
             state.borrow_mut().set_status("正在重新检测设备…");
         });
+    }
+    {
+        let weak = ui.as_weak();
+        ui.on_open_about(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_show_about(true);
+            }
+        });
+    }
+    {
+        let weak = ui.as_weak();
+        ui.on_close_about(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_show_about(false);
+            }
+        });
+    }
+    ui.on_open_github(update::open_repo);
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_auto_check_changed(move |enabled| {
+            let mut app = state.borrow_mut();
+            app.config.auto_check_updates = Some(enabled);
+            app.config.save();
+            if enabled {
+                app.start_update_check();
+            }
+        });
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_install_update(move || state.borrow_mut().start_update_download());
     }
 }
 

@@ -35,6 +35,8 @@ CI 通过 `cargo deny check licenses` 强制校验，白名单配置见 `deny.to
 | **Slint**（`slint`、`slint-build`） | 界面渲染与声明式 UI | GPL-3.0-only；本项目按 GPL-3.0 使用（Slint 另有商业 / Royalty-free 授权） | 编译期内联 |
 | `resvg` / `usvg` | Slint SVG 图标栅格化 | Apache-2.0 OR MIT | 编译期内联 |
 | `rodio` | 拍照/录像 MP3 提示音播放 | MIT OR Apache-2.0 | 编译期内联，音频来自 `assets/*.mp3` |
+| `ureq` / `native-tls` | GitHub Releases 更新检查与安装包下载（Windows SChannel） | MIT OR Apache-2.0 / Apache-2.0 OR MIT | 编译期内联 |
+| `webbrowser` | 打开 GitHub 项目页 | MIT OR Apache-2.0 | 编译期内联 |
 | `rfd` | 系统文件选择 / 保存对话框 | MIT OR Apache-2.0 | 编译期内联 |
 | `serde` / `serde_derive` | 配置与清单序列化 | MIT OR Apache-2.0 | 编译期内联 |
 | `toml` | 配置文件解析 | MIT OR Apache-2.0 | 编译期内联 |

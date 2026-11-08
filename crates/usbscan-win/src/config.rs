@@ -59,6 +59,8 @@ pub struct Config {
     pub window_y: Option<i32>,
     pub window_width: Option<u32>,
     pub window_height: Option<u32>,
+    /// 是否在启动时自动检查 GitHub Releases 更新。
+    pub auto_check_updates: Option<bool>,
 }
 
 impl Config {
@@ -123,6 +125,8 @@ impl Config {
                 config.window_width = Some(value);
             } else if let Some(value) = toml_u32(line, "window_height") {
                 config.window_height = Some(value);
+            } else if let Some(value) = toml_bool(line, "auto_check_updates") {
+                config.auto_check_updates = Some(value);
             }
         }
         config
@@ -212,6 +216,13 @@ impl Config {
         if let Some(height) = self.window_height {
             text.push_str("window_height = ");
             text.push_str(&height.to_string());
+            text.push('\n');
+        }
+
+        text.push_str("\n[update]\n");
+        if let Some(value) = self.auto_check_updates {
+            text.push_str("auto_check_updates = ");
+            text.push_str(if value { "1" } else { "0" });
             text.push('\n');
         }
 

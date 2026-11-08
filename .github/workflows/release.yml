@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Read workspace version
+        id: version
+        shell: pwsh
+        run: |
+          $cargoToml = Get-Content Cargo.toml -Raw
+          $match = [regex]::Match($cargoToml, '(?m)^\s*version\s*=\s*"([^"]+)"')
+          if (-not $match.Success) { throw 'Unable to read the workspace version' }
+          $version = $match.Groups[1].Value
+          $tag = '${{ github.event.release.tag_name }}'
+          if ($tag -ne "v$version" -and $tag -ne $version) {
+            throw "Release tag '$tag' does not match Cargo.toml version '$version'"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build release
+        run: cargo build --release -p usbscan-app
+
+      - name: Package portable
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $dist = 'dist'
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item 'target\release\usbscan.exe' $dist -Force
+          Copy-Item 'LICENSE','README.md','THIRD_PARTY.md' $dist -Force
+          Copy-Item 'assets\icons\TABLER-ICONS-LICENSE.txt' $dist -Force
+          $items = @(
+            "$dist\usbscan.exe",
+            "$dist\LICENSE",
+            "$dist\README.md",
+            "$dist\THIRD_PARTY.md",
+            "$dist\TABLER-ICONS-LICENSE.txt"
+          )
+          Compress-Archive -LiteralPath $items -DestinationPath "$dist\usbscan-$version-portable.zip" -Force
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          $env:USBSCAN_VERSION = '${{ steps.version.outputs.version }}'
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' 'installer\usbscan.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
+      - name: Create checksums
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $files = @(
+            "dist\usbscan-$version-setup.exe",
+            "dist\usbscan-$version-portable.zip"
+          )
+          $lines = foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "Missing release asset: $file" }
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path -Leaf $file)"
+          }
+          Set-Content 'dist\SHA256SUMS.txt' $lines -Encoding ascii
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/usbscan-${{ steps.version.outputs.version }}-setup.exe
+            dist/usbscan-${{ steps.version.outputs.version }}-portable.zip
+            dist/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

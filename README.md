@@ -35,6 +35,7 @@ usbscan 是一款面向 Windows 的文档采集软件。插上任一 UVC 摄像�
 | 命名规则 | 模板化文件名与目录规则，拍摄瞬间即确定落盘路径 |
 | 界面 | Slint 自绘的 macOS 风格界面（cupertino）：圆角卡片、macOS 开关、系统亮/暗主题；左上角显示 UsbScan 标识；刷新/录像/拍照带 SVG 图标；设备、分辨率与录像帧率同处顶栏；窗口可自由缩放并记忆大小/位置；预览实时绘制文档裁剪框 |
 | 操作反馈 | 拍照时播放快门声、预览闪白并显示“已拍照”；录像开始/停止播放提示音并显示状态提示 |
+| 自动更新 | 点击左上角 logo 打开关于窗口，可勾选“自动检查更新”；启动时检查 GitHub Releases，发现新版本在右下角提示，点击下载安装包并启动安装 |
 | 页面操作 | 在页面缩略图上单击右键打开菜单：重命名、删除、自动裁边、自动纠偏、OCR、导出 JPG |
 | 视频裁剪 | 自动识别并裁掉部分 UVC 驱动补出的上下黑边，预览、拍照与录像都不再带黑边 |
 | 图标 | 使用 [Tabler Icons](https://github.com/tabler/tabler-icons) 的 SVG（MIT），并随包保留许可证 |
@@ -108,6 +109,14 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
+
+## 发布
+
+在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.0`）后，`.github/workflows/release.yml` 会自动构建并上传：
+
+- `usbscan-<版本>-setup.exe`：Inno Setup 安装版（`installer/usbscan.iss`）
+- `usbscan-<版本>-portable.zip`：便携版
+- `SHA256SUMS.txt`：SHA-256 校验和
 
 ## 目录结构
 

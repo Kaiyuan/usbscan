@@ -1469,6 +1469,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                     (current.x, current.y)
                 });
                 let _ = usbscan_win::window::set_client_geometry(x, y, width, height);
+                usbscan_win::window::set_window_icon();
             }
         });
     }

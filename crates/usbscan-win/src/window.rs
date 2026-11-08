@@ -7,10 +7,11 @@
 //! 因此恢复用户窗口大小时直接调用 `SetWindowPos`，按客户端尺寸换算外框。
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindowVisible, LoadImageW, SendMessageW, SetWindowPos, ICON_BIG, ICON_SMALL, IMAGE_ICON,
-    LR_DEFAULTSIZE, LR_SHARED, SWP_NOACTIVATE, SWP_NOZORDER, WM_SETICON,
+    IsWindowVisible, LoadIconW, SendMessageW, SetWindowPos, ICON_BIG, ICON_SMALL, SWP_NOACTIVATE,
+    SWP_NOZORDER, WM_SETICON,
 };
 
 struct Search {
@@ -42,7 +43,7 @@ unsafe extern "system" fn find_main_window(hwnd: HWND, lparam: LPARAM) -> i32 {
     // SAFETY: 缓冲区长度与指针匹配。
     let length = unsafe { GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32) };
     let text = String::from_utf16_lossy(&title[..length.max(0) as usize]);
-    if !text.contains("usbscan") || !text.contains("文档扫描") {
+    if !text.starts_with("UsbScan") {
         return 1;
     }
     if area > search.best_area {
@@ -77,15 +78,15 @@ pub fn set_window_icon() {
     }
     // SAFETY: 标准 Win32 调用；资源 ID 1 由构建脚本写入。
     unsafe {
-        let icon = LoadImageW(
-            std::ptr::null_mut(),
-            std::ptr::without_provenance(1),
-            IMAGE_ICON,
-            0,
-            0,
-            LR_DEFAULTSIZE | LR_SHARED,
-        );
-        if !icon.is_null() {
+        let module = GetModuleHandleW(std::ptr::null());
+        if module.is_null() {
+            eprintln!("failed to get current module handle");
+            return;
+        }
+        let icon = LoadIconW(module, std::ptr::without_provenance(1));
+        if icon.is_null() {
+            eprintln!("failed to load embedded window icon");
+        } else {
             SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icon as isize);
             SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, icon as isize);
         }

@@ -78,12 +78,17 @@ component IconPill inherits TouchArea {
             padding-right: 11px;
             spacing: 6px;
             alignment: center;
-            if (root.has-icon) : Image {
+            if (root.has-icon) : Rectangle {
                 width: 17px;
-                height: 17px;
-                source: root.icon;
-                image-fit: contain;
-                colorize: root.primary ? #ffffff : root.icon-color;
+                height: 100%;
+                Image {
+                    width: 17px;
+                    height: 17px;
+                    y: (parent.height - self.height) / 2;
+                    source: root.icon;
+                    image-fit: contain;
+                    colorize: root.primary ? #ffffff : root.icon-color;
+                }
             }
             if (!root.has-icon) : Text {
                 text: root.glyph;

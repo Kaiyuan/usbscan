@@ -5,15 +5,17 @@ import { LineEdit, Palette, ScrollView, Slider } from "std-widgets.slint";
 
 export global Theme {
     in-out property <bool> dark: true;
-    out property <color> bg: dark ? #1c1c1e : #f2f2f7;
-    out property <color> panel: dark ? #232326 : #ffffff;
+    out property <color> bg: dark ? #1e1e1f : #ececec;
+    out property <color> panel: dark ? #252526 : #f5f5f7;
     out property <color> card: dark ? #2c2c2e : #ffffff;
     out property <color> text: dark ? #f5f5f7 : #1c1c1e;
     out property <color> muted: dark ? #9a9fa8 : #6e6e73;
     out property <color> accent: dark ? #0a84ff : #007aff;
     out property <color> accent-pressed: dark ? #0060d2 : #0060d2;
-    out property <color> border: dark ? #3a3a3c : #d1d1d6;
-    out property <color> hover: dark ? #3a3a3c : #e5e5ea;
+    out property <color> border: dark ? #3a3a3c : #d9d9de;
+    out property <color> separator: dark ? #38383a : #d6d6db;
+    out property <color> hover: dark ? #48484a : #dcdce1;
+    out property <color> control: dark ? #3a3a3c : #e8e8ed;
 }
 
 export struct PageItem {
@@ -26,15 +28,15 @@ component PillButton inherits TouchArea {
     in property <string> text;
     in property <bool> primary: false;
 
-    height: 32px;
+    height: 30px;
     min-width: 64px;
 
     Rectangle {
         width: 100%;
         height: 100%;
-        border-radius: 8px;
-        background: !root.enabled ? Theme.border : (primary ? (root.pressed ? Theme.accent-pressed : Theme.accent) : (root.has-hover ? Theme.hover : Theme.card));
-        border-width: primary ? 0px : 1px;
+        border-radius: 7px;
+        background: !root.enabled ? Theme.border : (primary ? (root.pressed ? Theme.accent-pressed : Theme.accent) : (root.has-hover ? Theme.hover : Theme.control));
+        border-width: 0px;
         border-color: Theme.border;
 
         Text {
@@ -54,16 +56,19 @@ component IconPill inherits TouchArea {
     in property <string> glyph;
     in property <string> text;
     in property <bool> primary: false;
+    in property <image> icon;
+    in property <bool> has-icon: false;
+    in property <color> icon-color: Theme.text;
 
-    height: 34px;
+    height: 30px;
     min-width: 78px;
 
     Rectangle {
         width: 100%;
         height: 100%;
-        border-radius: 9px;
-        background: !root.enabled ? Theme.border : (primary ? (root.pressed ? Theme.accent-pressed : Theme.accent) : (root.has-hover ? Theme.hover : Theme.card));
-        border-width: primary ? 0px : 1px;
+        border-radius: 7px;
+        background: !root.enabled ? Theme.border : (primary ? (root.pressed ? Theme.accent-pressed : Theme.accent) : (root.has-hover ? Theme.hover : transparent));
+        border-width: 0px;
         border-color: Theme.border;
 
         HorizontalLayout {
@@ -73,7 +78,14 @@ component IconPill inherits TouchArea {
             padding-right: 11px;
             spacing: 6px;
             alignment: center;
-            Text {
+            if (root.has-icon) : Image {
+                width: 17px;
+                height: 17px;
+                source: root.icon;
+                image-fit: contain;
+                colorize: root.primary ? #ffffff : root.icon-color;
+            }
+            if (!root.has-icon) : Text {
                 text: root.glyph;
                 color: root.primary ? #ffffff : Theme.accent;
                 font-size: 14px;
@@ -94,9 +106,12 @@ component Section inherits Rectangle {
     in property <length> content-height: 0px;
 
     background: Theme.card;
-    border-radius: 12px;
+    border-radius: 10px;
     border-width: 1px;
-    border-color: Theme.border;
+    border-color: Theme.separator;
+    drop-shadow-blur: 12px;
+    drop-shadow-color: #00000012;
+    drop-shadow-offset-y: 1px;
     height: content-height + 46px;
 
     Text {
@@ -104,7 +119,7 @@ component Section inherits Rectangle {
         y: 11px;
         text: root.title;
         color: Theme.text;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
     }
 }
@@ -120,35 +135,39 @@ component ToggleRow inherits TouchArea {
     in-out property <bool> checked;
     callback toggled(bool);
 
-    height: 26px;
+    height: 28px;
 
     HorizontalLayout {
         width: 100%;
         height: 100%;
-        spacing: 8px;
+        spacing: 10px;
 
-        Rectangle {
-            width: 18px;
-            height: 18px;
-            border-radius: 5px;
-            background: root.checked ? Theme.accent : transparent;
-            border-width: 1px;
-            border-color: root.checked ? Theme.accent : Theme.border;
-            Text {
-                width: 100%;
-                height: 100%;
-                text: root.checked ? "✓" : "";
-                color: #ffffff;
-                font-size: 12px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-        }
         Text {
             text: root.label;
             color: Theme.text;
             font-size: 13px;
             vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Rectangle {
+            width: 38px;
+            height: 22px;
+            border-radius: 11px;
+            background: root.checked ? Theme.accent : (Theme.dark ? #39393d : #d1d1d6);
+            animate background { duration: 120ms; }
+
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                border-radius: 9px;
+                background: #ffffff;
+                x: root.checked ? parent.width - self.width - 2px : 2px;
+                y: 2px;
+                drop-shadow-blur: 2px;
+                drop-shadow-color: #00000033;
+                drop-shadow-offset-y: 1px;
+                animate x { duration: 120ms; easing: ease-out; }
+            }
         }
     }
     clicked => {
@@ -163,11 +182,11 @@ component Dropdown inherits Rectangle {
     in property <bool> enabled: true;
     callback selected(int);
 
-    height: 32px;
-    border-radius: 8px;
-    background: root.enabled ? Theme.card : Theme.bg;
-    border-width: 1px;
-    border-color: Theme.border;
+    height: 30px;
+    border-radius: 7px;
+    background: root.enabled ? Theme.control : Theme.bg;
+    border-width: 0px;
+    border-color: Theme.separator;
 
     HorizontalLayout {
         padding-left: 10px;
@@ -243,12 +262,11 @@ component Dropdown inherits Rectangle {
 
 export component MainWindow inherits Window {
     title: "usbscan — 文档扫描";
-    width: root.window-width;
-    height: root.window-height;
+    min-width: 1000px;
+    min-height: 660px;
     background: Theme.bg;
     default-font-size: 13px;
-    in-out property <length> window-width: 1280px;
-    in-out property <length> window-height: 800px;
+    default-font-family: "Segoe UI Variable Text";
     init => {
         Theme.dark = root.dark;
         Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
@@ -315,7 +333,7 @@ export component MainWindow inherits Window {
         // Top command bar
         Rectangle {
             y: 0px;
-            height: 58px;
+            height: 56px;
             background: Theme.panel;
             Rectangle { y: parent.height - 1px; height: 1px; width: 100%; background: Theme.border; }
 
@@ -329,11 +347,11 @@ export component MainWindow inherits Window {
                 Text {
                     text: "usbscan";
                     color: Theme.text;
-                    font-size: 19px;
-                    font-weight: 700;
+                    font-size: 16px;
+                    font-weight: 600;
                     vertical-alignment: center;
                 }
-                Rectangle { width: 1px; height: 24px; background: Theme.border; }
+                Rectangle { width: 1px; height: 20px; background: Theme.separator; }
 
                 Text { text: "设备"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                 Dropdown {
@@ -358,17 +376,21 @@ export component MainWindow inherits Window {
                 }
                 Rectangle { horizontal-stretch: 1; }
                 IconPill {
-                    glyph: "↻";
+                    icon: @image-url("../../../assets/icons/refresh.png");
+                    has-icon: true;
                     text: "刷新";
                     clicked => { root.refresh-devices(); }
                 }
                 IconPill {
-                    glyph: root.recording ? "■" : "●";
+                    icon: root.recording ? @image-url("../../../assets/icons/stop.png") : @image-url("../../../assets/icons/record.png");
+                    has-icon: true;
+                    icon-color: #ff453a;
                     text: root.recording ? "停止" : "录像";
                     clicked => { root.toggle-record(); }
                 }
                 IconPill {
-                    glyph: "◎";
+                    icon: @image-url("../../../assets/icons/camera.png");
+                    has-icon: true;
                     text: "拍照";
                     primary: true;
                     clicked => { root.capture(); }
@@ -377,18 +399,18 @@ export component MainWindow inherits Window {
         }
 
         HorizontalLayout {
-            y: 58px;
-            height: parent.height - 86px;
+            y: 56px;
+            height: parent.height - 80px;
             // Pages sidebar
             Rectangle {
-                width: 228px;
+                width: 240px;
                 background: Theme.panel;
                 Rectangle { x: parent.width - 1px; width: 1px; height: 100%; background: Theme.border; }
                 VerticalLayout {
                     padding: 12px;
                     spacing: 8px;
                     HorizontalLayout {
-                        Text { text: "页面"; color: Theme.text; font-size: 14px; font-weight: 600; }
+                        Text { text: "页面"; color: Theme.muted; font-size: 12px; font-weight: 600; }
                         Rectangle { horizontal-stretch: 1; }
                         Text { text: root.page-count-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                     }
@@ -397,19 +419,21 @@ export component MainWindow inherits Window {
                         VerticalLayout {
                             spacing: 8px;
                             for page[index] in root.pages : Rectangle {
-                                height: 92px;
-                                border-radius: 10px;
-                                background: root.selected-page == index ? (Theme.dark ? #2f3b4d : #e8f1ff) : Theme.card;
-                                border-width: root.selected-page == index ? 2px : 1px;
-                                border-color: root.selected-page == index ? Theme.accent : Theme.border;
+                                height: 84px;
+                                border-radius: 8px;
+                                background: root.selected-page == index ? Theme.accent.with-alpha(0.16) : (page-touch.has-hover ? Theme.hover : transparent);
+                                border-width: 0px;
                                 HorizontalLayout {
                                     padding: 8px;
-                                    spacing: 9px;
+                                    spacing: 10px;
                                     Rectangle {
-                                        width: 72px;
-                                        height: 72px;
+                                        width: 64px;
+                                        height: 64px;
                                         border-radius: 6px;
                                         clip: true;
+                                        drop-shadow-blur: 4px;
+                                        drop-shadow-color: #0000001a;
+                                        drop-shadow-offset-y: 1px;
                                         Image {
                                             width: 100%;
                                             height: 100%;
@@ -425,6 +449,7 @@ export component MainWindow inherits Window {
                                             text: "第 \{page.seq} 页";
                                             color: Theme.text;
                                             font-size: 13px;
+                                            font-weight: 600;
                                         }
                                         Text {
                                             text: page.title;
@@ -478,7 +503,7 @@ export component MainWindow inherits Window {
 
             // Settings sidebar
             Rectangle {
-                width: 330px;
+                width: 340px;
                 background: Theme.panel;
                 Rectangle { x: 0px; width: 1px; height: 100%; background: Theme.border; }
                 VerticalLayout {
@@ -541,17 +566,17 @@ export component MainWindow inherits Window {
 
         // Status bar
         Rectangle {
-            y: parent.height - 28px;
-            height: 28px;
+            y: parent.height - 24px;
+            height: 24px;
             background: Theme.panel;
             Rectangle { y: 0px; height: 1px; width: 100%; background: Theme.border; }
             HorizontalLayout {
                 padding-left: 12px;
                 padding-right: 12px;
                 spacing: 8px;
-                Text { text: root.status-text; color: Theme.text; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
-                Text { text: root.page-count-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
-                Text { text: root.version-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Text { text: root.status-text; color: Theme.muted; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: root.page-count-text; color: Theme.muted; font-size: 11px; vertical-alignment: center; }
+                Text { text: root.version-text; color: Theme.muted; font-size: 11px; vertical-alignment: center; }
             }
         }
     }

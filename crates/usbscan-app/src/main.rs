@@ -1234,8 +1234,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         (Some(x), Some(y)) if x.abs() < 100_000 && y.abs() < 100_000 => Some((x, y)),
         _ => None,
     };
-    ui.set_window_width(window_width as f32);
-    ui.set_window_height(window_height as f32);
+    ui.window().set_size(slint::LogicalSize::new(
+        window_width as f32,
+        window_height as f32,
+    ));
     if let Some((x, y)) = saved_position {
         ui.window().set_position(slint::PhysicalPosition::new(x, y));
     }
@@ -1323,19 +1325,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             slint::TimerMode::Repeated,
             Duration::from_millis(40),
             move || {
-                if let Some(ui) = weak.upgrade() {
-                    let scale = ui.window().scale_factor();
-                    if let Some((client_width, client_height)) = usbscan_win::window::client_size()
-                    {
-                        let width = client_width as f32 / scale;
-                        let height = client_height as f32 / scale;
-                        if (ui.get_window_width() - width).abs() > 1.0 {
-                            ui.set_window_width(width);
-                        }
-                        if (ui.get_window_height() - height).abs() > 1.0 {
-                            ui.set_window_height(height);
-                        }
-                    }
+                if weak.upgrade().is_some() {
                     timer_state.borrow_mut().poll();
                 }
             },
@@ -1344,23 +1334,57 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     ui.show()?;
+    {
+        let weak = ui.as_weak();
+        let state_close = std::rc::Rc::clone(&state);
+        ui.window().on_close_requested(move || {
+            if let Some(ui) = weak.upgrade() {
+                let mut app = state_close.borrow_mut();
+                let scale = ui.window().scale_factor();
+                if let Some((width, height)) = usbscan_win::window::client_size() {
+                    app.config.window_width = Some((width as f32 / scale).round().max(1.0) as u32);
+                    app.config.window_height =
+                        Some((height as f32 / scale).round().max(1.0) as u32);
+                }
+                let position = ui.window().position();
+                app.config.window_x = Some(position.x);
+                app.config.window_y = Some(position.y);
+                app.config.save();
+            }
+            slint::CloseRequestResponse::HideWindow
+        });
+    }
     let hwnd = usbscan_win::window::main_window();
     if !hwnd.is_null() {
         usbscan_win::theme::apply_window(hwnd, dark);
     }
-    slint::run_event_loop()?;
+    let apply_geometry = |ui: &MainWindow| {
+        let scale = ui.window().scale_factor();
+        let width = (window_width as f32 * scale).round().max(1.0) as u32;
+        let height = (window_height as f32 * scale).round().max(1.0) as u32;
+        let (x, y) = saved_position.unwrap_or_else(|| {
+            let current = ui.window().position();
+            (current.x, current.y)
+        });
+        let _ = usbscan_win::window::set_client_geometry(x, y, width, height);
+    };
+    apply_geometry(&ui);
     {
-        let window = ui.window();
-        let scale = window.scale_factor();
-        let size = window.size().to_logical(scale);
-        let position = window.position();
-        let mut app = state.borrow_mut();
-        app.config.window_width = Some(size.width.round().max(1.0) as u32);
-        app.config.window_height = Some(size.height.round().max(1.0) as u32);
-        app.config.window_x = Some(position.x);
-        app.config.window_y = Some(position.y);
-        app.config.save();
+        let weak = ui.as_weak();
+        slint::Timer::single_shot(Duration::from_millis(200), move || {
+            if let Some(ui) = weak.upgrade() {
+                let scale = ui.window().scale_factor();
+                let width = (window_width as f32 * scale).round().max(1.0) as u32;
+                let height = (window_height as f32 * scale).round().max(1.0) as u32;
+                let (x, y) = saved_position.unwrap_or_else(|| {
+                    let current = ui.window().position();
+                    (current.x, current.y)
+                });
+                let _ = usbscan_win::window::set_client_geometry(x, y, width, height);
+            }
+        });
     }
+    slint::run_event_loop()?;
     state.borrow_mut().shutdown();
     Ok(())
 }

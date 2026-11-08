@@ -54,6 +54,11 @@ pub struct Config {
     pub capture_height: Option<u16>,
     /// 录像帧率：25 / 30 / 50 / 60。
     pub record_fps: Option<u8>,
+    /// 窗口位置与大小（逻辑像素），用于下次启动时恢复。
+    pub window_x: Option<i32>,
+    pub window_y: Option<i32>,
+    pub window_width: Option<u32>,
+    pub window_height: Option<u32>,
 }
 
 impl Config {
@@ -110,6 +115,14 @@ impl Config {
                 config.capture_height = Some(value);
             } else if let Some(value) = toml_u8(line, "record_fps") {
                 config.record_fps = Some(value);
+            } else if let Some(value) = toml_i32(line, "window_x") {
+                config.window_x = Some(value);
+            } else if let Some(value) = toml_i32(line, "window_y") {
+                config.window_y = Some(value);
+            } else if let Some(value) = toml_u32(line, "window_width") {
+                config.window_width = Some(value);
+            } else if let Some(value) = toml_u32(line, "window_height") {
+                config.window_height = Some(value);
             }
         }
         config
@@ -180,6 +193,28 @@ impl Config {
             }
         }
 
+        text.push_str("\n[window]\n");
+        if let Some(x) = self.window_x {
+            text.push_str("window_x = ");
+            text.push_str(&x.to_string());
+            text.push('\n');
+        }
+        if let Some(y) = self.window_y {
+            text.push_str("window_y = ");
+            text.push_str(&y.to_string());
+            text.push('\n');
+        }
+        if let Some(width) = self.window_width {
+            text.push_str("window_width = ");
+            text.push_str(&width.to_string());
+            text.push('\n');
+        }
+        if let Some(height) = self.window_height {
+            text.push_str("window_height = ");
+            text.push_str(&height.to_string());
+            text.push('\n');
+        }
+
         let path = config_path();
         if let Some(dir) = path.parent() {
             let _ = fs::create_dir_all(dir);
@@ -238,6 +273,22 @@ fn toml_u8(line: &str, key: &str) -> Option<u8> {
 }
 
 fn toml_u16(line: &str, key: &str) -> Option<u16> {
+    let (name, value) = line.split_once('=')?;
+    if name.trim() != key {
+        return None;
+    }
+    value.trim().parse().ok()
+}
+
+fn toml_u32(line: &str, key: &str) -> Option<u32> {
+    let (name, value) = line.split_once('=')?;
+    if name.trim() != key {
+        return None;
+    }
+    value.trim().parse().ok()
+}
+
+fn toml_i32(line: &str, key: &str) -> Option<i32> {
     let (name, value) = line.split_once('=')?;
     if name.trim() != key {
         return None;

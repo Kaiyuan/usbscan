@@ -2137,6 +2137,7 @@ fn persist_config(s: &AppState) {
             .preferred_format
             .and_then(|(_, height)| u16::try_from(height).ok()),
         record_fps: Some(u8::try_from(s.record_fps).unwrap_or(25)),
+        ..Config::default()
     }
     .save();
 }

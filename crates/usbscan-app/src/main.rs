@@ -913,6 +913,24 @@ impl AppState {
         }
     }
 
+    fn show_page_menu(&mut self, row: usize) {
+        match usbscan_win::page_menu::show_page_menu() {
+            usbscan_win::page_menu::PageMenuCommand::Rename => self.rename_page(row),
+            usbscan_win::page_menu::PageMenuCommand::AutoCrop => self.auto_fix_page(row, true),
+            usbscan_win::page_menu::PageMenuCommand::AutoDeskew => self.auto_fix_page(row, false),
+            usbscan_win::page_menu::PageMenuCommand::Ocr => {
+                self.selected_row = Some(row);
+                self.ocr_page();
+            }
+            usbscan_win::page_menu::PageMenuCommand::ExportJpg => {
+                self.selected_row = Some(row);
+                self.export_jpg();
+            }
+            usbscan_win::page_menu::PageMenuCommand::Delete => self.delete_page(row),
+            usbscan_win::page_menu::PageMenuCommand::None => {}
+        }
+    }
+
     fn confirm_rename(&mut self, input: &str) {
         let Some(row) = self.rename_row else {
             return;
@@ -1206,9 +1224,21 @@ fn main() {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn run() -> Result<(), Box<dyn Error>> {
     let ui = MainWindow::new()?;
     let config = Config::load();
+    let window_width = config.window_width.unwrap_or(1280).clamp(1100, 10000);
+    let window_height = config.window_height.unwrap_or(800).clamp(680, 10000);
+    let saved_position = match (config.window_x, config.window_y) {
+        (Some(x), Some(y)) if x.abs() < 100_000 && y.abs() < 100_000 => Some((x, y)),
+        _ => None,
+    };
+    ui.set_window_width(window_width as f32);
+    ui.set_window_height(window_height as f32);
+    if let Some((x, y)) = saved_position {
+        ui.window().set_position(slint::PhysicalPosition::new(x, y));
+    }
     let output_root = config
         .output_root
         .clone()
@@ -1225,6 +1255,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         rule.folder.clone_from(folder);
     }
     let dark = theme::system_uses_dark_mode();
+    theme::init_process(dark);
     ui.set_dark(dark);
     ui.set_output_dir(output_root.to_string_lossy().to_string().into());
     ui.set_file_template(rule.template.clone().into());
@@ -1292,7 +1323,19 @@ fn run() -> Result<(), Box<dyn Error>> {
             slint::TimerMode::Repeated,
             Duration::from_millis(40),
             move || {
-                if weak.upgrade().is_some() {
+                if let Some(ui) = weak.upgrade() {
+                    let scale = ui.window().scale_factor();
+                    if let Some((client_width, client_height)) = usbscan_win::window::client_size()
+                    {
+                        let width = client_width as f32 / scale;
+                        let height = client_height as f32 / scale;
+                        if (ui.get_window_width() - width).abs() > 1.0 {
+                            ui.set_window_width(width);
+                        }
+                        if (ui.get_window_height() - height).abs() > 1.0 {
+                            ui.set_window_height(height);
+                        }
+                    }
                     timer_state.borrow_mut().poll();
                 }
             },
@@ -1300,7 +1343,24 @@ fn run() -> Result<(), Box<dyn Error>> {
         app.timer = Some(timer);
     }
 
-    ui.run()?;
+    ui.show()?;
+    let hwnd = usbscan_win::window::main_window();
+    if !hwnd.is_null() {
+        usbscan_win::theme::apply_window(hwnd, dark);
+    }
+    slint::run_event_loop()?;
+    {
+        let window = ui.window();
+        let scale = window.scale_factor();
+        let size = window.size().to_logical(scale);
+        let position = window.position();
+        let mut app = state.borrow_mut();
+        app.config.window_width = Some(size.width.round().max(1.0) as u32);
+        app.config.window_height = Some(size.height.round().max(1.0) as u32);
+        app.config.window_x = Some(position.x);
+        app.config.window_y = Some(position.y);
+        app.config.save();
+    }
     state.borrow_mut().shutdown();
     Ok(())
 }
@@ -1333,6 +1393,10 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     {
         let state = std::rc::Rc::clone(state);
         ui.on_rename_page(move |row| state.borrow_mut().rename_page(row as usize));
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_page_menu(move |row| state.borrow_mut().show_page_menu(row as usize));
     }
     {
         let state = std::rc::Rc::clone(state);

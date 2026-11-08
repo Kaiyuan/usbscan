@@ -243,10 +243,12 @@ component Dropdown inherits Rectangle {
 
 export component MainWindow inherits Window {
     title: "usbscan — 文档扫描";
-    width: 1280px;
-    height: 800px;
+    width: root.window-width;
+    height: root.window-height;
     background: Theme.bg;
     default-font-size: 13px;
+    in-out property <length> window-width: 1280px;
+    in-out property <length> window-height: 800px;
     init => {
         Theme.dark = root.dark;
         Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
@@ -303,11 +305,16 @@ export component MainWindow inherits Window {
     callback apply-settings();
     callback rename-confirm(string);
     callback rename-cancel();
+    callback page-menu(int);
     callback refresh-devices();
 
-    VerticalLayout {
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Theme.bg;
         // Top command bar
         Rectangle {
+            y: 0px;
             height: 58px;
             background: Theme.panel;
             Rectangle { y: parent.height - 1px; height: 1px; width: 100%; background: Theme.border; }
@@ -370,6 +377,8 @@ export component MainWindow inherits Window {
         }
 
         HorizontalLayout {
+            y: 58px;
+            height: parent.height - 86px;
             // Pages sidebar
             Rectangle {
                 width: 228px;
@@ -382,55 +391,6 @@ export component MainWindow inherits Window {
                         Text { text: "页面"; color: Theme.text; font-size: 14px; font-weight: 600; }
                         Rectangle { horizontal-stretch: 1; }
                         Text { text: root.page-count-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
-                    }
-                    Section {
-                        title: "页面操作";
-                        content-height: 200px;
-                        VerticalLayout {
-                            padding: 12px;
-                            padding-top: 34px;
-                            spacing: 8px;
-                            HorizontalLayout {
-                                spacing: 6px;
-                                IconPill {
-                                    glyph: "✎"; text: "重命名";
-                                    enabled: root.selected-page >= 0;
-                                    horizontal-stretch: 1;
-                                    clicked => { if (root.selected-page >= 0) { root.rename-page(root.selected-page); } }
-                                }
-                                IconPill {
-                                    glyph: "⌫"; text: "删除";
-                                    enabled: root.selected-page >= 0;
-                                    horizontal-stretch: 1;
-                                    clicked => { if (root.selected-page >= 0) { root.delete-page(root.selected-page); } }
-                                }
-                            }
-                            HorizontalLayout {
-                                spacing: 6px;
-                                IconPill {
-                                    glyph: "✂"; text: "自动裁边";
-                                    enabled: root.selected-page >= 0;
-                                    horizontal-stretch: 1;
-                                    clicked => { if (root.selected-page >= 0) { root.auto-crop-page(root.selected-page); } }
-                                }
-                                IconPill {
-                                    glyph: "⟳"; text: "自动纠偏";
-                                    enabled: root.selected-page >= 0;
-                                    horizontal-stretch: 1;
-                                    clicked => { if (root.selected-page >= 0) { root.auto-deskew-page(root.selected-page); } }
-                                }
-                            }
-                            HorizontalLayout {
-                                spacing: 6px;
-                                IconPill { glyph: "＋"; text: "导入"; horizontal-stretch: 1; clicked => { root.import-images(); } }
-                                IconPill { glyph: "◇"; text: "OCR"; horizontal-stretch: 1; clicked => { root.ocr-page(); } }
-                            }
-                            HorizontalLayout {
-                                spacing: 6px;
-                                IconPill { glyph: "⇩"; text: "导出 PDF"; horizontal-stretch: 1; clicked => { root.export-pdf(); } }
-                                IconPill { glyph: "⇩"; text: "导出 JPG"; horizontal-stretch: 1; clicked => { root.export-jpg(); } }
-                            }
-                        }
                     }
                     ScrollView {
                         horizontal-scrollbar-policy: always-off;
@@ -474,12 +434,21 @@ export component MainWindow inherits Window {
                                         }
                                     }
                                 }
-                                TouchArea {
+                                page-touch := TouchArea {
                                     width: 100%;
                                     height: 100%;
                                     clicked => {
                                         root.selected-page = index;
                                         root.page-selected(index);
+                                    }
+                                    pointer-event(event) => {
+                                        if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                                            root.selected-page = index;
+                                            root.page-selected(index);
+                                            root.page-menu(index);
+                                            return EventResult.accept;
+                                        }
+                                        EventResult.reject
                                     }
                                 }
                             }
@@ -518,7 +487,7 @@ export component MainWindow inherits Window {
 
                     Section {
                         title: "扫描设置";
-                            content-height: 178px;
+                            content-height: 217px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
@@ -538,6 +507,11 @@ export component MainWindow inherits Window {
                                 FieldLabel { text: "子目录模板"; }
                                 LineEdit { text: root.folder-template; edited(text) => { root.folder-template = text; } }
                                 PillButton { text: "应用设置"; primary: true; width: 96px; clicked => { root.apply-settings(); } }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    PillButton { text: "导入图片"; horizontal-stretch: 1; clicked => { root.import-images(); } }
+                                    PillButton { text: "导出 PDF"; horizontal-stretch: 1; clicked => { root.export-pdf(); } }
+                                }
                             }
                         }
 
@@ -567,6 +541,7 @@ export component MainWindow inherits Window {
 
         // Status bar
         Rectangle {
+            y: parent.height - 28px;
             height: 28px;
             background: Theme.panel;
             Rectangle { y: 0px; height: 1px; width: 100%; background: Theme.border; }

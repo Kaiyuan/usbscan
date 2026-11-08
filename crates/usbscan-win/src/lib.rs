@@ -33,6 +33,7 @@ pub mod label;
 pub mod menu;
 pub mod menubar;
 pub mod ocr_viewer;
+pub mod page_menu;
 pub mod print;
 pub mod print_preview;
 pub mod recorder;
@@ -41,6 +42,7 @@ pub mod text;
 pub mod text_edit;
 pub mod theme;
 pub mod toolbar;
+pub mod window;
 
 pub use app::run;
 pub use error::WinError;

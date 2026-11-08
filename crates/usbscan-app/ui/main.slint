@@ -78,17 +78,12 @@ component IconPill inherits TouchArea {
             padding-right: 11px;
             spacing: 6px;
             alignment: center;
-            if (root.has-icon) : Rectangle {
-                width: 16px;
-                height: 20px;
-                Image {
-                    width: 16px;
-                    height: 16px;
-                    y: 5px;
-                    source: root.icon;
-                    image-fit: contain;
-                    colorize: root.primary ? #ffffff : root.icon-color;
-                }
+            if (root.has-icon) : Image {
+                width: 17px;
+                height: 17px;
+                source: root.icon;
+                image-fit: contain;
+                colorize: root.primary ? #ffffff : root.icon-color;
             }
             if (!root.has-icon) : Text {
                 text: root.glyph;
@@ -266,7 +261,7 @@ component Dropdown inherits Rectangle {
 }
 
 export component MainWindow inherits Window {
-    title: "usbscan — 文档扫描";
+    title: "UsbScan";
     min-width: 1000px;
     min-height: 700px;
     background: Theme.bg;
@@ -306,6 +301,9 @@ export component MainWindow inherits Window {
     in-out property <bool> recording: false;
     in-out property <bool> show-rename: false;
     in-out property <string> rename-text;
+    in-out property <bool> flash: false;
+    in-out property <bool> show-toast: false;
+    in-out property <string> toast-text;
     in-out property <string> version-text: "v0.1.0";
 
     callback capture();
@@ -349,10 +347,16 @@ export component MainWindow inherits Window {
                 padding-bottom: 12px;
                 spacing: 10px;
 
+                Image {
+                    source: @image-url("../../../assets/icons/usbscan_icons/usbscan_48x48.png");
+                    width: 26px;
+                    height: 26px;
+                    image-fit: contain;
+                }
                 Text {
-                    text: "usbscan";
+                    text: "UsbScan";
                     color: Theme.text;
-                    font-size: 16px;
+                    font-size: 15px;
                     font-weight: 600;
                     vertical-alignment: center;
                 }
@@ -381,20 +385,20 @@ export component MainWindow inherits Window {
                 }
                 Rectangle { horizontal-stretch: 1; }
                 IconPill {
-                    icon: @image-url("../../../assets/icons/refresh.png");
+                    icon: @image-url("../../../assets/icons/svg/refresh.svg");
                     has-icon: true;
                     text: "刷新";
                     clicked => { root.refresh-devices(); }
                 }
                 IconPill {
-                    icon: root.recording ? @image-url("../../../assets/icons/stop.png") : @image-url("../../../assets/icons/record.png");
+                    icon: root.recording ? @image-url("../../../assets/icons/svg/player-stop.svg") : @image-url("../../../assets/icons/svg/player-record.svg");
                     has-icon: true;
                     icon-color: #ff453a;
                     text: root.recording ? "停止" : "录像";
                     clicked => { root.toggle-record(); }
                 }
                 IconPill {
-                    icon: @image-url("../../../assets/icons/camera.png");
+                    icon: @image-url("../../../assets/icons/svg/camera.svg");
                     has-icon: true;
                     text: "拍照";
                     primary: true;
@@ -500,6 +504,31 @@ export component MainWindow inherits Window {
                         text: "等待摄像头\n插上任一 USB 摄像头即可开始";
                         color: Theme.muted;
                         font-size: 16px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    background: #ffffff;
+                    opacity: root.flash ? 0.9 : 0.0;
+                    animate opacity { duration: 180ms; easing: ease-out; }
+                }
+                if (root.show-toast) : Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: parent.height - 58px;
+                    width: 210px;
+                    height: 36px;
+                    border-radius: 18px;
+                    background: #000000a6;
+
+                    Text {
+                        width: 100%;
+                        height: 100%;
+                        text: root.toast-text;
+                        color: #ffffff;
+                        font-size: 13px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }

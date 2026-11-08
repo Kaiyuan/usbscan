@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use usbscan_capture as capture;
 use usbscan_doc as doc;
@@ -27,6 +28,40 @@ use usbscan_win::recorder::Recorder;
 use usbscan_win::theme;
 
 slint::include_modules!();
+
+const CAMERA_SOUND: &[u8] = include_bytes!("../../../assets/camera.mp3");
+const RECORD_SOUND: &[u8] = include_bytes!("../../../assets/record.mp3");
+
+struct Audio {
+    _stream: OutputStream,
+    handle: OutputStreamHandle,
+}
+
+impl Audio {
+    fn new() -> Option<Self> {
+        match OutputStream::try_default() {
+            Ok((stream, handle)) => Some(Self {
+                _stream: stream,
+                handle,
+            }),
+            Err(err) => {
+                eprintln!("audio output unavailable: {err}");
+                None
+            }
+        }
+    }
+
+    fn play(&self, bytes: &'static [u8]) {
+        let Ok(source) = Decoder::new(std::io::Cursor::new(bytes)) else {
+            return;
+        };
+        let Ok(sink) = Sink::try_new(&self.handle) else {
+            return;
+        };
+        sink.append(source);
+        sink.detach();
+    }
+}
 
 const DETECT_INTERVAL: Duration = Duration::from_millis(300);
 const PREVIEW_MAX_SIDE: u32 = 1280;
@@ -419,6 +454,7 @@ struct AppState {
     last_auto_crop: bool,
     recording: Option<Recorder>,
     rename_row: Option<usize>,
+    audio: Option<Audio>,
     timer: Option<slint::Timer>,
 }
 
@@ -431,7 +467,18 @@ impl AppState {
         self.worker.lock().frame.clone()
     }
 
-    fn capture(&mut self) {
+    fn capture_feedback(&mut self) -> bool {
+        if self.frame().is_none() {
+            self.set_status("尚未取得画面，请稍候再拍");
+            return false;
+        }
+        self.play_sound(CAMERA_SOUND);
+        self.flash();
+        self.show_toast("已拍照");
+        true
+    }
+
+    fn capture_now(&mut self) {
         let Some(frame) = self.frame() else {
             self.set_status("尚未取得画面，请稍候再拍");
             return;
@@ -754,6 +801,40 @@ impl AppState {
         }
     }
 
+    fn play_sound(&mut self, bytes: &'static [u8]) {
+        if self.audio.is_none() {
+            self.audio = Audio::new();
+        }
+        if let Some(audio) = &self.audio {
+            audio.play(bytes);
+        }
+    }
+
+    fn flash(&self) {
+        if let Some(ui) = self.ui() {
+            ui.set_flash(true);
+            let weak = ui.as_weak();
+            slint::Timer::single_shot(Duration::from_millis(80), move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_flash(false);
+                }
+            });
+        }
+    }
+
+    fn show_toast(&self, message: &str) {
+        if let Some(ui) = self.ui() {
+            ui.set_toast_text(message.into());
+            ui.set_show_toast(true);
+            let weak = ui.as_weak();
+            slint::Timer::single_shot(Duration::from_millis(1600), move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_show_toast(false);
+                }
+            });
+        }
+    }
+
     fn select_device(&mut self, index: usize) {
         let Some(camera) = self.devices.get(index).cloned() else {
             return;
@@ -793,10 +874,14 @@ impl AppState {
     }
 
     fn toggle_record(&mut self) {
+        self.play_sound(RECORD_SOUND);
         if let Some(recorder) = self.recording.take() {
             self.worker.set_record_sink(None);
             match recorder.stop() {
-                Ok(path) => self.set_status(&format!("录像已保存：{}", path.display())),
+                Ok(path) => {
+                    self.set_status(&format!("录像已保存：{}", path.display()));
+                    self.show_toast("录像已保存");
+                }
                 Err(err) => self.set_status(&format!("录像保存失败：{err}")),
             }
             if let Some(ui) = self.ui() {
@@ -830,6 +915,7 @@ impl AppState {
         self.set_status(&format!(
             "录像中… {record_width}×{record_height} @ {fps} fps"
         ));
+        self.show_toast("开始录像");
     }
 
     fn auto_fix_page(&mut self, row: usize, crop: bool) {
@@ -1306,6 +1392,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         last_auto_crop: true,
         recording: None,
         rename_row: None,
+        audio: None,
         timer: None,
     }));
 
@@ -1357,6 +1444,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let hwnd = usbscan_win::window::main_window();
     if !hwnd.is_null() {
         usbscan_win::theme::apply_window(hwnd, dark);
+        usbscan_win::window::set_window_icon();
     }
     let apply_geometry = |ui: &MainWindow| {
         let scale = ui.window().scale_factor();
@@ -1392,7 +1480,15 @@ fn run() -> Result<(), Box<dyn Error>> {
 fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppState>>) {
     {
         let state = std::rc::Rc::clone(state);
-        ui.on_capture(move || state.borrow_mut().capture());
+        ui.on_capture(move || {
+            let should_capture = state.borrow_mut().capture_feedback();
+            if should_capture {
+                let state = std::rc::Rc::clone(&state);
+                slint::Timer::single_shot(Duration::from_millis(90), move || {
+                    state.borrow_mut().capture_now();
+                });
+            }
+        });
     }
     {
         let state = std::rc::Rc::clone(state);

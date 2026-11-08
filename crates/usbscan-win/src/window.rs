@@ -9,7 +9,8 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindowVisible, SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER,
+    IsWindowVisible, LoadImageW, SendMessageW, SetWindowPos, ICON_BIG, ICON_SMALL, IMAGE_ICON,
+    LR_DEFAULTSIZE, LR_SHARED, SWP_NOACTIVATE, SWP_NOZORDER, WM_SETICON,
 };
 
 struct Search {
@@ -66,6 +67,29 @@ pub fn main_window() -> HWND {
         );
     }
     search.found
+}
+
+/// 把 exe 内嵌的图标设置为窗口图标。
+pub fn set_window_icon() {
+    let hwnd = main_window();
+    if hwnd.is_null() {
+        return;
+    }
+    // SAFETY: 标准 Win32 调用；资源 ID 1 由构建脚本写入。
+    unsafe {
+        let icon = LoadImageW(
+            std::ptr::null_mut(),
+            std::ptr::without_provenance(1),
+            IMAGE_ICON,
+            0,
+            0,
+            LR_DEFAULTSIZE | LR_SHARED,
+        );
+        if !icon.is_null() {
+            SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icon as isize);
+            SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, icon as isize);
+        }
+    }
 }
 
 /// 返回主窗口当前客户端尺寸（物理像素）。

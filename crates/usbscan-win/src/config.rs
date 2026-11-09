@@ -56,6 +56,8 @@ pub struct Config {
     pub capture_height: Option<u16>,
     /// 录像帧率：25 / 30 / 50 / 60。
     pub record_fps: Option<u8>,
+    /// 预览与采集画面顺时针旋转角度：0 / 90 / 180 / 270。
+    pub rotation: Option<u16>,
     /// 窗口位置与大小（逻辑像素），用于下次启动时恢复。
     pub window_x: Option<i32>,
     pub window_y: Option<i32>,
@@ -123,6 +125,8 @@ impl Config {
                 config.capture_height = Some(value);
             } else if let Some(value) = toml_u8(line, "record_fps") {
                 config.record_fps = Some(value);
+            } else if let Some(value) = toml_u16(line, "rotation") {
+                config.rotation = Some(value / 90 * 90 % 360);
             } else if let Some(value) = toml_i32(line, "window_x") {
                 config.window_x = Some(value);
             } else if let Some(value) = toml_i32(line, "window_y") {
@@ -201,6 +205,7 @@ impl Config {
             ("capture_width", self.capture_width),
             ("capture_height", self.capture_height),
             ("record_fps", self.record_fps.map(u16::from)),
+            ("rotation", self.rotation),
         ] {
             if let Some(value) = value {
                 text.push_str(key);

@@ -53,6 +53,44 @@ pub fn rotate90_bgra(
     Ok((target_width as u32, target_height as u32, out))
 }
 
+/// 按 90° 的整数倍顺时针旋转。
+///
+/// `degrees` 会被归一到 `0/90/180/270`；其他值按 `0` 处理。
+pub fn rotate_bgra(
+    width: u32,
+    height: u32,
+    bgra: &[u8],
+    degrees: u32,
+) -> Result<(u32, u32, Vec<u8>), ImagingError> {
+    validate(width, height, bgra)?;
+    let source_width = width as usize;
+    let source_height = height as usize;
+    let (target_width, target_height) = match degrees % 360 {
+        90 | 270 => (source_height, source_width),
+        _ => (source_width, source_height),
+    };
+    if degrees % 360 == 0 {
+        return Ok((width, height, bgra.to_vec()));
+    }
+    let mut out = vec![0u8; target_width * target_height * 4];
+    for y in 0..target_height {
+        for x in 0..target_width {
+            let (source_x, source_y) = match degrees % 360 {
+                // 顺时针 90°。
+                90 => (y, source_height - 1 - x),
+                // 逆时针 90°（顺时针 270°）。
+                270 => (source_width - 1 - y, x),
+                // 180°。
+                _ => (source_width - 1 - x, source_height - 1 - y),
+            };
+            let source = (source_y * source_width + source_x) * 4;
+            let target = (y * target_width + x) * 4;
+            out[target..target + 4].copy_from_slice(&bgra[source..source + 4]);
+        }
+    }
+    Ok((target_width as u32, target_height as u32, out))
+}
+
 /// 水平镜像（左右翻转）。
 pub fn mirror_horizontal_bgra(
     width: u32,
@@ -102,6 +140,21 @@ mod tests {
         assert_eq!(data[4], 4);
         assert_eq!(data[8], 1);
         assert_eq!(data[12], 3);
+    }
+
+    #[test]
+    fn rotates_by_degrees() {
+        let (width, height, data) = rotate_bgra(2, 2, &pixels(), 180).expect("rotate");
+        assert_eq!((width, height), (2, 2));
+        // 180°：D C / B A
+        assert_eq!([data[0], data[4], data[8], data[12]], [4, 3, 2, 1]);
+
+        let (_, _, data) = rotate_bgra(2, 2, &pixels(), 270).expect("rotate");
+        // 270°：B D / A C
+        assert_eq!([data[0], data[4], data[8], data[12]], [2, 4, 1, 3]);
+
+        let (_, _, data) = rotate_bgra(2, 2, &pixels(), 0).expect("rotate");
+        assert_eq!([data[0], data[4], data[8], data[12]], [1, 2, 3, 4]);
     }
 
     #[test]

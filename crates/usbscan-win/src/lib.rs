@@ -34,6 +34,7 @@ pub mod menu;
 pub mod menubar;
 pub mod ocr_viewer;
 pub mod page_menu;
+pub mod paths;
 pub mod print;
 pub mod print_preview;
 pub mod recorder;

@@ -2586,11 +2586,7 @@ fn on_record_fps_selected(hwnd: HWND) {
 }
 
 fn default_output_root() -> PathBuf {
-    let home = std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("PUBLIC").map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("."));
-    home.join("Pictures").join("usbscan")
+    crate::paths::default_output_root()
 }
 
 fn place(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {

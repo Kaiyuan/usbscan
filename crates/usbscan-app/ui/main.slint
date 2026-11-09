@@ -67,7 +67,7 @@ component IconPill inherits TouchArea {
         width: 100%;
         height: 100%;
         border-radius: 7px;
-        background: !root.enabled ? Theme.border : (primary ? (root.pressed ? Theme.accent-pressed : Theme.accent) : (root.has-hover ? Theme.hover : transparent));
+        background: !root.enabled ? Theme.border : (primary ? (root.pressed ? Theme.accent-pressed : Theme.accent) : (root.has-hover ? Theme.hover : Theme.control));
         border-width: 0px;
         border-color: Theme.border;
 
@@ -314,9 +314,11 @@ export component MainWindow inherits Window {
     in-out property <bool> flash: false;
     in-out property <bool> show-toast: false;
     in-out property <string> toast-text;
-    in-out property <string> version-text: "v0.1.0";
+    in-out property <string> version-text: "v0.1.1";
     in property <[string]> language-options;
     in-out property <int> language-index: 0;
+    // 预览画面顺时针旋转角度（0/90/180/270），由 Rust 侧维护。
+    in-out property <int> rotation-degrees: 0;
     // 在 0/1 之间切换，使全屏覆盖层的透明度变化一个色阶，强制整窗重绘。
     in-out property <int> redraw-tick: 0;
 
@@ -328,6 +330,7 @@ export component MainWindow inherits Window {
     in property <string> t-record-start: "录像";
     in property <string> t-record-stop: "停止";
     in property <string> t-capture: "拍照";
+    in property <string> t-rotate: "旋转";
     in property <string> t-pages: "页面";
     in property <string> t-waiting: "等待摄像头\n插上任一 USB 摄像头即可开始";
     in property <string> t-scan-settings: "扫描设置";
@@ -364,6 +367,7 @@ export component MainWindow inherits Window {
 
     callback capture();
     callback toggle-record();
+    callback rotate-preview();
     callback device-changed(int);
     callback format-changed(int);
     callback fps-changed(int);
@@ -467,6 +471,12 @@ export component MainWindow inherits Window {
                     selected(index) => { root.fps-changed(index); }
                 }
                 Rectangle { horizontal-stretch: 1; }
+                IconPill {
+                    icon: @image-url("../../../assets/icons/svg/rotate-clockwise.svg");
+                    has-icon: true;
+                    text: root.rotation-degrees == 0 ? root.t-rotate : root.t-rotate + " \{root.rotation-degrees}°";
+                    clicked => { root.rotate-preview(); }
+                }
                 IconPill {
                     icon: @image-url("../../../assets/icons/svg/refresh.svg");
                     has-icon: true;

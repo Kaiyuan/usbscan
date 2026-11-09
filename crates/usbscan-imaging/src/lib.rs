@@ -28,7 +28,7 @@ pub use document::detect_document_corners;
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
 pub use letterbox::trim_letterbox;
 pub use perspective::{auto_perspective, perspective_from_corners};
-pub use transform::{mirror_horizontal_bgra, rotate90_bgra};
+pub use transform::{mirror_horizontal_bgra, rotate90_bgra, rotate_bgra};
 
 /// 校验 BGRA 缓冲区与宽高是否匹配。
 pub(crate) fn validate_bgra(width: u32, height: u32, bgra: &[u8]) -> Result<(), ImagingError> {

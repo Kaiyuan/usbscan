@@ -91,6 +91,7 @@ struct WorkerShared {
     selected_name: Option<String>,
     preferred_format: Option<(u32, u32)>,
     auto_crop: bool,
+    rotation: u32,
     restart: bool,
     last_detect: Option<Instant>,
     record_sink: Option<SyncSender<Arc<capture::Frame>>>,
@@ -114,6 +115,7 @@ impl Default for WorkerShared {
             selected_name: None,
             preferred_format: None,
             auto_crop: true,
+            rotation: 0,
             restart: false,
             last_detect: None,
             record_sink: None,
@@ -166,6 +168,13 @@ impl Worker {
 
     fn set_auto_crop(&self, enabled: bool) {
         self.lock().auto_crop = enabled;
+    }
+
+    fn set_rotation(&self, degrees: u32) {
+        let mut shared = self.lock();
+        shared.rotation = degrees % 360;
+        // 旧坐标系下的裁边结果已失效，等待下一帧重新检测。
+        shared.corners = None;
     }
 
     fn set_record_sink(&self, sink: Option<SyncSender<Arc<capture::Frame>>>) {
@@ -290,7 +299,25 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
             }
             match camera.read_frame() {
                 Ok(frame) => {
-                    let frame = Arc::new(trim_frame(frame));
+                    let rotation = shared
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .rotation;
+                    let mut frame = trim_frame(frame);
+                    if rotation != 0 {
+                        if let Ok((width, height, data)) =
+                            imaging::rotate_bgra(frame.width, frame.height, &frame.data, rotation)
+                        {
+                            frame = capture::Frame {
+                                width,
+                                height,
+                                format: frame.format,
+                                data,
+                                timestamp: frame.timestamp,
+                            };
+                        }
+                    }
+                    let frame = Arc::new(frame);
                     let (record_sink, auto_crop) = {
                         let mut guard = shared
                             .lock()
@@ -477,6 +504,7 @@ struct AppState {
     last_status: String,
     last_auto_crop: bool,
     recording: Option<Recorder>,
+    rotation: u32,
     rename_row: Option<usize>,
     audio: Option<Audio>,
     update_check: UpdateCheckSlot,
@@ -508,6 +536,20 @@ impl AppState {
         self.flash();
         self.show_toast(i18n::t("toast.captured"));
         true
+    }
+
+    fn rotate_preview(&mut self) {
+        self.rotation = (self.rotation + 90) % 360;
+        self.worker.set_rotation(self.rotation);
+        self.config.rotation = Some(self.rotation as u16);
+        self.config.save();
+        if let Some(ui) = self.ui() {
+            ui.set_rotation_degrees(self.rotation as i32);
+        }
+        self.show_toast(&i18n::t_args(
+            "toast.rotated",
+            &[&self.rotation.to_string()],
+        ));
     }
 
     fn capture_now(&mut self) {
@@ -1602,6 +1644,7 @@ fn apply_ui_language(ui: &MainWindow) {
     ui.set_t_record_start(i18n::t("ui.recordStart").into());
     ui.set_t_record_stop(i18n::t("ui.recordStop").into());
     ui.set_t_capture(i18n::t("ui.capture").into());
+    ui.set_t_rotate(i18n::t("ui.rotate").into());
     ui.set_t_pages(i18n::t("ui.pages").into());
     ui.set_t_waiting(i18n::t("ui.waiting").into());
     ui.set_t_scan_settings(i18n::t("ui.scanSettings").into());
@@ -1711,12 +1754,15 @@ fn run() -> Result<(), Box<dyn Error>> {
     });
     ui.set_version_text(format!("v{}", update::CURRENT_VERSION).into());
     ui.set_auto_check_updates(config.auto_check_updates.unwrap_or(false));
+    let rotation = u32::from(config.rotation.unwrap_or(0) % 360);
+    ui.set_rotation_degrees(rotation as i32);
 
     let worker = Worker::start();
     {
         let mut shared = worker.lock();
         shared.selected.clone_from(&config.last_camera_id);
         shared.selected_name.clone_from(&config.last_camera_name);
+        shared.rotation = rotation;
         shared.preferred_format = match (config.capture_width, config.capture_height) {
             (Some(width), Some(height)) => Some((u32::from(width), u32::from(height))),
             _ => None,
@@ -1747,6 +1793,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         last_status: String::new(),
         last_auto_crop: true,
         recording: None,
+        rotation,
         rename_row: None,
         audio: None,
         update_check: Arc::new(Mutex::new(None)),
@@ -1889,6 +1936,10 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     {
         let state = std::rc::Rc::clone(state);
         ui.on_toggle_record(move || state.borrow_mut().toggle_record());
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_rotate_preview(move || state.borrow_mut().rotate_preview());
     }
     {
         let state = std::rc::Rc::clone(state);
@@ -2198,9 +2249,5 @@ fn recording_size(width: u32, height: u32) -> (u32, u32) {
 }
 
 fn default_output_root() -> PathBuf {
-    let home = std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("PUBLIC").map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("."));
-    home.join("Pictures").join("usbscan")
+    usbscan_win::paths::default_output_root()
 }

@@ -34,6 +34,7 @@ usbscan 是一款面向 Windows 的文档采集软件。插上任一 UVC 摄像�
 | 导入 PDF | 使用 Windows 自带 PDF 渲染器逐页转成 JPEG，自动加入当前会话 |
 | 打印 | 原生打印对话框 + 打印预览，支持整份会话逐页输出到打印机 |
 | 自动校正 | 自动文档边界检测（亮纸张连通域 + 形态学过滤 + 投影收缩 + 覆盖率/边缘校验）；勾选后实时在预览上显示裁剪框，拍摄时自动裁边并透视纠正畸变；检测不可信时安全跳过，可手动拖动四角微调 |
+| 画面旋转 | 顶栏“旋转”按钮按 90° 循环旋转预览，适配高拍仪/侧装摄像头的方向；旋转同时作用于拍照、录像与文档检测，并记住设置 |
 | 增强预设 | 内置“文字文档 / 票据 / 照片”预设，一键切换增强选项与强度 |
 | 离线 OCR | 调用本机 Tesseract 5，结果窗口叠加识别行框可点击定位，并按版面段落分组；未安装时可在提示中一键从 GitHub 下载安装，并自动补齐所需语言数据；支持便携 `tesseract\` 目录 |
 | 命名规则 | 模板化文件名与目录规则，拍摄瞬间即确定落盘路径 |
@@ -117,7 +118,7 @@ cargo fmt --all -- --check
 
 ## 发布
 
-在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.0`）后，`.github/workflows/release.yml` 会自动构建并上传：
+在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.1`）后，`.github/workflows/release.yml` 会自动构建并上传：
 
 - `usbscan-<版本>-setup.exe`：Inno Setup 安装版（`installer/usbscan.iss`），安装向导支持简体中文、繁體中文、English、Deutsch、Français、Italiano、Español、日本語、한국어，默认勾选创建桌面快捷方式
 - `usbscan-<版本>-portable.zip`：便携版

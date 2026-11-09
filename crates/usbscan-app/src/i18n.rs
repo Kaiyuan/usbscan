@@ -142,6 +142,7 @@ static TABLE: &[(&str, [&str; 9])] = &[
     ("ui.recordStart", ["录像", "錄影", "Record", "Aufnehmen", "Enregistrer", "Registra", "Grabar", "録画", "녹화"]),
     ("ui.recordStop", ["停止", "停止", "Stop", "Stopp", "Arrêter", "Interrompi", "Detener", "停止", "중지"]),
     ("ui.capture", ["拍照", "拍照", "Capture", "Auslösen", "Capturer", "Acquisisci", "Capturar", "撮影", "촬영"]),
+    ("ui.rotate", ["旋转", "旋轉", "Rotate", "Drehen", "Pivoter", "Ruota", "Girar", "回転", "회전"]),
     ("ui.pages", ["页面", "頁面", "Pages", "Seiten", "Pages", "Pagine", "Páginas", "ページ", "페이지"]),
     ("ui.waiting", [
         "等待摄像头\n插上任一 USB 摄像头即可开始",
@@ -206,6 +207,7 @@ static TABLE: &[(&str, [&str; 9])] = &[
     ("status.cameraError", ["摄像头错误：{}", "攝影機錯誤：{}", "Camera error: {}", "Kamera-Fehler: {}", "Erreur de la caméra : {}", "Errore webcam: {}", "Error de la cámara: {}", "カメラエラー: {}", "카메라 오류: {}"]),
     ("status.noFrameCapture", ["尚未取得画面，请稍候再拍", "尚未取得畫面，請稍候再拍", "No frame yet. Please wait before capturing.", "Noch kein Bild. Bitte vor der Aufnahme warten.", "Pas encore d'image. Patientez avant de capturer.", "Nessun fotogramma. Attendi prima di acquisire.", "Aún no hay imagen. Espera antes de capturar.", "映像がまだありません。少し待ってから撮影してください。", "아직 화면이 없습니다. 잠시 후 촬영하세요."]),
     ("toast.captured", ["已拍照", "已拍照", "Captured", "Aufgenommen", "Capturé", "Acquisito", "Capturado", "撮影しました", "촬영됨"]),
+    ("toast.rotated", ["已旋转 {}°", "已旋轉 {}°", "Rotated {}°", "Um {}° gedreht", "Pivoté de {}°", "Ruotato di {}°", "Girado {}°", "{}° 回転しました", "{}° 회전됨"]),
     ("status.createDirFailed", ["创建目录失败：{}", "建立目錄失敗：{}", "Failed to create folder: {}", "Ordner konnte nicht erstellt werden: {}", "Impossible de créer le dossier : {}", "Impossibile creare la cartella: {}", "No se pudo crear la carpeta: {}", "フォルダーを作成できません: {}", "폴더 생성 실패: {}"]),
     ("status.saveImageFailed", ["保存图片失败：{}", "儲存圖片失敗：{}", "Failed to save image: {}", "Bild konnte nicht gespeichert werden: {}", "Impossible d'enregistrer l'image : {}", "Impossibile salvare l'immagine: {}", "No se pudo guardar la imagen: {}", "画像を保存できません: {}", "이미지 저장 실패: {}"]),
     ("status.savedPage", ["已保存：{}（{}×{}）", "已儲存：{}（{}×{}）", "Saved: {} ({}×{})", "Gespeichert: {} ({}×{})", "Enregistré : {} ({}×{})", "Salvato: {} ({}×{})", "Guardado: {} ({}×{})", "保存しました: {}（{}×{}）", "저장됨: {} ({}×{})"]),

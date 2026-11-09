@@ -119,7 +119,7 @@ cargo fmt --all -- --check
 
 在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.0`）后，`.github/workflows/release.yml` 会自动构建并上传：
 
-- `usbscan-<版本>-setup.exe`：Inno Setup 安装版（`installer/usbscan.iss`）
+- `usbscan-<版本>-setup.exe`：Inno Setup 安装版（`installer/usbscan.iss`），安装向导支持简体中文、繁體中文、English、Deutsch、Français、Italiano、Español、日本語、한국어，默认勾选创建桌面快捷方式
 - `usbscan-<版本>-portable.zip`：便携版
 - `SHA256SUMS.txt`：SHA-256 校验和
 

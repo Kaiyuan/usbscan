@@ -72,6 +72,7 @@ CI 通过 `cargo deny check licenses` 强制校验，白名单配置见 `deny.to
 | Rust toolchain | 编译器 | MIT OR Apache-2.0 |
 | Visual Studio Build Tools | MSVC 链接器 | 微软许可（允许分发编译产物） |
 | Inno Setup | 安装包制作 | 自定义许可（允许自由分发安装包） |
+| Inno Setup 中文语言文件 | 安装向导界面 | 随 Inno Setup 分发 | 独立 `.isl` 文件 `installer/languages/`，保留文件头署名 |
 | `cargo-deny` | 许可证审计 | MIT OR Apache-2.0 |
 | `cargo-cyclonedx` | SBOM 生成 | Apache-2.0 |
 

@@ -258,7 +258,7 @@
     pointer-events: none;
   }
   .download-panel h2 { margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
-  .download-panel h2 img { width: 32px; height: 32px; flex: none; }
+  .download-panel h2 img {flex: none; }
   .download-panel p { margin: 0; color: var(--muted); font-size: 14px; }
   .download-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
   .download-meta { color: var(--muted); font-size: 12px; margin-top: 14px; }

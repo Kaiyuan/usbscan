@@ -317,6 +317,8 @@ export component MainWindow inherits Window {
     in-out property <string> version-text: "v0.1.0";
     in property <[string]> language-options;
     in-out property <int> language-index: 0;
+    // 在 0/1 之间切换，使全屏覆盖层的透明度变化一个色阶，强制整窗重绘。
+    in-out property <int> redraw-tick: 0;
 
     // Localized labels (set from Rust)
     in property <string> t-device: "设备";
@@ -905,5 +907,13 @@ export component MainWindow inherits Window {
                 }
             }
         }
+    }
+
+    // 几乎不可见的全屏覆盖层：切换颜色会让软件渲染器重绘整个窗口，
+    // 避免 Windows 长时间最小化后恢复时只重绘局部区域而留下白屏。
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, root.redraw-tick / 255.0);
     }
 }

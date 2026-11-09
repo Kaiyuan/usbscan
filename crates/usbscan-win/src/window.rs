@@ -9,7 +9,7 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClientRect, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
+    EnumWindows, GetClientRect, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
     IsWindowVisible, LoadIconW, SendMessageW, SetWindowPos, ICON_BIG, ICON_SMALL, SWP_NOACTIVATE,
     SWP_NOZORDER, WM_SETICON,
 };
@@ -91,6 +91,24 @@ pub fn set_window_icon() {
             SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, icon as isize);
         }
     }
+}
+
+/// 指定窗口是否处于最小化状态。
+pub fn is_minimized(hwnd: HWND) -> bool {
+    if hwnd.is_null() {
+        return false;
+    }
+    // SAFETY: `hwnd` 由调用方保证来自本进程窗口；`IsIconic` 只读取窗口状态。
+    unsafe { IsIconic(hwnd) != 0 }
+}
+
+/// 指定窗口是否可见（最小化的窗口仍算可见）。
+pub fn is_visible(hwnd: HWND) -> bool {
+    if hwnd.is_null() {
+        return false;
+    }
+    // SAFETY: `hwnd` 由调用方保证来自本进程窗口；`IsWindowVisible` 只读取窗口状态。
+    unsafe { IsWindowVisible(hwnd) != 0 }
 }
 
 /// 返回主窗口当前客户端尺寸（物理像素）。

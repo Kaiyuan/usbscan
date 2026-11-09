@@ -1769,22 +1769,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         if let Some(ui) = app.ui() {
             ui.set_selected_page(last.map_or(-1, |row| row as i32));
         }
-        let weak = ui.as_weak();
-        let timer_state = std::rc::Rc::clone(&state);
-        let timer = slint::Timer::default();
-        timer.start(
-            slint::TimerMode::Repeated,
-            Duration::from_millis(40),
-            move || {
-                if weak.upgrade().is_some() {
-                    let mut app = timer_state.borrow_mut();
-                    app.poll();
-                    app.poll_updates();
-                    app.poll_tesseract();
-                }
-            },
-        );
-        app.timer = Some(timer);
     }
 
     if state.borrow().config.auto_check_updates.unwrap_or(false) {
@@ -1844,6 +1828,45 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         });
     }
+    {
+        let weak = ui.as_weak();
+        let timer_state = std::rc::Rc::clone(&state);
+        let was_minimized = std::cell::Cell::new(usbscan_win::window::is_minimized(hwnd));
+        let was_visible = std::cell::Cell::new(usbscan_win::window::is_visible(hwnd));
+        let last_tick = std::cell::Cell::new(std::time::Instant::now());
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(40),
+            move || {
+                let Some(ui) = weak.upgrade() else {
+                    return;
+                };
+                let now = std::time::Instant::now();
+                let long_gap = now.duration_since(last_tick.replace(now)) > Duration::from_secs(2);
+                if !hwnd.is_null() {
+                    let minimized = usbscan_win::window::is_minimized(hwnd);
+                    let visible = usbscan_win::window::is_visible(hwnd);
+                    let restored = (was_minimized.replace(minimized) && !minimized)
+                        || (was_visible.replace(visible) && visible)
+                        || (long_gap && visible && !minimized);
+                    if restored {
+                        // Windows 可能在最小化后丢弃窗口表面，而软件渲染器仍按旧画面
+                        // 做局部重绘。改变全屏覆盖层的一个透明度色阶可强制整窗重绘。
+                        let tick = ui.get_redraw_tick();
+                        ui.set_redraw_tick(i32::from(tick == 0));
+                        ui.window().request_redraw();
+                    }
+                }
+                let mut app = timer_state.borrow_mut();
+                app.poll();
+                app.poll_updates();
+                app.poll_tesseract();
+            },
+        );
+        state.borrow_mut().timer = Some(timer);
+    }
+
     slint::run_event_loop()?;
     state.borrow_mut().shutdown();
     Ok(())

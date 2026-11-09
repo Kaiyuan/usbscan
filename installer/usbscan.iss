@@ -1,5 +1,5 @@
 ; UsbScan installer (Inno Setup 6)
-; Build with: iscc /DMyAppVersion=0.1.0 installer\usbscan.iss
+; Build with: iscc /DMyAppVersion=0.1.1 installer\usbscan.iss
 ; or set the USBSCAN_VERSION environment variable.
 
 #define MyAppName "UsbScan"
@@ -64,3 +64,11 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; 确保卸载后不残留安装目录、旧版开始菜单快捷方式以及运行时配置/tessdata。
+Type: filesandordirs; Name: "{app}"
+Type: filesandordirs; Name: "{group}"
+Type: files; Name: "{userprograms}\usbscan.lnk"
+Type: filesandordirs; Name: "{userappdata}\usbscan"
+Type: filesandordirs; Name: "{localappdata}\usbscan"

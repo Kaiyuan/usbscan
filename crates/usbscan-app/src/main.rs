@@ -511,6 +511,7 @@ struct AppState {
     update_download: UpdateDownloadSlot,
     update_info: Option<update::UpdateInfo>,
     update_checking: bool,
+    update_check_manual: bool,
     update_downloading: bool,
     tessdata_dir: Option<PathBuf>,
     tesseract_install: Arc<Mutex<Option<Result<tesseract_install::Installed, String>>>>,
@@ -908,7 +909,7 @@ impl AppState {
             let text = if self.update_downloading {
                 i18n::t("status.downloadingUpdate").to_string()
             } else {
-                i18n::t_args("status.newVersion", &[&info.version])
+                i18n::t_args("dialog.updateBody", &[&info.version])
             };
             ui.set_update_text(text.into());
         }
@@ -948,11 +949,21 @@ impl AppState {
         }
     }
 
-    fn start_update_check(&mut self) {
+    fn start_update_check(&mut self, manual: bool) {
         if self.update_checking {
+            if manual {
+                self.set_status(i18n::t("ui.checkingUpdates"));
+            }
             return;
         }
         self.update_checking = true;
+        self.update_check_manual = manual;
+        if let Some(ui) = self.ui() {
+            ui.set_update_checking(true);
+        }
+        if manual {
+            self.set_status(i18n::t("ui.checkingUpdates"));
+        }
         let slot = Arc::clone(&self.update_check);
         thread::spawn(move || {
             let result = update::check_latest();
@@ -970,19 +981,37 @@ impl AppState {
             .and_then(|mut guard| guard.take());
         if let Some(result) = check {
             self.update_checking = false;
+            let manual = self.update_check_manual;
+            self.update_check_manual = false;
+            if let Some(ui) = self.ui() {
+                ui.set_update_checking(false);
+            }
             match result {
                 Ok(Some(info)) => {
                     if let Some(ui) = self.ui() {
                         ui.set_update_version(format!("v{}", info.version).into());
                         ui.set_update_text(
-                            i18n::t_args("status.newVersion", &[&info.version]).into(),
+                            i18n::t_args("dialog.updateBody", &[&info.version]).into(),
                         );
                         ui.set_has_update(true);
                     }
+                    if manual {
+                        self.set_status(&i18n::t_args("status.newVersion", &[&info.version]));
+                    }
                     self.update_info = Some(info);
                 }
-                Ok(None) => {}
-                Err(err) => eprintln!("update check failed: {err}"),
+                Ok(None) => {
+                    if manual {
+                        self.set_status(i18n::t("status.upToDate"));
+                    }
+                }
+                Err(err) => {
+                    if manual {
+                        self.set_status(&i18n::t_args("status.updateCheckFailed", &[&err]));
+                    } else {
+                        eprintln!("update check failed: {err}");
+                    }
+                }
             }
         }
 
@@ -1224,7 +1253,9 @@ impl AppState {
 
     fn show_page_menu(&mut self, row: usize) {
         let labels = usbscan_win::page_menu::PageMenuLabels {
+            open: i18n::t("menu.open"),
             rename: i18n::t("menu.rename"),
+            reveal: i18n::t("menu.reveal"),
             auto_crop: i18n::t("menu.autoCrop"),
             auto_deskew: i18n::t("menu.autoDeskew"),
             ocr: i18n::t("menu.ocr"),
@@ -1232,7 +1263,9 @@ impl AppState {
             delete: i18n::t("menu.delete"),
         };
         match usbscan_win::page_menu::show_page_menu(&labels) {
+            usbscan_win::page_menu::PageMenuCommand::Open => self.open_page(row),
             usbscan_win::page_menu::PageMenuCommand::Rename => self.rename_page(row),
+            usbscan_win::page_menu::PageMenuCommand::RevealInExplorer => self.reveal_page(row),
             usbscan_win::page_menu::PageMenuCommand::AutoCrop => self.auto_fix_page(row, true),
             usbscan_win::page_menu::PageMenuCommand::AutoDeskew => self.auto_fix_page(row, false),
             usbscan_win::page_menu::PageMenuCommand::Ocr => {
@@ -1246,6 +1279,34 @@ impl AppState {
             usbscan_win::page_menu::PageMenuCommand::Delete => self.delete_page(row),
             usbscan_win::page_menu::PageMenuCommand::None => {}
         }
+    }
+
+    fn open_page(&mut self, row: usize) {
+        let Some(path) = self.page_path(row) else {
+            return;
+        };
+        if !path.exists() {
+            self.set_status(i18n::t("status.fileMissing"));
+            return;
+        }
+        usbscan_win::shell::open_path(&path);
+    }
+
+    fn reveal_page(&mut self, row: usize) {
+        let Some(path) = self.page_path(row) else {
+            return;
+        };
+        if !path.exists() {
+            self.set_status(i18n::t("status.fileMissing"));
+            return;
+        }
+        usbscan_win::shell::reveal_in_explorer(&path);
+    }
+
+    fn page_path(&self, row: usize) -> Option<PathBuf> {
+        let index = self.session_index(row)?;
+        let page = self.session.pages.get(index)?;
+        Some(self.output_root.join(&page.path))
     }
 
     fn confirm_rename(&mut self, input: &str) {
@@ -1668,6 +1729,11 @@ fn apply_ui_language(ui: &MainWindow) {
     ui.set_t_about(i18n::t("ui.about").into());
     ui.set_t_auto_check(i18n::t("ui.autoCheckUpdates").into());
     ui.set_t_update_hint(i18n::t("ui.updateHint").into());
+    ui.set_t_check_updates(i18n::t("ui.checkUpdates").into());
+    ui.set_t_checking_updates(i18n::t("ui.checkingUpdates").into());
+    ui.set_t_update_title(i18n::t("dialog.updateTitle").into());
+    ui.set_t_update_now(i18n::t("dialog.updateNow").into());
+    ui.set_t_update_later(i18n::t("dialog.later").into());
     ui.set_t_view_github(i18n::t("ui.viewOnGithub").into());
     ui.set_t_close(i18n::t("ui.close").into());
     ui.set_t_language(i18n::t("ui.language").into());
@@ -1753,7 +1819,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         _ => 0,
     });
     ui.set_version_text(format!("v{}", update::CURRENT_VERSION).into());
-    ui.set_auto_check_updates(config.auto_check_updates.unwrap_or(false));
+    ui.set_auto_check_updates(config.auto_check_updates.unwrap_or(true));
     let rotation = u32::from(config.rotation.unwrap_or(0) % 360);
     ui.set_rotation_degrees(rotation as i32);
 
@@ -1800,6 +1866,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         update_download: Arc::new(Mutex::new(None)),
         update_info: None,
         update_checking: false,
+        update_check_manual: false,
         update_downloading: false,
         tessdata_dir,
         tesseract_install: Arc::new(Mutex::new(None)),
@@ -1818,8 +1885,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    if state.borrow().config.auto_check_updates.unwrap_or(false) {
-        state.borrow_mut().start_update_check();
+    if state.borrow().config.auto_check_updates.unwrap_or(true) {
+        state.borrow_mut().start_update_check(false);
     }
 
     ui.show()?;
@@ -1963,6 +2030,10 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     }
     {
         let state = std::rc::Rc::clone(state);
+        ui.on_open_page(move |row| state.borrow_mut().open_page(row as usize));
+    }
+    {
+        let state = std::rc::Rc::clone(state);
         ui.on_page_menu(move |row| state.borrow_mut().show_page_menu(row as usize));
     }
     {
@@ -2046,13 +2117,17 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
             app.config.auto_check_updates = Some(enabled);
             app.config.save();
             if enabled {
-                app.start_update_check();
+                app.start_update_check(false);
             }
         });
     }
     {
         let state = std::rc::Rc::clone(state);
         ui.on_install_update(move || state.borrow_mut().start_update_download());
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_check_updates(move || state.borrow_mut().start_update_check(true));
     }
     {
         let state = std::rc::Rc::clone(state);

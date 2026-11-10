@@ -307,8 +307,10 @@ export component MainWindow inherits Window {
     in-out property <bool> show-rename: false;
     in-out property <string> rename-text;
     in-out property <bool> show-about: false;
-    in-out property <bool> auto-check-updates: false;
+    in-out property <bool> auto-check-updates: true;
     in-out property <bool> has-update: false;
+    in-out property <bool> update-checking: false;
+    in-out property <bool> show-update-prompt: false;
     in-out property <string> update-text;
     in-out property <string> update-version;
     in-out property <bool> flash: false;
@@ -354,6 +356,11 @@ export component MainWindow inherits Window {
     in property <string> t-about: "把任意 USB 摄像头变成文档扫描仪。拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，全程本地完成。";
     in property <string> t-auto-check: "自动检查更新";
     in property <string> t-update-hint: "勾选后每次启动会访问 GitHub Releases 检查新版本。";
+    in property <string> t-check-updates: "检查更新";
+    in property <string> t-checking-updates: "正在检查…";
+    in property <string> t-update-title: "发现新版本";
+    in property <string> t-update-now: "立即更新";
+    in property <string> t-update-later: "稍后";
     in property <string> t-view-github: "在 GitHub 查看";
     in property <string> t-close: "关闭";
     in property <string> t-language: "语言";
@@ -372,6 +379,7 @@ export component MainWindow inherits Window {
     callback format-changed(int);
     callback fps-changed(int);
     callback page-selected(int);
+    callback open-page(int);
     callback rename-page(int);
     callback delete-page(int);
     callback rotate-page(int);
@@ -391,6 +399,7 @@ export component MainWindow inherits Window {
     callback close-about();
     callback open-github();
     callback auto-check-changed(bool);
+    callback check-updates();
     callback install-update();
     callback refresh-devices();
     callback language-changed(int);
@@ -564,6 +573,11 @@ export component MainWindow inherits Window {
                                 page-touch := TouchArea {
                                     width: 100%;
                                     height: 100%;
+                                    double-clicked => {
+                                        root.selected-page = index;
+                                        root.page-selected(index);
+                                        root.open-page(index);
+                                    }
                                     clicked => {
                                         root.selected-page = index;
                                         root.page-selected(index);
@@ -639,7 +653,7 @@ export component MainWindow inherits Window {
 
                     Section {
                         title: root.t-scan-settings;
-                            content-height: 264px;
+                            content-height: 302px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
@@ -663,6 +677,12 @@ export component MainWindow inherits Window {
                                     spacing: 6px;
                                     PillButton { text: root.t-import-images; horizontal-stretch: 1; clicked => { root.import-images(); } }
                                     PillButton { text: root.t-export-pdf; horizontal-stretch: 1; clicked => { root.export-pdf(); } }
+                                }
+                                PillButton {
+                                    text: root.update-checking ? root.t-checking-updates : root.t-check-updates;
+                                    enabled: !root.update-checking;
+                                    horizontal-stretch: 1;
+                                    clicked => { root.check-updates(); }
                                 }
                             }
                         }
@@ -701,39 +721,125 @@ export component MainWindow inherits Window {
                 padding-left: 12px;
                 padding-right: 12px;
                 spacing: 8px;
-                Text { text: root.status-text; color: Theme.muted; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: root.status-text; color: Theme.muted; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                 Text { text: root.page-count-text; color: Theme.muted; font-size: 11px; vertical-alignment: center; }
-                Text { text: root.version-text; color: Theme.muted; font-size: 11px; vertical-alignment: center; }
+                Rectangle {
+                    width: root.has-update ? 72px : 46px;
+                    height: 100%;
+                    border-radius: 4px;
+                    background: root.has-update && update-badge-touch.has-hover ? Theme.hover : transparent;
+
+                    HorizontalLayout {
+                        padding-left: 3px;
+                        padding-right: 3px;
+                        spacing: 4px;
+                        alignment: center;
+                        Text {
+                            text: root.version-text;
+                            color: root.has-update ? Theme.text : Theme.muted;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                        if (root.has-update) : Rectangle {
+                            width: 14px;
+                            height: 14px;
+                            Image {
+                                width: 14px;
+                                height: 14px;
+                                source: @image-url("../../../assets/icons/svg/alert-triangle.svg");
+                                image-fit: contain;
+                                colorize: #f5b800;
+                            }
+                        }
+                    }
+                    update-badge-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        enabled: root.has-update;
+                        mouse-cursor: pointer;
+                        clicked => { root.show-update-prompt = true; }
+                    }
+                }
             }
         }
     }
 
-    // Update available banner
-    if (root.has-update) : Rectangle {
-        x: parent.width - self.width - 16px;
-        y: parent.height - 24px - self.height - 12px;
-        width: 260px;
-        height: 44px;
-        border-radius: 10px;
-        background: Theme.accent;
-        drop-shadow-blur: 12px;
-        drop-shadow-color: #00000055;
-        drop-shadow-offset-y: 3px;
+    // Update prompt: shown only after the user clicks the version badge.
+    if (root.show-update-prompt && root.has-update) : Rectangle {
+        background: #00000066;
+        width: 100%;
+        height: 100%;
 
         TouchArea {
             width: 100%;
             height: 100%;
-            clicked => { root.install-update(); }
+            clicked => { root.show-update-prompt = false; }
         }
-        Text {
-            x: 12px;
-            width: parent.width - 24px;
-            height: 100%;
-            text: root.update-text;
-            color: #ffffff;
-            font-size: 12px;
-            horizontal-alignment: center;
-            vertical-alignment: center;
+
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 470px;
+            height: 220px;
+            border-radius: 16px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.separator;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000055;
+            drop-shadow-offset-y: 8px;
+
+            VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        Image {
+                            width: 24px;
+                            height: 24px;
+                            source: @image-url("../../../assets/icons/svg/alert-triangle.svg");
+                            image-fit: contain;
+                            colorize: #f5b800;
+                        }
+                    }
+                    Text {
+                        text: root.t-update-title + " " + root.update-version;
+                        color: Theme.text;
+                        font-size: 17px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                }
+                Text {
+                    text: root.update-text;
+                    color: Theme.muted;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                    vertical-stretch: 1;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PillButton {
+                        text: root.t-update-later;
+                        width: 90px;
+                        clicked => { root.show-update-prompt = false; }
+                    }
+                    PillButton {
+                        text: root.t-update-now;
+                        primary: true;
+                        width: 120px;
+                        clicked => {
+                            root.show-update-prompt = false;
+                            root.install-update();
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -39,6 +39,7 @@ pub mod print;
 pub mod print_preview;
 pub mod recorder;
 pub mod settings_dialog;
+pub mod shell;
 pub mod text;
 pub mod text_edit;
 pub mod theme;

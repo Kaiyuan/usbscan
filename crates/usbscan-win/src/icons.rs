@@ -84,6 +84,17 @@ impl Icon {
     }
 }
 
+/// 把一个 Tabler 字形渲染成菜单图标位图。
+///
+/// 调用方负责在菜单销毁后调用 `DeleteObject` 释放返回的位图。
+#[must_use]
+pub fn menu_bitmap(codepoint: u32, size: i32, color: u32) -> HBITMAP {
+    if !ensure_font() {
+        return std::ptr::null_mut();
+    }
+    render_glyph(codepoint, size.clamp(12, 32), color).unwrap_or(std::ptr::null_mut())
+}
+
 /// 创建工具栏图标列表。
 ///
 /// `size` 是物理像素尺寸，`color` 是 `COLORREF`（`0x00BBGGRR`）。

@@ -4668,6 +4668,7 @@ name = "usbscan-app"
 version = "0.1.1"
 dependencies = [
  "i-slint-core",
+ "native-tls",
  "rfd",
  "rodio",
  "serde",

@@ -205,11 +205,17 @@ component Dropdown inherits Rectangle {
             horizontal-stretch: 1;
             overflow: elide;
         }
-        Text {
-            text: "▾";
-            color: Theme.muted;
-            font-size: 10px;
-            vertical-alignment: center;
+        Rectangle {
+            width: 12px;
+            height: 100%;
+            Image {
+                width: 12px;
+                height: 12px;
+                y: (parent.height - self.height) / 2;
+                source: @image-url("../../../assets/icons/svg/chevron-down.svg");
+                image-fit: contain;
+                colorize: Theme.muted;
+            }
         }
     }
 

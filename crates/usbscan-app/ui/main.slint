@@ -311,6 +311,8 @@ export component MainWindow inherits Window {
     in-out property <bool> auto-check-updates: true;
     in-out property <bool> has-update: false;
     in-out property <bool> update-checking: false;
+    in-out property <bool> update-up-to-date: false;
+    in-out property <bool> update-failed: false;
     in-out property <bool> show-update-prompt: false;
     in-out property <string> update-text;
     in-out property <string> update-version;
@@ -341,7 +343,6 @@ export component MainWindow inherits Window {
     in property <string> t-browse: "浏览…";
     in property <string> t-file-template: "文件名模板";
     in property <string> t-folder-template: "子目录模板";
-    in property <string> t-apply-settings: "应用设置";
     in property <string> t-import-images: "导入图片";
     in property <string> t-export-pdf: "导出 PDF";
     in property <string> t-enhance: "图像增强";
@@ -359,6 +360,8 @@ export component MainWindow inherits Window {
     in property <string> t-update-hint: "勾选后每次启动会访问 GitHub Releases 检查新版本。";
     in property <string> t-check-updates: "检查更新";
     in property <string> t-checking-updates: "正在检查…";
+    in property <string> t-up-to-date: "已是最新版本";
+    in property <string> t-retry-check: "检查失败，点击重试";
     in property <string> t-update-title: "发现新版本";
     in property <string> t-update-now: "立即更新";
     in property <string> t-update-later: "稍后";
@@ -392,7 +395,6 @@ export component MainWindow inherits Window {
     callback export-jpg();
     callback ocr-page();
     callback browse-output();
-    callback apply-settings();
     callback rename-confirm(string);
     callback rename-cancel();
     callback page-menu(int);
@@ -527,6 +529,7 @@ export component MainWindow inherits Window {
                         Text { text: root.page-count-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                     }
                     ScrollView {
+                        vertical-stretch: 1;
                         horizontal-scrollbar-policy: always-off;
                         VerticalLayout {
                             spacing: 8px;
@@ -594,6 +597,20 @@ export component MainWindow inherits Window {
                                     }
                                 }
                             }
+                        }
+                    }
+                    Rectangle { height: 1px; background: Theme.separator; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        PillButton {
+                            text: root.t-import-images;
+                            horizontal-stretch: 1;
+                            clicked => { root.import-images(); }
+                        }
+                        PillButton {
+                            text: root.t-export-pdf;
+                            horizontal-stretch: 1;
+                            clicked => { root.export-pdf(); }
                         }
                     }
                 }
@@ -685,7 +702,7 @@ export component MainWindow inherits Window {
 
                     Section {
                         title: root.t-scan-settings;
-                            content-height: 302px;
+                            content-height: 191px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
@@ -704,18 +721,6 @@ export component MainWindow inherits Window {
                                 LineEdit { text: root.file-template; edited(text) => { root.file-template = text; } }
                                 FieldLabel { text: root.t-folder-template; }
                                 LineEdit { text: root.folder-template; edited(text) => { root.folder-template = text; } }
-                                PillButton { text: root.t-apply-settings; primary: true; width: 160px; clicked => { root.apply-settings(); } }
-                                HorizontalLayout {
-                                    spacing: 6px;
-                                    PillButton { text: root.t-import-images; horizontal-stretch: 1; clicked => { root.import-images(); } }
-                                    PillButton { text: root.t-export-pdf; horizontal-stretch: 1; clicked => { root.export-pdf(); } }
-                                }
-                                PillButton {
-                                    text: root.update-checking ? root.t-checking-updates : root.t-check-updates;
-                                    enabled: !root.update-checking;
-                                    horizontal-stretch: 1;
-                                    clicked => { root.check-updates(); }
-                                }
                             }
                         }
 
@@ -1050,8 +1055,26 @@ export component MainWindow inherits Window {
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
-                    PillButton { text: root.t-view-github; width: 150px; clicked => { root.open-github(); } }
-                    PillButton { text: root.t-close; primary: true; width: 90px; clicked => { root.close-about(); } }
+                    PillButton {
+                        text: root.update-checking ? root.t-checking-updates
+                            : root.has-update ? (root.t-update-title + " " + root.update-version)
+                            : root.update-up-to-date ? root.t-up-to-date
+                            : root.update-failed ? root.t-retry-check
+                            : root.t-check-updates;
+                        enabled: !root.update-checking;
+                        width: 172px;
+                        clicked => {
+                            if (root.has-update) {
+                                root.show-about = false;
+                                root.show-update-prompt = true;
+                            } else {
+                                root.check-updates();
+                            }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    PillButton { text: root.t-view-github; width: 132px; clicked => { root.open-github(); } }
+                    PillButton { text: root.t-close; primary: true; width: 80px; clicked => { root.close-about(); } }
                 }
             }
         }

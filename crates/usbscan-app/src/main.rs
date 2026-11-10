@@ -68,7 +68,7 @@ impl Audio {
 }
 
 const DETECT_INTERVAL: Duration = Duration::from_millis(300);
-const PREVIEW_MAX_SIDE: u32 = 1280;
+const PREVIEW_MAX_SIDE: u32 = 1024;
 const DETECT_MAX_SIDE: u32 = 480;
 
 // ---------------------------------------------------------------------------
@@ -503,6 +503,11 @@ struct AppState {
     last_formats_version: u64,
     last_status: String,
     last_auto_crop: bool,
+    last_connected: bool,
+    last_recording: bool,
+    last_output_dir: String,
+    settings_dirty: bool,
+    last_settings_save: Instant,
     recording: Option<Recorder>,
     record_started: Option<Instant>,
     rotation: u32,
@@ -858,19 +863,101 @@ impl AppState {
             self.last_status.clone_from(&status);
             ui.set_status_text(status.into());
         }
-        ui.set_has_camera(connected);
-        ui.set_recording(self.recording.is_some());
-        let auto_crop = ui.get_auto_crop();
-        if auto_crop != self.last_auto_crop {
-            self.last_auto_crop = auto_crop;
-            self.worker.set_auto_crop(auto_crop);
+        if connected != self.last_connected {
+            self.last_connected = connected;
+            ui.set_has_camera(connected);
         }
+        let recording = self.recording.is_some();
+        if recording != self.last_recording {
+            self.last_recording = recording;
+            ui.set_recording(recording);
+        }
+        self.sync_settings_from_ui();
         if sequence != self.last_sequence {
             self.last_sequence = sequence;
             if let Some(frame) = frame {
-                let overlay = if auto_crop { corners } else { None };
+                let overlay = if ui.get_auto_crop() { corners } else { None };
                 ui.set_preview_source(preview_image(&frame, overlay, corners_frame));
             }
+        }
+    }
+
+    /// 把扫描设置实时同步到命名规则、配置文件和采集线程。
+    ///
+    /// 这里的设置没有“应用”按钮；轮询里发现界面值变化就立即生效，并延迟
+    /// 落盘，避免用户每敲一个字符都写配置文件。
+    fn sync_settings_from_ui(&mut self) {
+        let Some(ui) = self.ui() else {
+            return;
+        };
+        let mut changed = false;
+
+        let template = ui.get_file_template().to_string();
+        if template != self.rule.template {
+            self.rule.template.clone_from(&template);
+            self.config.file_template = Some(template);
+            changed = true;
+        }
+        let folder = ui.get_folder_template().to_string();
+        if folder != self.rule.folder {
+            self.rule.folder.clone_from(&folder);
+            self.config.folder_template = Some(folder);
+            changed = true;
+        }
+        let output = ui.get_output_dir().to_string();
+        if output != self.last_output_dir {
+            let trimmed = output.trim();
+            if !trimmed.is_empty() {
+                let path = PathBuf::from(trimmed);
+                if path != self.output_root {
+                    self.set_output_root(path);
+                }
+                // 以界面里的原始文本为准，避免路径规范化（如末尾斜杠）导致每帧重复同步。
+                self.last_output_dir.clone_from(&output);
+                changed = true;
+            }
+        }
+
+        let auto_crop = ui.get_auto_crop();
+        if auto_crop != self.last_auto_crop {
+            self.last_auto_crop = auto_crop;
+            self.config.auto_crop = Some(auto_crop);
+            self.worker.set_auto_crop(auto_crop);
+            changed = true;
+        }
+        let deskew = ui.get_auto_deskew();
+        if self.config.deskew != Some(deskew) {
+            self.config.deskew = Some(deskew);
+            changed = true;
+        }
+        let perspective = ui.get_perspective();
+        if self.config.perspective != Some(perspective) {
+            self.config.perspective = Some(perspective);
+            changed = true;
+        }
+        let remove_shadow = ui.get_remove_shadow();
+        if self.config.remove_shadow != Some(remove_shadow) {
+            self.config.remove_shadow = Some(remove_shadow);
+            changed = true;
+        }
+        let white_background = ui.get_white_background();
+        if self.config.white_background != Some(white_background) {
+            self.config.white_background = Some(white_background);
+            changed = true;
+        }
+        let strength = ui.get_strength().round().clamp(0.0, 100.0) as u8;
+        if self.config.enhance_strength != Some(strength) {
+            self.config.enhance_strength = Some(strength);
+            changed = true;
+        }
+
+        if changed {
+            self.settings_dirty = true;
+        }
+        if self.settings_dirty && self.last_settings_save.elapsed() >= Duration::from_millis(600) {
+            self.config.save();
+            self.settings_dirty = false;
+            self.last_settings_save = Instant::now();
         }
     }
 
@@ -961,6 +1048,8 @@ impl AppState {
         self.update_check_manual = manual;
         if let Some(ui) = self.ui() {
             ui.set_update_checking(true);
+            ui.set_update_up_to_date(false);
+            ui.set_update_failed(false);
         }
         if manual {
             self.set_status(i18n::t("ui.checkingUpdates"));
@@ -990,6 +1079,8 @@ impl AppState {
             match result {
                 Ok(Some(info)) => {
                     if let Some(ui) = self.ui() {
+                        ui.set_update_up_to_date(false);
+                        ui.set_update_failed(false);
                         ui.set_update_version(format!("v{}", info.version).into());
                         ui.set_update_text(
                             i18n::t_args("dialog.updateBody", &[&info.version]).into(),
@@ -1002,11 +1093,19 @@ impl AppState {
                     self.update_info = Some(info);
                 }
                 Ok(None) => {
+                    if let Some(ui) = self.ui() {
+                        ui.set_update_up_to_date(true);
+                        ui.set_update_failed(false);
+                    }
                     if manual {
                         self.set_status(i18n::t("status.upToDate"));
                     }
                 }
                 Err(err) => {
+                    if let Some(ui) = self.ui() {
+                        ui.set_update_up_to_date(false);
+                        ui.set_update_failed(true);
+                    }
                     if manual {
                         self.set_status(&i18n::t_args("status.updateCheckFailed", &[&err]));
                     } else {
@@ -1650,43 +1749,34 @@ impl AppState {
         }
     }
 
-    fn apply_settings(&mut self) {
-        let Some(ui) = self.ui() else {
-            return;
-        };
-        self.rule.template = ui.get_file_template().to_string();
-        self.rule.folder = ui.get_folder_template().to_string();
-        self.config.file_template = Some(self.rule.template.clone());
-        self.config.folder_template = Some(self.rule.folder.clone());
-        self.config.auto_crop = Some(ui.get_auto_crop());
-        self.config.deskew = Some(ui.get_auto_deskew());
-        self.config.perspective = Some(ui.get_perspective());
-        self.config.remove_shadow = Some(ui.get_remove_shadow());
-        self.config.white_background = Some(ui.get_white_background());
-        self.config.enhance_strength = Some(ui.get_strength().round() as u8);
-        self.config.save();
-        self.set_status(i18n::t("status.settingsSaved"));
+    fn set_output_root(&mut self, folder: PathBuf) {
+        let empty = self.session.pages.is_empty();
+        if empty {
+            self.output_root.clone_from(&folder);
+            self.store = doc::SessionStore::new(folder.clone());
+        }
+        let text = folder.to_string_lossy().into_owned();
+        self.last_output_dir.clone_from(&text);
+        self.config.output_root = Some(folder);
+        if empty {
+            if let Some(ui) = self.ui() {
+                ui.set_output_dir(text.into());
+            }
+        }
     }
 
     fn browse_output(&mut self) {
-        let Some(ui) = self.ui() else {
-            return;
-        };
         let Some(folder) = rfd::FileDialog::new().pick_folder() else {
             return;
         };
-        if self.session.pages.is_empty() {
-            self.output_root.clone_from(&folder);
-            self.store = doc::SessionStore::new(folder.clone());
-            self.config.output_root = Some(folder.clone());
-            self.config.save();
-            ui.set_output_dir(folder.to_string_lossy().to_string().into());
-            self.set_status(i18n::t("status.outputDirUpdated"));
+        let empty = self.session.pages.is_empty();
+        self.set_output_root(folder);
+        self.config.save();
+        self.set_status(if empty {
+            i18n::t("status.outputDirUpdated")
         } else {
-            self.config.output_root = Some(folder);
-            self.config.save();
-            self.set_status(i18n::t("status.outputDirSaved"));
-        }
+            i18n::t("status.outputDirSaved")
+        });
     }
 
     fn session_index(&self, row: usize) -> Option<usize> {
@@ -1730,7 +1820,6 @@ fn apply_ui_language(ui: &MainWindow) {
     ui.set_t_browse(i18n::t("ui.browse").into());
     ui.set_t_file_template(i18n::t("ui.fileTemplate").into());
     ui.set_t_folder_template(i18n::t("ui.folderTemplate").into());
-    ui.set_t_apply_settings(i18n::t("ui.applySettings").into());
     ui.set_t_import_images(i18n::t("ui.importImages").into());
     ui.set_t_export_pdf(i18n::t("ui.exportPdf").into());
     ui.set_t_enhance(i18n::t("ui.enhance").into());
@@ -1748,6 +1837,8 @@ fn apply_ui_language(ui: &MainWindow) {
     ui.set_t_update_hint(i18n::t("ui.updateHint").into());
     ui.set_t_check_updates(i18n::t("ui.checkUpdates").into());
     ui.set_t_checking_updates(i18n::t("ui.checkingUpdates").into());
+    ui.set_t_up_to_date(i18n::t("status.upToDate").into());
+    ui.set_t_retry_check(i18n::t("ui.retryCheck").into());
     ui.set_t_update_title(i18n::t("dialog.updateTitle").into());
     ui.set_t_update_now(i18n::t("dialog.updateNow").into());
     ui.set_t_update_later(i18n::t("dialog.later").into());
@@ -1857,6 +1948,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         .as_ref()
         .map(PathBuf::from)
         .filter(|path| path.is_dir());
+    let last_auto_crop = config.auto_crop.unwrap_or(true);
+    let last_output_dir = output_root.to_string_lossy().into_owned();
     let state = std::rc::Rc::new(std::cell::RefCell::new(AppState {
         ui: ui.as_weak(),
         worker,
@@ -1874,7 +1967,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         last_devices_version: 0,
         last_formats_version: 0,
         last_status: String::new(),
-        last_auto_crop: true,
+        last_auto_crop,
+        last_connected: false,
+        last_recording: false,
+        last_output_dir,
+        settings_dirty: false,
+        last_settings_save: Instant::now(),
         recording: None,
         record_started: None,
         rotation,
@@ -2103,10 +2201,6 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     }
     {
         let state = std::rc::Rc::clone(state);
-        ui.on_apply_settings(move || state.borrow_mut().apply_settings());
-    }
-    {
-        let state = std::rc::Rc::clone(state);
         ui.on_refresh_devices(move || {
             state.borrow_mut().worker.refresh();
             state.borrow_mut().set_status(i18n::t("status.redetecting"));
@@ -2178,7 +2272,8 @@ fn preview_image(
     let scale = (f64::from(PREVIEW_MAX_SIDE) / f64::from(frame.width.max(1)))
         .min(f64::from(PREVIEW_MAX_SIDE) / f64::from(frame.height.max(1)))
         .min(1.0);
-    let (width, height, data) = if scale < 1.0 {
+    // 只在需要缩小时分配新缓冲区；否则直接借用采集帧，省掉一次整帧拷贝。
+    let scaled = if scale < 1.0 {
         imaging::thumbnail_bgra(
             frame.width,
             frame.height,
@@ -2186,11 +2281,15 @@ fn preview_image(
             PREVIEW_MAX_SIDE,
             PREVIEW_MAX_SIDE,
         )
-        .unwrap_or_else(|_| (frame.width, frame.height, frame.data.clone()))
+        .ok()
     } else {
-        (frame.width, frame.height, frame.data.clone())
+        None
     };
-    let mut image = bgra_to_buffer(width, height, &data);
+    let (width, height, data) = match &scaled {
+        Some((width, height, data)) => (*width, *height, data.as_slice()),
+        None => (frame.width, frame.height, frame.data.as_slice()),
+    };
+    let mut image = bgra_to_buffer(width, height, data);
     if let (Some(corners), Some((frame_width, frame_height))) = (corners, corners_frame) {
         let sx = f64::from(width) / f64::from(frame_width.max(1));
         let sy = f64::from(height) / f64::from(frame_height.max(1));
@@ -2202,16 +2301,14 @@ fn preview_image(
 
 fn bgra_to_buffer(width: u32, height: u32, data: &[u8]) -> SharedPixelBuffer<Rgba8Pixel> {
     let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(width, height);
-    let count = width as usize * height as usize;
     let dst = buffer.make_mut_bytes();
-    for index in 0..count {
-        let src = index * 4;
-        if src + 3 < data.len() {
-            dst[index * 4] = data[src + 2];
-            dst[index * 4 + 1] = data[src + 1];
-            dst[index * 4 + 2] = data[src];
-            dst[index * 4 + 3] = data[src + 3];
-        }
+    // 逐像素交换 R/B，并强制不透明：部分摄像头驱动把 alpha 写成 0，
+    // 直接透传会让预览整块变黑。
+    for (src, out) in data.chunks_exact(4).zip(dst.chunks_exact_mut(4)) {
+        out[0] = src[2];
+        out[1] = src[1];
+        out[2] = src[0];
+        out[3] = 255;
     }
     buffer
 }

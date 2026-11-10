@@ -296,6 +296,7 @@ export component MainWindow inherits Window {
     in-out property <int> fps-index: 0;
     in property <[PageItem]> pages;
     in-out property <int> selected-page: -1;
+    in-out property <length> pages-scroll-y: 0px;
     in-out property <image> preview-source;
     in-out property <bool> has-camera: false;
     in-out property <string> status-text: "就绪";
@@ -537,6 +538,7 @@ export component MainWindow inherits Window {
                     ScrollView {
                         vertical-stretch: 1;
                         horizontal-scrollbar-policy: always-off;
+                        content-y <=> root.pages-scroll-y;
                         VerticalLayout {
                             spacing: 8px;
                             for page[index] in root.pages : Rectangle {

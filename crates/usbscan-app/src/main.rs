@@ -575,7 +575,6 @@ impl AppState {
         let ui = self.ui();
         let options = self.enhance_options();
         let enhanced = self.enhance_frame(&frame, options);
-        let _ = ui;
         let path = self.new_image_path(enhanced.width, enhanced.height);
         if let Some(parent) = path.parent() {
             if let Err(err) = fs::create_dir_all(parent) {
@@ -618,10 +617,11 @@ impl AppState {
         self.session.updated_at = doc::now_unix();
         self.session.closed_cleanly = false;
         let _ = self.store.save(&self.session);
+        // 页面列表按最新在前排列：选中第 0 行并滚回顶部，保证新拍的照片可见。
+        self.selected_row = Some(0);
         self.rebuild_pages();
-        self.selected_row = self.rows.len().checked_sub(1);
         if let Some(ui) = ui {
-            ui.set_selected_page(self.selected_row.map_or(-1, |row| row as i32));
+            ui.set_pages_scroll_y(0.0);
         }
         self.set_status(&i18n::t_args(
             "status.savedPage",
@@ -1563,7 +1563,12 @@ impl AppState {
         }
         self.session.updated_at = doc::now_unix();
         let _ = self.store.save(&self.session);
+        // 导入后同样选中列表顶部的最新页面。
+        self.selected_row = (!self.session.pages.is_empty()).then_some(0);
         self.rebuild_pages();
+        if let Some(ui) = self.ui() {
+            ui.set_pages_scroll_y(0.0);
+        }
         self.set_status(i18n::t("status.imagesImported"));
     }
 
@@ -2004,11 +2009,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     wire_callbacks(&ui, &state);
     {
         let mut app = state.borrow_mut();
+        // 启动时默认选中最新一页（列表顶部），与拍照后的行为一致。
+        app.selected_row = (!app.session.pages.is_empty()).then_some(0);
         app.rebuild_pages();
-        let last = app.rows.len().checked_sub(1);
-        app.selected_row = last;
         if let Some(ui) = app.ui() {
-            ui.set_selected_page(last.map_or(-1, |row| row as i32));
+            ui.set_pages_scroll_y(0.0);
         }
     }
 

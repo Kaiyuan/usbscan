@@ -176,7 +176,7 @@ fn crop_to_content(image: &EnhancedImage) -> EnhancedImage {
         let crop_height = bottom - top + 1;
         if crop_width >= 16
             && crop_height >= 16
-            && (crop_width < width * 99 / 100 || crop_height < height * 99 / 100)
+            && (crop_width + 2 < width || crop_height + 2 < height)
         {
             return crop_rect(image, left, top, right, bottom);
         }
@@ -623,6 +623,33 @@ mod tests {
         );
         let center = ((out.height / 2) * out.width + out.width / 2) as usize * 4;
         assert!(out.bgra[center] > 200, "crop should keep paper");
+    }
+
+    #[test]
+    fn crop_trims_paper_nearly_filling_frame() {
+        let width = 800u32;
+        let height = 600u32;
+        let mut data = solid(width, height, [70, 60, 50, 255]);
+        for y in 8..592 {
+            for x in 10..790 {
+                let offset = ((y * width + x) * 4) as usize;
+                data[offset..offset + 4].copy_from_slice(&[250, 250, 250, 255]);
+            }
+        }
+        let out = enhance(
+            width,
+            height,
+            &data,
+            EnhanceOptions {
+                auto_crop: true,
+                ..EnhanceOptions::default()
+            },
+        )
+        .expect("enhance");
+        assert!(out.width < width - 4, "width {}", out.width);
+        assert!(out.height < height - 4, "height {}", out.height);
+        assert!(out.width + 40 >= width, "width {}", out.width);
+        assert!(out.height + 40 >= height, "height {}", out.height);
     }
 
     #[test]

@@ -88,7 +88,17 @@ pub fn detect_document_corners(width: u32, height: u32, bgra: &[u8]) -> Option<[
                 small_height,
                 component,
             );
-            let roi = if component.fill >= 0.5 {
+            // 文档几乎铺满画面时，投影收缩会把旋转后的四个角一起裁掉；
+            // 这种布局直接使用连通域的全部极值点即可。
+            let margin_x = (small_width / 20).max(1);
+            let margin_y = (small_height / 20).max(1);
+            let near_full = component.min_x <= margin_x
+                && component.min_y <= margin_y
+                && component.max_x + margin_x >= small_width
+                && component.max_y + margin_y >= small_height;
+            let roi = if near_full {
+                None
+            } else if component.fill >= 0.5 {
                 projected
             } else {
                 core_roi.or(projected)
@@ -542,19 +552,16 @@ fn choose_component(
             let box_width = component.max_x - component.min_x + 1;
             let box_height = component.max_y - component.min_y + 1;
             let box_area = box_width * box_height;
-            let touches_all = component.min_x <= 1
-                && component.min_y <= 1
-                && component.max_x + 2 >= width
-                && component.max_y + 2 >= height;
+            // 文档可以铺满画面：这里只排除“连通域就是整幅画面”的退化情况，
+            // 是否可信交由后续的四边支持与纸张覆盖率判断。
             component.size >= minimum
-                && component.size <= total * 80 / 100
-                && box_area <= total * if bright { 99 } else { 85 } / 100
-                && !touches_all
+                && component.size * 1000 <= total * 995
+                && box_area * 1000 <= total * 995
                 && component.fill >= if bright { 0.30 } else { 0.45 }
                 && box_width >= width / 8
                 && box_height >= height / 8
-                && box_width <= width * if bright { 100 } else { 95 } / 100
-                && box_height <= height * if bright { 100 } else { 95 } / 100
+                && box_width * 1000 <= width * 995
+                && box_height * 1000 <= height * 995
         })
         .max_by(|a, b| {
             component_score(a, width, height, bright)
@@ -728,13 +735,6 @@ fn valid_quad(points: &[(f64, f64); 4], width: usize, height: usize) -> bool {
     if area < total * 0.05 || area > total * 1.2 {
         return false;
     }
-    let min_x = points.iter().map(|point| point.0).fold(f64::MAX, f64::min);
-    let max_x = points.iter().map(|point| point.0).fold(f64::MIN, f64::max);
-    let min_y = points.iter().map(|point| point.1).fold(f64::MAX, f64::min);
-    let max_y = points.iter().map(|point| point.1).fold(f64::MIN, f64::max);
-    if (max_x - min_x) >= width as f64 * 0.985 && (max_y - min_y) >= height as f64 * 0.985 {
-        return false;
-    }
     let minimum = (width.min(height) as f64) * 0.12;
     let mut positive = false;
     let mut negative = false;
@@ -830,6 +830,131 @@ mod tests {
         assert!(xs.iter().copied().fold(f64::MIN, f64::max) >= 238.0);
         assert!(ys.iter().copied().fold(f64::MAX, f64::min) <= 42.0);
         assert!(ys.iter().copied().fold(f64::MIN, f64::max) >= 178.0);
+    }
+
+    fn fill_polygon(data: &mut [u8], width: usize, points: &[(f64, f64); 4]) {
+        let height = data.len() / width / 4;
+        for y in 0..height {
+            for x in 0..width {
+                if !point_in_polygon(x as f64 + 0.5, y as f64 + 0.5, points) {
+                    continue;
+                }
+                let offset = (y * width + x) * 4;
+                data[offset..offset + 4].copy_from_slice(&[250, 250, 250, 255]);
+            }
+        }
+    }
+
+    fn point_in_polygon(x: f64, y: f64, points: &[(f64, f64); 4]) -> bool {
+        let mut inside = false;
+        let mut previous = 3;
+        for current in 0..4 {
+            let (xi, yi) = points[current];
+            let (xj, yj) = points[previous];
+            if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
+                inside = !inside;
+            }
+            previous = current;
+        }
+        inside
+    }
+
+    fn corner_error(corners: &[(f64, f64); 4], expected: &[(f64, f64); 4]) -> f64 {
+        corners
+            .iter()
+            .zip(expected)
+            .map(|(actual, expected)| distance(*actual, *expected))
+            .fold(0.0, f64::max)
+    }
+
+    #[test]
+    fn detects_paper_nearly_filling_frame() {
+        let width = 800usize;
+        let height = 600usize;
+        let mut data = canvas(width, height, [70, 60, 50, 255]);
+        fill_rect(&mut data, width, 10, 8, 790, 592);
+        let corners = detect_document_corners(width as u32, height as u32, &data).expect("detect");
+        let expected = [(10.0, 8.0), (789.0, 8.0), (789.0, 591.0), (10.0, 591.0)];
+        let error = corner_error(&corners, &expected);
+        assert!(error <= 4.0, "corners={corners:?} error={error}");
+    }
+
+    #[test]
+    fn detects_rotated_paper_nearly_filling_frame() {
+        let width = 800usize;
+        let height = 600usize;
+        let mut data = canvas(width, height, [70, 60, 50, 255]);
+        let angle = 4.0f64.to_radians();
+        let (sin, cos) = angle.sin_cos();
+        let (cx, cy) = (400.0f64, 300.0f64);
+        let (half_width, half_height) = (370.0f64, 270.0f64);
+        let local = [
+            (-half_width, -half_height),
+            (half_width, -half_height),
+            (half_width, half_height),
+            (-half_width, half_height),
+        ];
+        let expected = local.map(|(x, y)| (cx + x * cos - y * sin, cy + x * sin + y * cos));
+        fill_polygon(&mut data, width, &expected);
+        let corners = detect_document_corners(width as u32, height as u32, &data).expect("detect");
+        let error = corner_error(&corners, &expected);
+        assert!(
+            error <= 10.0,
+            "corners={corners:?} expected={expected:?} error={error}"
+        );
+    }
+
+    #[test]
+    fn detects_noisy_rotated_paper_filling_the_photo() {
+        let width = 1600usize;
+        let height = 1200usize;
+        let mut data = canvas(width, height, [0, 0, 0, 255]);
+        let mut seed = 0x2545_f491_u32;
+        for y in 0..height {
+            for x in 0..width {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let noise = ((seed >> 24) % 9) as i32 - 4;
+                let shade = (x * 20 / width) as i32;
+                let offset = (y * width + x) * 4;
+                let value = |base: i32| u8::try_from((base + shade + noise).clamp(0, 255)).unwrap();
+                data[offset..offset + 4].copy_from_slice(&[value(65), value(90), value(110), 255]);
+            }
+        }
+        let angle = 1.5f64.to_radians();
+        let (sin, cos) = angle.sin_cos();
+        let (cx, cy) = (800.0f64, 600.0f64);
+        let (half_width, half_height) = (776.0f64, 570.0f64);
+        let local = [
+            (-half_width, -half_height),
+            (half_width, -half_height),
+            (half_width, half_height),
+            (-half_width, half_height),
+        ];
+        let expected = local.map(|(x, y)| (cx + x * cos - y * sin, cy + x * sin + y * cos));
+        let height = data.len() / width / 4;
+        for y in 0..height {
+            for x in 0..width {
+                if !point_in_polygon(x as f64 + 0.5, y as f64 + 0.5, &expected) {
+                    continue;
+                }
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let noise = ((seed >> 24) % 7) as i32 - 3;
+                let offset = (y * width + x) * 4;
+                let value = |base: i32| u8::try_from((base + noise).clamp(0, 255)).unwrap();
+                data[offset..offset + 4].copy_from_slice(&[
+                    value(240),
+                    value(244),
+                    value(245),
+                    255,
+                ]);
+            }
+        }
+        let corners = detect_document_corners(width as u32, height as u32, &data).expect("detect");
+        let error = corner_error(&corners, &expected);
+        assert!(
+            error <= 12.0,
+            "corners={corners:?} expected={expected:?} error={error}"
+        );
     }
 
     #[test]

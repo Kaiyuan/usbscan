@@ -180,14 +180,22 @@ impl Worker {
     fn set_record_sink(&self, sink: Option<SyncSender<Arc<capture::Frame>>>) {
         self.lock().record_sink = sink;
     }
+
+    /// 停止并回收采集线程；可重复调用。
+    fn shutdown(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.thread.take() {
+            let _ = handle.join();
+        }
+    }
 }
 
 impl Drop for Worker {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        if let Some(handle) = self.thread.take() {
-            let _ = handle.join();
-        }
+        // 不在这里 join：AppState 可能直到进程退出阶段的 TLS 析构才被释放，
+        // 那时等待其他线程会让 std 直接 abort。正常退出路径由 shutdown() 回收。
+        let _ = self.thread.take();
     }
 }
 
@@ -1788,6 +1796,9 @@ impl AppState {
             self.worker.set_record_sink(None);
             let _ = recorder.stop();
         }
+        // 必须在事件循环结束后、进程退出前回收采集线程。若留到进程退出阶段的
+        // TLS 析构里再 join，std 会因为线程已被系统终止而 abort。
+        self.worker.shutdown();
         self.session.closed_cleanly = true;
         let _ = self.store.save(&self.session);
     }
@@ -2012,6 +2023,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         ui.window().on_close_requested(move || {
             if let Some(ui) = weak.upgrade() {
                 let mut app = state_close.borrow_mut();
+                // 确保关闭前最后 40ms 内的开关/滑块改动也写入配置。
+                app.sync_settings_from_ui();
                 let scale = ui.window().scale_factor();
                 if let Some((width, height)) = usbscan_win::window::client_size() {
                     app.config.window_width = Some((width as f32 / scale).round().max(1.0) as u32);

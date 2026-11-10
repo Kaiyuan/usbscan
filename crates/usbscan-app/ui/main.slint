@@ -304,6 +304,7 @@ export component MainWindow inherits Window {
     in-out property <bool> white-background: false;
     in-out property <float> strength: 60;
     in-out property <bool> recording: false;
+    in-out property <string> recording-elapsed: "00:00";
     in-out property <bool> show-rename: false;
     in-out property <string> rename-text;
     in-out property <bool> show-about: false;
@@ -624,7 +625,7 @@ export component MainWindow inherits Window {
                 }
                 if (root.show-toast) : Rectangle {
                     x: (parent.width - self.width) / 2;
-                    y: parent.height - 58px;
+                    y: parent.height - 58px - (root.recording ? 42px : 0px);
                     width: 210px;
                     height: 36px;
                     border-radius: 18px;
@@ -638,6 +639,37 @@ export component MainWindow inherits Window {
                         font-size: 13px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
+                    }
+                }
+                // 录像计时：固定显示在预览窗口底部中央。
+                if (root.recording) : Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: parent.height - self.height - 16px;
+                    width: 108px;
+                    height: 32px;
+                    border-radius: 16px;
+                    background: #000000b3;
+                    border-width: 1px;
+                    border-color: #ffffff26;
+
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 14px;
+                        spacing: 8px;
+                        alignment: center;
+                        Rectangle {
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 5px;
+                            background: #ff453a;
+                        }
+                        Text {
+                            text: root.recording-elapsed;
+                            color: #ffffff;
+                            font-size: 13px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
                     }
                 }
             }

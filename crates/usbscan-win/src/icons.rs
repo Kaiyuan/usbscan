@@ -27,6 +27,8 @@ const FONT_FACE: &str = "tabler-icons";
 const ANTIALIASED_QUALITY: u8 = 4;
 const DEFAULT_CHARSET: u8 = 1;
 const FW_NORMAL: i32 = 400;
+/// 超采样倍数。小字号下 GDI 的灰阶抗锯齿不够细腻，先放大渲染再盒式缩小。
+const SUPERSAMPLE: i32 = 4;
 
 /// 工具栏图标。顺序必须与 `ALL` 和 `index()` 保持一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,7 +147,21 @@ fn ensure_font() -> bool {
 }
 
 fn blank_bitmap(size: i32) -> Option<HBITMAP> {
-    // SAFETY: 创建一个全透明 32 位 DIB。
+    let (bitmap, bits) = create_dib(size)?;
+    // SAFETY: create_dib 返回的缓冲区是 size×size 的 32 位像素。
+    unsafe {
+        let len = usize::try_from(size * size * 4).ok()?;
+        std::slice::from_raw_parts_mut(bits, len).fill(0);
+    }
+    Some(bitmap)
+}
+
+/// 创建一个全透明的 32 位 top-down DIB，返回位图与像素缓冲区。
+fn create_dib(size: i32) -> Option<(HBITMAP, *mut u8)> {
+    if size <= 0 {
+        return None;
+    }
+    // SAFETY: 标准 GDI 调用；失败时释放已创建的句柄。
     unsafe {
         let info = dib_info(size);
         let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
@@ -157,10 +173,14 @@ fn blank_bitmap(size: i32) -> Option<HBITMAP> {
             std::ptr::null_mut(),
             0,
         );
-        if !bitmap.is_null() && !bits.is_null() {
-            std::slice::from_raw_parts_mut(bits.cast::<u8>(), (size * size * 4) as usize).fill(0);
+        if bitmap.is_null() {
+            return None;
         }
-        (!bitmap.is_null()).then_some(bitmap)
+        if bits.is_null() {
+            DeleteObject(bitmap);
+            return None;
+        }
+        Some((bitmap, bits.cast::<u8>()))
     }
 }
 
@@ -179,40 +199,33 @@ fn dib_info(size: i32) -> BITMAPINFO {
 }
 
 /// 把一个字形渲染成透明背景的 BGRA 位图。
+///
+/// 先在 `SUPERSAMPLE` 倍尺寸上绘制，再做盒式降采样，让小尺寸图标也有平滑边缘。
 #[allow(clippy::too_many_lines)]
 fn render_glyph(codepoint: u32, size: i32, color: u32) -> Option<HBITMAP> {
+    let big = size.checked_mul(SUPERSAMPLE)?;
     let text = [u16::try_from(codepoint).ok()?];
     let face = crate::text::wide(FONT_FACE);
     let mut logfont: LOGFONTW = unsafe { std::mem::zeroed() };
-    logfont.lfHeight = -size;
+    logfont.lfHeight = -big;
     logfont.lfWeight = FW_NORMAL;
     logfont.lfCharSet = DEFAULT_CHARSET;
     logfont.lfQuality = ANTIALIASED_QUALITY;
     let face_len = face.len().min(logfont.lfFaceName.len());
     logfont.lfFaceName[..face_len].copy_from_slice(&face[..face_len]);
 
-    // SAFETY: 所有 GDI 句柄都在本函数内成对释放。
-    unsafe {
-        let info = dib_info(size);
-        let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-        let bitmap = CreateDIBSection(
-            std::ptr::null_mut(),
-            &info,
-            DIB_RGB_COLORS,
-            &raw mut bits,
-            std::ptr::null_mut(),
-            0,
-        );
-        if bitmap.is_null() || bits.is_null() {
-            return None;
-        }
+    let (big_bitmap, big_bits) = create_dib(big)?;
+
+    // SAFETY: 所有 GDI 句柄都在本函数内成对释放；像素缓冲区大小由 create_dib 保证。
+    let coverage = unsafe {
         let dc = CreateCompatibleDC(std::ptr::null_mut());
         if dc.is_null() {
-            DeleteObject(bitmap);
+            DeleteObject(big_bitmap);
             return None;
         }
-        let old_bitmap = SelectObject(dc, bitmap);
-        std::slice::from_raw_parts_mut(bits.cast::<u8>(), (size * size * 4) as usize).fill(0);
+        let old_bitmap = SelectObject(dc, big_bitmap);
+        let big_len = usize::try_from(big * big * 4).ok()?;
+        std::slice::from_raw_parts_mut(big_bits, big_len).fill(0);
 
         let font = CreateFontIndirectW(&logfont);
         let old_font = if font.is_null() {
@@ -225,8 +238,8 @@ fn render_glyph(codepoint: u32, size: i32, color: u32) -> Option<HBITMAP> {
 
         let mut extent: SIZE = std::mem::zeroed();
         GetTextExtentPoint32W(dc, text.as_ptr(), 1, &raw mut extent);
-        let x = (size - extent.cx) / 2;
-        let y = (size - extent.cy) / 2;
+        let x = (big - extent.cx) / 2;
+        let y = (big - extent.cy) / 2;
         TextOutW(dc, x, y, text.as_ptr(), 1);
 
         if !old_font.is_null() {
@@ -238,20 +251,43 @@ fn render_glyph(codepoint: u32, size: i32, color: u32) -> Option<HBITMAP> {
         SelectObject(dc, old_bitmap);
         DeleteDC(dc);
 
-        // GDI 文字没有 alpha 通道：把灰度覆盖度转成预乘 alpha。
-        let pixels = std::slice::from_raw_parts_mut(bits.cast::<u8>(), (size * size * 4) as usize);
-        let red = (color & 0xFF) as u32;
-        let green = ((color >> 8) & 0xFF) as u32;
-        let blue = ((color >> 16) & 0xFF) as u32;
-        for pixel in pixels.chunks_exact_mut(4) {
-            let alpha = u32::from(pixel[0].max(pixel[1]).max(pixel[2]));
-            pixel[0] = u8::try_from(blue * alpha / 255).unwrap_or(0);
-            pixel[1] = u8::try_from(green * alpha / 255).unwrap_or(0);
-            pixel[2] = u8::try_from(red * alpha / 255).unwrap_or(0);
-            pixel[3] = u8::try_from(alpha).unwrap_or(0);
+        std::slice::from_raw_parts(big_bits, big_len)
+    };
+
+    let (bitmap, target_bits) = create_dib(size)?;
+    let red = (color & 0xFF) as u32;
+    let green = ((color >> 8) & 0xFF) as u32;
+    let blue = ((color >> 16) & 0xFF) as u32;
+    let sample_count = u32::try_from(SUPERSAMPLE * SUPERSAMPLE).unwrap_or(1);
+
+    // SAFETY: 目标位图与超采样位图都由本函数创建，索引范围在各自缓冲区之内。
+    unsafe {
+        let target_len = usize::try_from(size * size * 4).ok()?;
+        let target = std::slice::from_raw_parts_mut(target_bits, target_len);
+        for y in 0..size {
+            for x in 0..size {
+                let mut sum = 0u32;
+                for dy in 0..SUPERSAMPLE {
+                    for dx in 0..SUPERSAMPLE {
+                        let bx = x * SUPERSAMPLE + dx;
+                        let by = y * SUPERSAMPLE + dy;
+                        let index = usize::try_from((by * big + bx) * 4).ok()?;
+                        let pixel = &coverage[index..index + 4];
+                        sum += u32::from(pixel[0].max(pixel[1]).max(pixel[2]));
+                    }
+                }
+                // GDI 文字没有 alpha 通道：把灰度覆盖度转成预乘 alpha。
+                let alpha = sum / sample_count;
+                let index = usize::try_from((y * size + x) * 4).ok()?;
+                target[index] = u8::try_from(blue * alpha / 255).unwrap_or(0);
+                target[index + 1] = u8::try_from(green * alpha / 255).unwrap_or(0);
+                target[index + 2] = u8::try_from(red * alpha / 255).unwrap_or(0);
+                target[index + 3] = u8::try_from(alpha).unwrap_or(0);
+            }
         }
-        Some(bitmap)
+        DeleteObject(big_bitmap);
     }
+    Some(bitmap)
 }
 
 #[cfg(test)]

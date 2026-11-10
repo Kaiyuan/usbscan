@@ -4,7 +4,7 @@
 //! 页面缩略图的原生右键菜单。
 
 use windows_sys::Win32::Foundation::POINT;
-use windows_sys::Win32::Graphics::Gdi::{DeleteObject, GetSysColor, COLOR_MENUTEXT, HBITMAP};
+use windows_sys::Win32::Graphics::Gdi::{DeleteObject, HBITMAP};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, PostMessageW,
     SetForegroundWindow, SetMenuItemBitmaps, TrackPopupMenu, MF_BYCOMMAND, MF_SEPARATOR, MF_STRING,
@@ -13,6 +13,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::icons;
+use crate::theme;
 use crate::window::main_window;
 
 // Tabler Icons 字形码点。
@@ -24,6 +25,10 @@ const ICON_AUTO_DESKEW: u32 = 0xEB16; // rotate
 const ICON_OCR: u32 = 0xF204; // text-recognition
 const ICON_EXPORT_JPG: u32 = 0xEDE9; // file-export
 const ICON_DELETE: u32 = 0xEB41; // trash
+
+// 与 Slint 主题中的正文颜色一致（COLORREF：0x00BBGGRR）。
+const ICON_COLOR_DARK: u32 = 0x00F7_F5F5; // #f5f5f7
+const ICON_COLOR_LIGHT: u32 = 0x001E_1C1C; // #1c1c1e
 
 /// 右键菜单选择结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,7 +95,12 @@ pub fn show_page_menu(labels: &PageMenuLabels<'_>) -> PageMenuCommand {
         let size = GetSystemMetrics(SM_CXMENUCHECK)
             .max(GetSystemMetrics(SM_CYMENUCHECK))
             .max(12);
-        let color = GetSysColor(COLOR_MENUTEXT);
+        // 让图标颜色跟随浅色/深色主题，而不是依赖固定系统颜色。
+        let color = if theme::system_uses_dark_mode() {
+            ICON_COLOR_DARK
+        } else {
+            ICON_COLOR_LIGHT
+        };
 
         append_item(menu, &mut bitmaps, 1, labels.open, ICON_OPEN, size, color);
         append_item(

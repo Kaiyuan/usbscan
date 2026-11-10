@@ -504,6 +504,7 @@ struct AppState {
     last_status: String,
     last_auto_crop: bool,
     recording: Option<Recorder>,
+    record_started: Option<Instant>,
     rotation: u32,
     rename_row: Option<usize>,
     audio: Option<Audio>,
@@ -1114,6 +1115,7 @@ impl AppState {
         self.play_sound(RECORD_SOUND);
         if let Some(recorder) = self.recording.take() {
             self.worker.set_record_sink(None);
+            self.record_started = None;
             match recorder.stop() {
                 Ok(path) => {
                     self.set_status(&i18n::t_args(
@@ -1153,8 +1155,10 @@ impl AppState {
         let recorder = Recorder::start(path, record_width, record_height, fps, receiver);
         self.worker.set_record_sink(Some(sender));
         self.recording = Some(recorder);
+        self.record_started = Some(Instant::now());
         if let Some(ui) = self.ui() {
             ui.set_recording(true);
+            ui.set_recording_elapsed("00:00".into());
         }
         self.set_status(&i18n::t_args(
             "status.recordingNow",
@@ -1165,6 +1169,19 @@ impl AppState {
             ],
         ));
         self.show_toast(i18n::t("toast.recordingStarted"));
+    }
+
+    /// 刷新预览窗口底部的录像计时。
+    fn tick_recording(&mut self) {
+        let Some(started) = self.record_started else {
+            return;
+        };
+        let text = format_elapsed(started.elapsed().as_secs());
+        if let Some(ui) = self.ui() {
+            if ui.get_recording_elapsed().as_str() != text {
+                ui.set_recording_elapsed(text.into());
+            }
+        }
     }
 
     fn auto_fix_page(&mut self, row: usize, crop: bool) {
@@ -1859,6 +1876,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         last_status: String::new(),
         last_auto_crop: true,
         recording: None,
+        record_started: None,
         rotation,
         rename_row: None,
         audio: None,
@@ -1976,6 +1994,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 app.poll();
                 app.poll_updates();
                 app.poll_tesseract();
+                app.tick_recording();
             },
         );
         state.borrow_mut().timer = Some(timer);
@@ -2321,6 +2340,18 @@ fn recording_size(width: u32, height: u32) -> (u32, u32) {
         (f64::from(width) * scale).round().max(1.0) as u32,
         (f64::from(height) * scale).round().max(1.0) as u32,
     )
+}
+
+/// 把秒数格式化成录像计时：不足一小时为 `mm:ss`，否则为 `h:mm:ss`。
+fn format_elapsed(total: u64) -> String {
+    let hours = total / 3600;
+    let minutes = (total % 3600) / 60;
+    let seconds = total % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes:02}:{seconds:02}")
+    }
 }
 
 fn default_output_root() -> PathBuf {

@@ -80,6 +80,10 @@
       var value = d[el.getAttribute('data-i18n')];
       if (value != null) el.textContent = value;
     });
+    document.querySelectorAll('[data-i18n-html]').forEach(function (el) {
+      var value = d[el.getAttribute('data-i18n-html')];
+      if (value != null) el.innerHTML = value;
+    });
     document.querySelectorAll('[data-i18n-aria]').forEach(function (el) {
       var value = d[el.getAttribute('data-i18n-aria')];
       if (value != null) el.setAttribute('aria-label', value);
@@ -150,7 +154,18 @@
     });
   }
 
+  function setDownloadHref(id, url) {
+    var link = document.getElementById(id);
+    if (link) link.href = url;
+  }
+
   function bindRelease() {
+    // Fall back to the release page when the API is unavailable; once the API
+    // answers, point every primary button straight at the latest installer.
+    var fallback = 'https://github.com/Kaiyuan/usbscan/releases/latest';
+    setDownloadHref('setup-link', fallback);
+    setDownloadHref('hero-download', fallback);
+
     var api = 'https://api.github.com/repos/Kaiyuan/usbscan/releases/latest';
     fetch(api, { headers: { Accept: 'application/vnd.github+json' } })
       .then(function (response) {
@@ -163,9 +178,12 @@
         var setup = assets.find(function (a) { return /setup.*\.exe$/i.test(a.name); });
         var portable = assets.find(function (a) { return /portable.*\.zip$/i.test(a.name); });
         var checksums = assets.find(function (a) { return /SHA256SUMS\.txt$/i.test(a.name); });
-        if (setup) document.getElementById('setup-link').href = setup.browser_download_url;
-        if (portable) document.getElementById('portable-link').href = portable.browser_download_url;
-        if (checksums) document.getElementById('checksums-link').href = checksums.browser_download_url;
+        if (setup) {
+          setDownloadHref('setup-link', setup.browser_download_url);
+          setDownloadHref('hero-download', setup.browser_download_url);
+        }
+        if (portable) setDownloadHref('portable-link', portable.browser_download_url);
+        if (checksums) setDownloadHref('checksums-link', checksums.browser_download_url);
         releaseState = { kind: setup && portable ? 'ready' : 'incomplete' };
         renderReleaseNote();
       })

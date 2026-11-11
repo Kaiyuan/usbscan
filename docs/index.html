@@ -56,7 +56,7 @@
           <h1><span data-i18n="hero.title1">把任意 USB 摄像头，</span><br><span class="grad" data-i18n="hero.title2">变成文档扫描仪。</span></h1>
           <p class="lede" data-i18n="hero.lede">拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，一条完整的工作流。无需专业扫描仪，也无需把文档上传到云端。</p>
           <div class="actions">
-            <a class="btn btn-primary" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+            <a class="btn btn-primary" id="hero-download" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
               <span data-i18n="hero.download">下载 Windows 版</span>
             </a>
@@ -153,12 +153,14 @@
                 <span data-i18n="download.portable">下载便携版</span>
               </a>
             </div>
+            <p class="download-deps" data-i18n-html="download.vcRedist">UsbScan 需要 <strong>Microsoft Visual C++ 2015–2022 运行库（x64）</strong>。安装版会自动检测并提供一键安装；便携版或手动安装可<a href="https://aka.ms/vs/17/release/vc_redist.x64.exe" target="_blank" rel="noopener">下载运行库</a>。</p>
             <p class="download-meta" id="release-note">正在读取最新版本…你也可以前往 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> 查看全部版本。</p>
           </div>
           <div class="download-side">
             <div class="row"><span data-i18n="download.latest">最新版本</span><span id="latest-version">—</span></div>
             <div class="row"><span data-i18n="download.system">系统</span><span>Windows 10 / 11 x64</span></div>
             <div class="row"><span data-i18n="download.runtime">运行环境</span><span data-i18n="download.runtimeValue">无需 .NET / WebView2</span></div>
+            <div class="row"><span data-i18n="download.vcRedistLabel">VC++ 运行库</span><a href="https://aka.ms/vs/17/release/vc_redist.x64.exe" target="_blank" rel="noopener">Microsoft VC++ 2015–2022 x64</a></div>
             <div class="row"><span data-i18n="download.license">许可证</span><span>GPL-3.0-or-later</span></div>
             <div class="row"><span data-i18n="download.checksums">校验和</span><a id="checksums-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt</a></div>
           </div>

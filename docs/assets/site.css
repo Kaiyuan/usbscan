@@ -261,6 +261,9 @@
   .download-panel h2 img {flex: none; }
   .download-panel p { margin: 0; color: var(--muted); font-size: 14px; }
   .download-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+  .download-panel .download-deps { margin-top: 14px; font-size: 13px; line-height: 1.6; }
+  .download-deps strong { color: var(--text); }
+  .download-deps a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
   .download-meta { color: var(--muted); font-size: 12px; margin-top: 14px; }
   .download-meta a { color: var(--accent); }
   .download-side { position: relative; z-index: 1; padding: 18px; border-radius: 16px; background: var(--bg); border: 1px solid var(--border); }
@@ -268,6 +271,7 @@
   .download-side .row:last-child { border-bottom: 0; }
   .download-side span:first-child { color: var(--muted); }
   .download-side span:last-child { font-weight: 600; }
+  .download-side a { color: var(--accent); font-weight: 600; }
   .docs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
   .doc-link { padding: 18px; border-radius: 14px; background: var(--panel-solid); border: 1px solid var(--border); box-shadow: var(--shadow-soft); transition: transform .18s ease, border-color .18s ease; }
   .doc-link:hover { transform: translateY(-2px); border-color: var(--accent); }

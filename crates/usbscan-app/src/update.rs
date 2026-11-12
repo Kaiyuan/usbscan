@@ -6,9 +6,10 @@
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use serde::Deserialize;
+
+use crate::http;
 
 pub const REPO_URL: &str = "https://github.com/Kaiyuan/usbscan";
 const RELEASES_API: &str = "https://api.github.com/repos/Kaiyuan/usbscan/releases/latest";
@@ -37,7 +38,7 @@ struct Asset {
 
 /// 查询 GitHub 最新 Release；有更新时返回版本信息。
 pub fn check_latest() -> Result<Option<UpdateInfo>, String> {
-    let response = agent()?
+    let response = http::agent()?
         .get(RELEASES_API)
         .set("User-Agent", "UsbScan")
         .set("Accept", "application/vnd.github+json")
@@ -82,7 +83,7 @@ pub fn download_installer(info: &UpdateInfo) -> Result<PathBuf, String> {
     let directory = std::env::temp_dir().join("usbscan-update");
     fs::create_dir_all(&directory).map_err(|err| err.to_string())?;
     let path = directory.join(format!("usbscan-{}-setup.exe", info.version));
-    let response = agent()?
+    let response = http::agent()?
         .get(url)
         .set("User-Agent", "UsbScan")
         .call()
@@ -96,17 +97,6 @@ pub fn download_installer(info: &UpdateInfo) -> Result<PathBuf, String> {
 /// 打开项目主页。
 pub fn open_repo() {
     let _ = webbrowser::open(REPO_URL);
-}
-
-/// 使用系统 TLS（Windows 上是 SChannel）构建 Agent。
-///
-/// `ureq` 的快捷函数只支持 rustls；关闭默认特性后必须显式传入 native-tls
-/// 连接器，否则 HTTPS 请求会报 “no TLS backend is configured”。
-fn agent() -> Result<ureq::Agent, String> {
-    let connector = native_tls::TlsConnector::new().map_err(|err| err.to_string())?;
-    Ok(ureq::AgentBuilder::new()
-        .tls_connector(Arc::new(connector))
-        .build())
 }
 
 fn is_newer(latest: &str, current: &str) -> bool {

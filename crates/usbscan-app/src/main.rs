@@ -30,6 +30,7 @@ use usbscan_win::theme;
 
 slint::include_modules!();
 
+mod http;
 mod i18n;
 mod tesseract_install;
 mod update;

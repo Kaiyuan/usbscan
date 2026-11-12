@@ -15,6 +15,8 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+use crate::http;
+
 const RELEASES_API: &str =
     "https://api.github.com/repos/tesseract-ocr/tesseract/releases?per_page=10";
 const TESSDATA_URL: &str = "https://github.com/tesseract-ocr/tessdata_fast/raw/main";
@@ -43,7 +45,8 @@ pub struct Installed {
 
 /// 下载并静默安装 Tesseract，随后补齐 `ocr_language` 需要的语言数据。
 pub fn install(ocr_language: &str) -> Result<Installed, String> {
-    let url = latest_installer_url();
+    let agent = http::agent()?;
+    let url = latest_installer_url(&agent);
     let file_name = url
         .rsplit('/')
         .next()
@@ -57,7 +60,7 @@ pub fn install(ocr_language: &str) -> Result<Installed, String> {
     fs::create_dir_all(&directory).map_err(|err| format!("create temp folder: {err}"))?;
     let installer = directory.join(file_name);
     if !installer.is_file() {
-        download(&url, &installer)?;
+        download(&agent, &url, &installer)?;
     }
 
     let status = Command::new(&installer)
@@ -73,15 +76,16 @@ pub fn install(ocr_language: &str) -> Result<Installed, String> {
 
     let executable = usbscan_ocr::find_tesseract(None)
         .ok_or_else(|| "tesseract.exe was not found after installation".to_string())?;
-    let tessdata = ensure_languages(&executable, ocr_language)?;
+    let tessdata = ensure_languages(&agent, &executable, ocr_language)?;
     Ok(Installed {
         executable,
         tessdata,
     })
 }
 
-fn latest_installer_url() -> String {
-    let releases = ureq::get(RELEASES_API)
+fn latest_installer_url(agent: &ureq::Agent) -> String {
+    let releases = agent
+        .get(RELEASES_API)
         .set("User-Agent", USER_AGENT)
         .set("Accept", "application/vnd.github+json")
         .timeout(API_TIMEOUT)
@@ -108,8 +112,9 @@ fn latest_installer_url() -> String {
     FALLBACK_INSTALLER.to_string()
 }
 
-fn download(url: &str, path: &Path) -> Result<(), String> {
-    let response = ureq::get(url)
+fn download(agent: &ureq::Agent, url: &str, path: &Path) -> Result<(), String> {
+    let response = agent
+        .get(url)
         .set("User-Agent", USER_AGENT)
         .timeout(DOWNLOAD_TIMEOUT)
         .call()
@@ -124,7 +129,11 @@ fn download(url: &str, path: &Path) -> Result<(), String> {
 }
 
 /// 确保 `tesseract.exe` 旁边或用户目录中存在所需语言的 traineddata。
-fn ensure_languages(executable: &Path, languages: &str) -> Result<Option<PathBuf>, String> {
+fn ensure_languages(
+    agent: &ureq::Agent,
+    executable: &Path,
+    languages: &str,
+) -> Result<Option<PathBuf>, String> {
     let required: Vec<&str> = languages
         .split('+')
         .map(str::trim)
@@ -155,7 +164,7 @@ fn ensure_languages(executable: &Path, languages: &str) -> Result<Option<PathBuf
         let target = directory.join(format!("{language}.traineddata"));
         if !target.is_file() {
             let url = format!("{TESSDATA_URL}/{language}.traineddata");
-            download(&url, &target)?;
+            download(agent, &url, &target)?;
         }
     }
     Ok(Some(directory))

@@ -1873,6 +1873,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let ui = MainWindow::new()?;
     apply_ui_language(&ui);
+    ui.set_version_text(format!("v{}", env!("CARGO_PKG_VERSION")).into());
     ui.set_status_text(i18n::t("status.detecting").into());
     ui.set_format_options(ModelRc::from(Rc::new(VecModel::from(vec![
         slint::SharedString::from(i18n::t("ui.auto")),

@@ -532,6 +532,7 @@ struct AppState {
     tessdata_dir: Option<PathBuf>,
     tesseract_install: Arc<Mutex<Option<Result<tesseract_install::Installed, String>>>>,
     tesseract_progress: Arc<Mutex<tesseract_install::Progress>>,
+    tesseract_cancel: Arc<AtomicBool>,
     tesseract_installing: bool,
     timer: Option<slint::Timer>,
 }
@@ -1664,6 +1665,11 @@ impl AppState {
             return;
         }
         self.tesseract_installing = true;
+        // 每次安装使用新的取消标记，旧线程持有的标记保持为已取消。
+        self.tesseract_cancel = Arc::new(AtomicBool::new(false));
+        if let Ok(mut slot) = self.tesseract_install.lock() {
+            *slot = None;
+        }
         if let Ok(mut progress) = self.tesseract_progress.lock() {
             *progress = tesseract_install::Progress::default();
         }
@@ -1674,6 +1680,7 @@ impl AppState {
         }
         let slot = Arc::clone(&self.tesseract_install);
         let progress = Arc::clone(&self.tesseract_progress);
+        let cancel = Arc::clone(&self.tesseract_cancel);
         let languages = self
             .config
             .ocr_language
@@ -1685,9 +1692,12 @@ impl AppState {
                     *guard = value;
                 }
             };
-            let result = tesseract_install::install(&languages, &report);
-            if let Ok(mut guard) = slot.lock() {
-                *guard = Some(result);
+            let result = tesseract_install::install(&languages, &report, &cancel);
+            // 用户已关闭提示时丢弃结果，避免弹窗再次出现。
+            if !cancel.load(Ordering::SeqCst) {
+                if let Ok(mut guard) = slot.lock() {
+                    *guard = Some(result);
+                }
             }
         });
     }
@@ -1720,6 +1730,10 @@ impl AppState {
         let Some(result) = result else {
             return;
         };
+        // 提示已被用户关闭：丢弃迟到的结果，不再操作界面。
+        if !self.tesseract_installing {
+            return;
+        }
         self.tesseract_installing = false;
         let Some(ui) = self.ui() else {
             return;
@@ -1747,10 +1761,15 @@ impl AppState {
     }
 
     fn cancel_tesseract_install(&mut self) {
-        if self.tesseract_installing {
-            return;
+        // 安装过程中也允许关闭提示：后台线程会尽快停止，结果被丢弃。
+        self.tesseract_cancel.store(true, Ordering::SeqCst);
+        self.tesseract_installing = false;
+        if let Ok(mut progress) = self.tesseract_progress.lock() {
+            *progress = tesseract_install::Progress::default();
         }
         if let Some(ui) = self.ui() {
+            ui.set_tesseract_installing(false);
+            ui.set_tesseract_progress(0.0);
             ui.set_show_tesseract_prompt(false);
         }
     }
@@ -2060,6 +2079,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         tessdata_dir,
         tesseract_install: Arc::new(Mutex::new(None)),
         tesseract_progress: Arc::new(Mutex::new(tesseract_install::Progress::default())),
+        tesseract_cancel: Arc::new(AtomicBool::new(false)),
         tesseract_installing: false,
         timer: None,
     }));

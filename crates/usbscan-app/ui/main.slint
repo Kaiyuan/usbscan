@@ -1055,7 +1055,6 @@ export component MainWindow inherits Window {
                     PillButton {
                         text: root.t-cancel;
                         width: 90px;
-                        enabled: !root.tesseract-installing;
                         clicked => { root.cancel-tesseract(); }
                     }
                 }

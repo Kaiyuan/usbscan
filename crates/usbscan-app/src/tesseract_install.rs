@@ -10,6 +10,7 @@
 use std::fs;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -77,47 +78,80 @@ pub struct Installed {
     pub tessdata: Option<PathBuf>,
 }
 
+/// 用户取消安装时返回的错误文本。
+pub const CANCELLED: &str = "tesseract installation cancelled";
+
+fn ensure_running(cancel: &AtomicBool) -> Result<(), String> {
+    if cancel.load(Ordering::SeqCst) {
+        Err(CANCELLED.to_string())
+    } else {
+        Ok(())
+    }
+}
+
 /// 下载并静默安装 Tesseract，随后补齐 `ocr_language` 需要的语言数据。
 ///
-/// `progress` 会在下载和安装过程中被调用，用于更新界面。
-pub fn install(ocr_language: &str, progress: &dyn Fn(Progress)) -> Result<Installed, String> {
+/// `progress` 会在下载和安装过程中被调用，用于更新界面；
+/// `cancel` 被置位后函数会尽快返回 [`CANCELLED`]。
+pub fn install(
+    ocr_language: &str,
+    progress: &dyn Fn(Progress),
+    cancel: &AtomicBool,
+) -> Result<Installed, String> {
     progress(Progress::default());
+    ensure_running(cancel)?;
     let agent = http::agent()?;
-    let url = latest_installer_url(&agent);
-    let file_name = url
-        .rsplit('/')
-        .next()
-        .filter(|name| {
-            Path::new(name)
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-        })
-        .unwrap_or("tesseract-setup.exe");
-    let directory = std::env::temp_dir().join("usbscan-tesseract");
-    fs::create_dir_all(&directory).map_err(|err| format!("create temp folder: {err}"))?;
-    let installer = directory.join(file_name);
-    if !installer.is_file() {
-        download(&agent, &url, &installer, Stage::Downloading, progress)?;
-    }
 
-    progress(Progress {
-        stage: Stage::Installing,
-        received: 0,
-        total: None,
-    });
-    let exit = shell::run_elevated_and_wait(&installer, "/SILENT /NORESTART /SP-").map_err(
-        |err| match err {
-            ElevatedError::Cancelled => crate::i18n::t("tesseract.cancelled").to_string(),
-            other => format!("run installer: {other}"),
-        },
-    )?;
-    if exit != 0 {
-        return Err(format!("installer exited with code {exit}"));
-    }
+    // 已经装好 Tesseract（例如用户手动安装）时直接复用，不再重复下载安装。
+    let executable =
+        if let Some(existing) = usbscan_ocr::find_tesseract(None) {
+            existing
+        } else {
+            let url = latest_installer_url(&agent);
+            let file_name = url
+                .rsplit('/')
+                .next()
+                .filter(|name| {
+                    Path::new(name)
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+                })
+                .unwrap_or("tesseract-setup.exe");
+            let directory = std::env::temp_dir().join("usbscan-tesseract");
+            fs::create_dir_all(&directory).map_err(|err| format!("create temp folder: {err}"))?;
+            let installer = directory.join(file_name);
+            if !installer.is_file() {
+                download(
+                    &agent,
+                    &url,
+                    &installer,
+                    Stage::Downloading,
+                    progress,
+                    cancel,
+                )?;
+            }
+            ensure_running(cancel)?;
 
-    let executable = usbscan_ocr::find_tesseract(None)
-        .ok_or_else(|| "tesseract.exe was not found after installation".to_string())?;
-    let tessdata = ensure_languages(&agent, &executable, ocr_language, progress)?;
+            progress(Progress {
+                stage: Stage::Installing,
+                received: 0,
+                total: None,
+            });
+            let exit = shell::run_elevated_and_wait(&installer, "/SILENT /NORESTART /SP-")
+                .map_err(|err| match err {
+                    ElevatedError::Cancelled => crate::i18n::t("tesseract.cancelled").to_string(),
+                    other => format!("run installer: {other}"),
+                })?;
+            if exit != 0 {
+                return Err(format!("installer exited with code {exit}"));
+            }
+            ensure_running(cancel)?;
+
+            usbscan_ocr::find_tesseract(None)
+                .ok_or_else(|| "tesseract.exe was not found after installation".to_string())?
+        };
+
+    let tessdata = ensure_languages(&agent, &executable, ocr_language, progress, cancel)?;
     Ok(Installed {
         executable,
         tessdata,
@@ -159,7 +193,9 @@ fn download(
     path: &Path,
     stage: Stage,
     progress: &dyn Fn(Progress),
+    cancel: &AtomicBool,
 ) -> Result<(), String> {
+    ensure_running(cancel)?;
     let response = agent
         .get(url)
         .set("User-Agent", USER_AGENT)
@@ -182,6 +218,11 @@ fn download(
         total,
     });
     loop {
+        if cancel.load(Ordering::SeqCst) {
+            drop(file);
+            let _ = fs::remove_file(&temp);
+            return Err(CANCELLED.to_string());
+        }
         let read = reader
             .read(&mut buffer)
             .map_err(|err| format!("download {url}: {err}"))?;
@@ -217,6 +258,7 @@ fn ensure_languages(
     executable: &Path,
     languages: &str,
     progress: &dyn Fn(Progress),
+    cancel: &AtomicBool,
 ) -> Result<Option<PathBuf>, String> {
     let required: Vec<&str> = languages
         .split('+')
@@ -232,7 +274,8 @@ fn ensure_languages(
         return Ok(None);
     }
 
-    if let Some(directory) = executable.parent().map(|parent| parent.join("tessdata")) {
+    let bundled = executable.parent().map(|parent| parent.join("tessdata"));
+    if let Some(directory) = &bundled {
         if required
             .iter()
             .all(|language| directory.join(format!("{language}.traineddata")).is_file())
@@ -246,10 +289,22 @@ fn ensure_languages(
     fs::create_dir_all(&directory).map_err(|err| format!("create tessdata: {err}"))?;
     for language in required {
         let target = directory.join(format!("{language}.traineddata"));
-        if !target.is_file() {
-            let url = format!("{TESSDATA_URL}/{language}.traineddata");
-            download(agent, &url, &target, Stage::Languages, progress)?;
+        if target.is_file() {
+            continue;
         }
+        // 安装器自带的语言数据直接复制，避免重复下载（例如 eng）。
+        if let Some(source) = bundled
+            .as_ref()
+            .map(|directory| directory.join(format!("{language}.traineddata")))
+            .filter(|source| source.is_file())
+        {
+            fs::copy(&source, &target)
+                .map_err(|err| format!("copy {}: {err}", source.display()))?;
+            continue;
+        }
+        ensure_running(cancel)?;
+        let url = format!("{TESSDATA_URL}/{language}.traineddata");
+        download(agent, &url, &target, Stage::Languages, progress, cancel)?;
     }
     Ok(Some(directory))
 }

@@ -3,11 +3,13 @@
 
 //! 轻量配置读写。
 //!
-//! 文件仍然是标准的 `%APPDATA%\usbscan\config.toml`，但只实现当前用到的
+//! 文件是标准的 `<文档>\usbscan\config.toml`，但只实现当前用到的
 //! TOML 子集：字符串和整数。后续接入完整 `toml` + `serde` 时可无缝替换。
 
 use std::fs;
 use std::path::PathBuf;
+
+use crate::paths;
 
 /// 应用配置。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -71,12 +73,26 @@ pub struct Config {
 
 impl Config {
     /// 读取配置；文件不存在或损坏时返回默认值。
+    ///
+    /// 早期版本把配置放在 `%APPDATA%\usbscan`，这里会自动读取一次旧文件并
+    /// 迁移到文档目录，避免用户升级后丢失设置。
     #[must_use]
     pub fn load() -> Self {
-        let Ok(text) = fs::read_to_string(config_path()) else {
+        let path = config_path();
+        let Ok(text) =
+            fs::read_to_string(&path).or_else(|_| fs::read_to_string(legacy_config_path()))
+        else {
             return Self::default();
         };
-        let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+        let config = Self::parse(&text);
+        if !path.exists() {
+            config.save();
+        }
+        config
+    }
+
+    fn parse(text: &str) -> Self {
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
 
         let mut config = Self::default();
         for line in text.lines() {
@@ -270,9 +286,14 @@ fn push_string(out: &mut String, key: &str, value: &str) {
     out.push_str("\"\n");
 }
 
-/// `%APPDATA%\usbscan\config.toml`。
+/// `<文档>\usbscan\config.toml`。
 #[must_use]
 pub fn config_path() -> PathBuf {
+    paths::app_data_dir().join("config.toml")
+}
+
+/// 旧版配置位置：`%APPDATA%\usbscan\config.toml`，仅用于首次迁移。
+fn legacy_config_path() -> PathBuf {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .or_else(|| {

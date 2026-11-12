@@ -11,7 +11,9 @@ use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use windows_sys::Win32::System::Com::CoTaskMemFree;
-use windows_sys::Win32::UI::Shell::{FOLDERID_Pictures, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
+use windows_sys::Win32::UI::Shell::{
+    FOLDERID_Documents, FOLDERID_Pictures, SHGetKnownFolderPath, KF_FLAG_DEFAULT,
+};
 
 /// 返回用户的“图片”文件夹；读取失败时回退到 `%USERPROFILE%\Pictures`。
 #[must_use]
@@ -21,6 +23,27 @@ pub fn pictures_dir() -> Option<PathBuf> {
             .map(PathBuf::from)
             .map(|home| home.join("Pictures"))
     })
+}
+
+/// 返回用户的“文档”文件夹；读取失败时回退到 `%USERPROFILE%\Documents`。
+#[must_use]
+pub fn documents_dir() -> Option<PathBuf> {
+    known_folder(&FOLDERID_Documents).or_else(|| {
+        std::env::var_os("USERPROFILE")
+            .map(PathBuf::from)
+            .map(|home| home.join("Documents"))
+    })
+}
+
+/// 应用配置与会话目录：`<文档>\usbscan`。
+///
+/// 设置和会话清单不应混在用户的照片目录里，因此统一放在文档目录下。
+#[must_use]
+pub fn app_data_dir() -> PathBuf {
+    documents_dir()
+        .or_else(|| std::env::var_os("PUBLIC").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("usbscan")
 }
 
 /// 默认的扫描输出目录：`<图片>\usbscan`。
@@ -79,5 +102,18 @@ mod tests {
             path.file_name().and_then(|name| name.to_str()),
             Some("usbscan")
         );
+    }
+
+    #[test]
+    fn app_data_lives_in_documents() {
+        let path = app_data_dir();
+        assert!(path.is_absolute());
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("usbscan")
+        );
+        if let Some(documents) = documents_dir() {
+            assert_eq!(path.parent(), Some(documents.as_path()));
+        }
     }
 }

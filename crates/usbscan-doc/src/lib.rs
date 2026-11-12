@@ -3,8 +3,9 @@
 
 //! 会话与页面模型。
 //!
-//! 一次会话对应一个文档，页面按拍摄顺序排列。会话清单写在输出根目录的
-//! `.usbscan/session.json`，采用临时文件 + 原子替换，崩溃后可以恢复。
+//! 一次会话对应一个文档，页面按拍摄顺序排列。会话清单默认写在
+//! `<目录>/session.json`（主程序放在文档目录下，避免污染照片目录），
+//! 采用临时文件 + 原子替换，崩溃后可以恢复。
 //! 这里不依赖任何第三方库，便于在受限构建环境中继续工作。
 
 mod json;
@@ -270,26 +271,26 @@ fn page_from_json(value: &Json) -> Result<Page, String> {
 /// 会话清单读写。
 #[derive(Debug, Clone)]
 pub struct SessionStore {
-    root: PathBuf,
+    dir: PathBuf,
 }
 
 impl SessionStore {
-    /// 指定输出根目录。
+    /// 以输出根目录创建清单存储：`<输出根>/.usbscan/session.json`。
     #[must_use]
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self::in_dir(root.into().join(".usbscan"))
     }
 
-    /// 会话清单路径：`<输出根>/.usbscan/session.json`。
+    /// 把清单直接放在指定目录下，与照片目录分离。
+    #[must_use]
+    pub fn in_dir(dir: impl Into<PathBuf>) -> Self {
+        Self { dir: dir.into() }
+    }
+
+    /// 会话清单路径。
     #[must_use]
     pub fn manifest_path(&self) -> PathBuf {
-        self.root.join(".usbscan").join("session.json")
-    }
-
-    /// 输出根目录。
-    #[must_use]
-    pub fn root(&self) -> &Path {
-        &self.root
+        self.dir.join("session.json")
     }
 
     /// 读取清单；不存在时返回 `Ok(None)`。
@@ -505,6 +506,20 @@ mod tests {
             Session::from_json_str(r#"{"next_seq": 1, "pages": [{"seq": 7, "path": "a.jpg"}]}"#)
                 .expect("load");
         assert_eq!(session.next_seq, 8);
+    }
+
+    #[test]
+    fn in_dir_keeps_manifest_out_of_the_photo_folder() {
+        let store = SessionStore::in_dir(Path::new("C:/Users/me/Documents/usbscan"));
+        assert_eq!(
+            store.manifest_path(),
+            PathBuf::from("C:/Users/me/Documents/usbscan/session.json")
+        );
+        let legacy = SessionStore::new(Path::new("C:/photos"));
+        assert_eq!(
+            legacy.manifest_path(),
+            PathBuf::from("C:/photos/.usbscan/session.json")
+        );
     }
 
     #[test]

@@ -24,6 +24,11 @@ export struct PageItem {
     thumb: image,
 }
 
+export struct NamingVariable {
+    label: string,
+    token: string,
+}
+
 component PillButton inherits TouchArea {
     in property <string> text;
     in property <bool> primary: false;
@@ -133,6 +138,33 @@ component FieldLabel inherits Text {
     color: Theme.muted;
     font-size: 12px;
     vertical-alignment: center;
+}
+
+// 命名模板里可一键插入的变量标签。
+component VariableChip inherits TouchArea {
+    in property <string> label;
+
+    height: 26px;
+    min-width: 40px;
+    horizontal-stretch: 1;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 6px;
+        background: root.pressed ? Theme.border : (root.has-hover ? Theme.hover : Theme.control);
+
+        Text {
+            width: 100%;
+            height: 100%;
+            text: root.label;
+            color: Theme.text;
+            font-size: 11px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
 }
 
 component ToggleRow inherits TouchArea {
@@ -295,6 +327,8 @@ export component MainWindow inherits Window {
     in-out property <int> format-index: 0;
     in-out property <int> fps-index: 0;
     in property <[PageItem]> pages;
+    in property <[NamingVariable]> file-variables;
+    in property <[NamingVariable]> folder-variables;
     in-out property <int> selected-page: -1;
     in-out property <length> pages-scroll-y: 0px;
     in-out property <image> preview-source;
@@ -377,6 +411,8 @@ export component MainWindow inherits Window {
     in property <string> t-language: "语言";
     in property <string> t-page-prefix: "第 ";
     in property <string> t-page-suffix: " 页";
+    in property <string> t-clear-pages: "清空";
+    in property <string> t-naming-hint: "点击变量即可插入模板；日期和时间取自拍摄时刻，序号自动递增。";
     in-out property <bool> show-tesseract-prompt: false;
     in-out property <bool> tesseract-installing: false;
     in property <string> tesseract-title: "未找到 Tesseract";
@@ -390,6 +426,7 @@ export component MainWindow inherits Window {
     callback format-changed(int);
     callback fps-changed(int);
     callback page-selected(int);
+    callback clear-pages();
     callback open-page(int);
     callback rename-page(int);
     callback delete-page(int);
@@ -531,9 +568,17 @@ export component MainWindow inherits Window {
                     padding: 12px;
                     spacing: 8px;
                     HorizontalLayout {
-                        Text { text: root.t-pages; color: Theme.muted; font-size: 12px; font-weight: 600; }
+                        spacing: 6px;
+                        Text { text: root.t-pages; color: Theme.muted; font-size: 12px; font-weight: 600; vertical-alignment: center; }
                         Rectangle { horizontal-stretch: 1; }
                         Text { text: root.page-count-text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                        PillButton {
+                            text: root.t-clear-pages;
+                            height: 22px;
+                            min-width: 44px;
+                            enabled: root.pages.length > 0;
+                            clicked => { root.clear-pages(); }
+                        }
                     }
                     ScrollView {
                         vertical-stretch: 1;
@@ -704,13 +749,18 @@ export component MainWindow inherits Window {
                 width: 340px;
                 background: Theme.panel;
                 Rectangle { x: 0px; width: 1px; height: 100%; background: Theme.border; }
-                VerticalLayout {
-                    padding: 12px;
-                    spacing: 10px;
+                ScrollView {
+                    width: 100%;
+                    height: 100%;
+                    horizontal-scrollbar-policy: always-off;
+                    VerticalLayout {
+                        width: 100%;
+                        padding: 12px;
+                        spacing: 10px;
 
-                    Section {
-                        title: root.t-scan-settings;
-                            content-height: 191px;
+                        Section {
+                            title: root.t-scan-settings;
+                            content-height: 306px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
@@ -727,8 +777,28 @@ export component MainWindow inherits Window {
                                 }
                                 FieldLabel { text: root.t-file-template; }
                                 LineEdit { text: root.file-template; edited(text) => { root.file-template = text; } }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    for variable in root.file-variables : VariableChip {
+                                        label: variable.label;
+                                        clicked => { root.file-template = root.file-template + variable.token; }
+                                    }
+                                }
                                 FieldLabel { text: root.t-folder-template; }
                                 LineEdit { text: root.folder-template; edited(text) => { root.folder-template = text; } }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    for variable in root.folder-variables : VariableChip {
+                                        label: variable.label;
+                                        clicked => { root.folder-template = root.folder-template + variable.token; }
+                                    }
+                                }
+                                Text {
+                                    text: root.t-naming-hint;
+                                    color: Theme.muted;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
                             }
                         }
 
@@ -755,6 +825,7 @@ export component MainWindow inherits Window {
                     }
                 }
             }
+        }
 
         // Status bar
         Rectangle {

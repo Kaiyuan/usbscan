@@ -24,6 +24,7 @@ use usbscan_imaging as imaging;
 use usbscan_naming as naming;
 use usbscan_ocr as ocr;
 use usbscan_win::config::Config;
+use usbscan_win::paths;
 use usbscan_win::recorder::Recorder;
 use usbscan_win::theme;
 
@@ -592,7 +593,6 @@ impl AppState {
             self.set_status(&i18n::t_args("status.saveImageFailed", &[&err]));
             return;
         }
-        let raw_relative = self.write_raw(&frame);
         let relative = path
             .strip_prefix(&self.output_root)
             .unwrap_or(&path)
@@ -601,7 +601,7 @@ impl AppState {
         let page = doc::Page {
             seq,
             path: relative,
-            raw: raw_relative,
+            raw: None,
             width: enhanced.width,
             height: enhanced.height,
             captured_at: doc::now_unix(),
@@ -706,29 +706,6 @@ impl AppState {
             i18n::t("file.import"),
             now.format("yyyyMMdd_HHmmss")
         )))
-    }
-
-    fn write_raw(&mut self, frame: &capture::Frame) -> Option<PathBuf> {
-        let seq = self.session.next_seq;
-        let raw_dir = self.output_root.join(".usbscan").join("raw");
-        let _ = fs::create_dir_all(&raw_dir);
-        let name = format!("{seq:06}_{}.jpg", doc::now_unix());
-        let path = raw_dir.join(name);
-        if write_jpeg_atomic(
-            &path,
-            frame.width,
-            frame.height,
-            &frame.data,
-            self.config.jpeg_quality.unwrap_or(92).min(92),
-        )
-        .is_ok()
-        {
-            path.strip_prefix(&self.output_root)
-                .ok()
-                .map(Path::to_path_buf)
-        } else {
-            None
-        }
     }
 
     fn rebuild_pages(&mut self) {
@@ -1469,7 +1446,7 @@ impl AppState {
             return;
         };
         let path = self.output_root.join(&page.path);
-        let trash = self.output_root.join(".usbscan").join("trash");
+        let trash = paths::app_data_dir().join("trash");
         let _ = fs::create_dir_all(&trash);
         if path.exists() {
             let destination = unique_path(
@@ -1488,6 +1465,23 @@ impl AppState {
         self.selected_row = None;
         self.rebuild_pages();
         self.set_status(i18n::t("status.movedToTrash"));
+    }
+
+    /// 清空左侧页面列表；磁盘上的照片保持不动。
+    fn clear_pages(&mut self) {
+        if self.session.pages.is_empty() {
+            return;
+        }
+        self.session.pages.clear();
+        self.session.updated_at = doc::now_unix();
+        self.thumb_cache.clear();
+        self.selected_row = None;
+        let _ = self.store.save(&self.session);
+        self.rebuild_pages();
+        if let Some(ui) = self.ui() {
+            ui.set_pages_scroll_y(0.0);
+        }
+        self.set_status(i18n::t("status.pagesCleared"));
     }
 
     fn import_images(&mut self) {
@@ -1734,7 +1728,6 @@ impl AppState {
         let empty = self.session.pages.is_empty();
         if empty {
             self.output_root.clone_from(&folder);
-            self.store = doc::SessionStore::new(folder.clone());
         }
         let text = folder.to_string_lossy().into_owned();
         self.last_output_dir.clone_from(&text);
@@ -1831,6 +1824,8 @@ fn apply_ui_language(ui: &MainWindow) {
     ui.set_t_language(i18n::t("ui.language").into());
     ui.set_t_page_prefix(i18n::t("ui.pagePrefix").into());
     ui.set_t_page_suffix(i18n::t("ui.pageSuffix").into());
+    ui.set_t_clear_pages(i18n::t("ui.clearPages").into());
+    ui.set_t_naming_hint(i18n::t("ui.namingHint").into());
     ui.set_tesseract_title(i18n::t("tesseract.title").into());
     ui.set_tesseract_install_label(i18n::t("tesseract.install").into());
 
@@ -1840,6 +1835,30 @@ fn apply_ui_language(ui: &MainWindow) {
         .collect();
     ui.set_language_options(ModelRc::from(Rc::new(VecModel::from(options))));
     ui.set_language_index(i18n::current().index() as i32);
+    apply_naming_variables(ui);
+}
+
+/// 命名模板里可一键插入的变量：显示名用当前语言，插入的是模板记号。
+fn apply_naming_variables(ui: &MainWindow) {
+    let variable = |label: &str, token: &str| NamingVariable {
+        label: label.into(),
+        token: token.into(),
+    };
+    let file = vec![
+        variable(i18n::t("naming.date"), "{date:yyyyMMdd}"),
+        variable(i18n::t("naming.time"), "{time:HHmmss}"),
+        variable(i18n::t("naming.seq"), "{seq:3}"),
+        variable(i18n::t("naming.user"), "{user}"),
+        variable(i18n::t("naming.device"), "{device}"),
+    ];
+    let folder = vec![
+        variable(i18n::t("naming.year"), "{date:yyyy}"),
+        variable(i18n::t("naming.month"), "{date:MM}"),
+        variable(i18n::t("naming.day"), "{date:dd}"),
+        variable(i18n::t("naming.document"), "{doc}"),
+    ];
+    ui.set_file_variables(ModelRc::from(Rc::new(VecModel::from(file))));
+    ui.set_folder_variables(ModelRc::from(Rc::new(VecModel::from(folder))));
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1876,8 +1895,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         .clone()
         .filter(|path| path.is_absolute())
         .unwrap_or_else(default_output_root);
-    let store = doc::SessionStore::new(output_root.clone());
-    let mut session = store.load().ok().flatten().unwrap_or_default();
+    let store = doc::SessionStore::in_dir(paths::app_data_dir());
+    // 每次启动都从空白页面列表开始：旧照片仍保留在磁盘上，但不再出现在左侧，
+    // 避免把上一次会话的页面误当成新文档的一部分。
+    let mut session = doc::Session::new(doc::DEFAULT_DOC_NAME, doc::now_unix());
     session.closed_cleanly = false;
     let mut rule = naming::NamingRule::default();
     if config.file_template.is_none() {
@@ -2142,6 +2163,10 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     {
         let state = std::rc::Rc::clone(state);
         ui.on_delete_page(move |row| state.borrow_mut().delete_page(row as usize));
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_clear_pages(move || state.borrow_mut().clear_pages());
     }
     {
         let state = std::rc::Rc::clone(state);

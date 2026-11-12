@@ -79,40 +79,60 @@ pub fn enhance(
         return Ok(image);
     }
 
-    let wants_perspective = options.perspective || options.auto_crop;
-    let mut perspective_applied = false;
-    if wants_perspective {
-        if let Ok(Some((width, height, bgra))) =
-            super::perspective::auto_perspective(image.width, image.height, &image.bgra)
-        {
-            image = EnhancedImage {
-                width,
-                height,
-                bgra,
-            };
-            perspective_applied = true;
-        }
-    }
-    if options.deskew && !perspective_applied {
-        let corners = crate::detect_document_corners(image.width, image.height, &image.bgra);
-        // 开启自动裁边/透视但没检测到文档时，不要对整张桌面做纠偏；否则会旋转整幅画面。
-        if !(wants_perspective && corners.is_none()) {
-            let correction = corners
-                .and_then(|corners| document_skew(&corners))
-                .or_else(|| estimate_skew(&image));
-            if let Some(correction) = correction {
-                if correction.abs() >= 0.35 {
-                    image = rotate(&image, correction);
-                }
+    // 只检测一次，供透视、裁边和纠偏共用。
+    let corners = if options.perspective || options.auto_crop || options.deskew {
+        crate::document::detect_document_corners(image.width, image.height, &image.bgra)
+    } else {
+        None
+    };
+    let mut geometry_changed = false;
+
+    if options.perspective {
+        if let Some(corners) = corners.as_ref() {
+            if let Ok((width, height, bgra)) = super::perspective::perspective_from_corners(
+                image.width,
+                image.height,
+                &image.bgra,
+                corners,
+            ) {
+                image = EnhancedImage {
+                    width,
+                    height,
+                    bgra,
+                };
+                geometry_changed = true;
             }
         }
     }
-    if options.auto_crop && !perspective_applied {
-        // 自动裁边但检测失败时，不要退回到背景色裁剪，以免把整张桌面裁成奇怪的比例。
-        if !(wants_perspective
-            && crate::detect_document_corners(image.width, image.height, &image.bgra).is_none())
-        {
-            image = crop_to_content(&image);
+    if options.auto_crop && !geometry_changed {
+        let cropped = crop_to_content(&image, corners.as_ref());
+        geometry_changed = cropped.width != image.width || cropped.height != image.height;
+        image = cropped;
+    }
+    if options.deskew {
+        // 透视/裁边之后角点坐标已经失效，改为直接从当前画面估计文字/线条倾角。
+        let active_corners = if geometry_changed {
+            None
+        } else {
+            corners.as_ref()
+        };
+        let correction = crate::document::estimate_deskew_in_quad(
+            image.width as usize,
+            image.height as usize,
+            &image.bgra,
+            active_corners,
+        )
+        .or_else(|| {
+            if geometry_changed {
+                None
+            } else {
+                corners.as_ref().and_then(document_skew)
+            }
+        });
+        if let Some(correction) = correction {
+            if correction.abs() >= 0.35 {
+                image = rotate(&image, correction);
+            }
         }
     }
     if options.remove_shadow && options.strength > 0 {
@@ -134,15 +154,15 @@ fn luminance(pixel: &[u8]) -> u32 {
 }
 
 #[allow(clippy::too_many_lines)]
-fn crop_to_content(image: &EnhancedImage) -> EnhancedImage {
+fn crop_to_content(image: &EnhancedImage, corners: Option<&[(f64, f64); 4]>) -> EnhancedImage {
     let width = image.width as usize;
     let height = image.height as usize;
     if width < 8 || height < 8 {
         return image.clone();
     }
 
-    // 优先使用连通域检测出的文档边界；检测失败时回退到背景色裁剪。
-    if let Some(corners) = crate::detect_document_corners(image.width, image.height, &image.bgra) {
+    // 优先使用检测到的文档边界；检测失败时才谨慎回退到背景色裁剪。
+    if let Some(corners) = corners {
         let min_x = corners
             .iter()
             .map(|point| point.0)
@@ -213,6 +233,40 @@ fn crop_to_content(image: &EnhancedImage) -> EnhancedImage {
         (background[1] / samples) as i32,
         (background[2] / samples) as i32,
     ];
+    let background_luminance =
+        (background[0] * 299 + background[1] * 587 + background[2] * 114) / 1000;
+    // 边框本身就是亮纸色时，画面很可能已经铺满整张纸；此时“内容包围盒”其实
+    // 只是文字区域，按它裁剪会把页面裁成一条。纹理复杂的桌面同样不可信。
+    if background_luminance >= 200 {
+        return image.clone();
+    }
+    let mut deviation = 0u32;
+    let mut border_samples = 0u32;
+    let step = (width / 128).max(1);
+    for x in (0..width).step_by(step) {
+        for y in [0, height - 1] {
+            let p = pixel(image, x, y);
+            deviation += (i32::from(p[2]) - background[0])
+                .abs()
+                .max((i32::from(p[1]) - background[1]).abs())
+                .max((i32::from(p[0]) - background[2]).abs()) as u32;
+            border_samples += 1;
+        }
+    }
+    let step = (height / 128).max(1);
+    for y in (0..height).step_by(step) {
+        for x in [0, width - 1] {
+            let p = pixel(image, x, y);
+            deviation += (i32::from(p[2]) - background[0])
+                .abs()
+                .max((i32::from(p[1]) - background[1]).abs())
+                .max((i32::from(p[0]) - background[2]).abs()) as u32;
+            border_samples += 1;
+        }
+    }
+    if border_samples > 0 && deviation / border_samples > 26 {
+        return image.clone();
+    }
 
     let mut min_x = width;
     let mut min_y = height;
@@ -236,7 +290,7 @@ fn crop_to_content(image: &EnhancedImage) -> EnhancedImage {
         }
     }
     let total = width * height;
-    if content < total / 100 || content > total * 98 / 100 {
+    if content < total / 50 || content > total * 95 / 100 {
         return image.clone();
     }
 
@@ -287,93 +341,6 @@ fn document_skew(corners: &[(f64, f64); 4]) -> Option<f32> {
     let bottom = (bottom_right.1 - bottom_left.1).atan2(bottom_right.0 - bottom_left.0);
     let average = f64::midpoint(top, bottom).to_degrees();
     (average.abs() <= 15.0).then_some(-average as f32)
-}
-
-fn estimate_skew(image: &EnhancedImage) -> Option<f32> {
-    let step = (image.width.max(image.height) / 600).max(1) as usize;
-    let width = image.width as usize / step;
-    let height = image.height as usize / step;
-    if width < 32 || height < 32 {
-        return None;
-    }
-
-    let mut gray = vec![0u8; width * height];
-    for y in 0..height {
-        for x in 0..width {
-            gray[y * width + x] =
-                u8::try_from(luminance(pixel(image, x * step, y * step))).unwrap_or(0);
-        }
-    }
-
-    // 取梯度较强的点参与投影，权重使用梯度幅值，减少背景弱边缘干扰。
-    let mut points = Vec::new();
-    for y in 1..height - 1 {
-        for x in 1..width - 1 {
-            let gx = i32::from(gray[y * width + x + 1]) - i32::from(gray[y * width + x - 1]);
-            let gy = i32::from(gray[(y + 1) * width + x]) - i32::from(gray[(y - 1) * width + x]);
-            let weight = gx.abs() + gy.abs();
-            if weight > 50 {
-                points.push((x as f32, y as f32, weight as f32));
-            }
-        }
-    }
-    if points.len() < 64 {
-        return None;
-    }
-
-    let cx = width as f32 / 2.0;
-    let cy = height as f32 / 2.0;
-    let mut bins = vec![0.0f32; height + 2];
-    let mut best_angle = 0.0f32;
-    let mut best_score = 0.0f32;
-    let mut angle = -15.0f32;
-    while angle <= 15.0 {
-        let score = projection_score(&points, cx, cy, angle, &mut bins);
-        if score > best_score {
-            best_score = score;
-            best_angle = angle;
-        }
-        angle += 0.25;
-    }
-
-    // 在粗搜索结果附近做一次细化。
-    let coarse = best_angle;
-    let mut angle = coarse - 0.4;
-    while angle <= coarse + 0.4 {
-        let score = projection_score(&points, cx, cy, angle, &mut bins);
-        if score > best_score {
-            best_score = score;
-            best_angle = angle;
-        }
-        angle += 0.05;
-    }
-    // 搜索得到的是把像素转正所需的角度。
-    Some(best_angle)
-}
-
-fn projection_score(
-    points: &[(f32, f32, f32)],
-    cx: f32,
-    cy: f32,
-    angle: f32,
-    bins: &mut [f32],
-) -> f32 {
-    bins.fill(0.0);
-    let radians = angle.to_radians();
-    let (sin, cos) = radians.sin_cos();
-    for &(x, y, weight) in points {
-        let dx = x - cx;
-        let dy = y - cy;
-        let rotated = dx * sin + dy * cos + cy;
-        let index = rotated as isize;
-        if index >= 0 && (index as usize) < bins.len() {
-            bins[index as usize] += weight;
-        }
-    }
-    let mean = bins.iter().sum::<f32>() / bins.len() as f32;
-    bins.iter()
-        .map(|value| (value - mean) * (value - mean))
-        .sum()
 }
 
 fn rotate(image: &EnhancedImage, degrees: f32) -> EnhancedImage {
@@ -687,12 +654,7 @@ mod tests {
                 }
             }
         }
-        let image = EnhancedImage {
-            width,
-            height,
-            bgra: data,
-        };
-        let angle = estimate_skew(&image).expect("angle");
+        let angle = crate::document::estimate_deskew(width, height, &data).expect("angle");
         assert!(
             (angle + 6.0).abs() < 2.0,
             "expected correction around -6°, got {angle}"

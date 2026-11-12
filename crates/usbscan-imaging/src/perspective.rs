@@ -37,14 +37,20 @@ pub fn perspective_from_corners(
     corners: &[(f64, f64); 4],
 ) -> Result<(u32, u32, Vec<u8>), ImagingError> {
     crate::validate_bgra(width, height, bgra)?;
-    let target_width = distance(corners[0], corners[1])
-        .max(distance(corners[3], corners[2]))
-        .round()
-        .max(16.0) as u32;
-    let target_height = distance(corners[0], corners[3])
-        .max(distance(corners[1], corners[2]))
-        .round()
-        .max(16.0) as u32;
+    // 透视下近边和远边长度不同，取两条对边的平均值更接近纸张的真实比例，
+    // 直接用较大值会把页面拉长/拉宽。
+    let target_width = f64::midpoint(
+        distance(corners[0], corners[1]),
+        distance(corners[3], corners[2]),
+    )
+    .round()
+    .max(16.0) as u32;
+    let target_height = f64::midpoint(
+        distance(corners[0], corners[3]),
+        distance(corners[1], corners[2]),
+    )
+    .round()
+    .max(16.0) as u32;
     if target_width > width * 4 || target_height > height * 4 {
         return Err(ImagingError::InvalidSize {
             width: target_width,

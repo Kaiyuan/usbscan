@@ -574,7 +574,7 @@ impl AppState {
         };
         let ui = self.ui();
         let options = self.enhance_options();
-        let enhanced = self.enhance_frame(&frame, options);
+        let enhanced = Self::enhance_frame(&frame, options);
         let path = self.new_image_path(enhanced.width, enhanced.height);
         if let Some(parent) = path.parent() {
             if let Err(err) = fs::create_dir_all(parent) {
@@ -634,7 +634,6 @@ impl AppState {
     }
 
     fn enhance_frame(
-        &self,
         frame: &capture::Frame,
         options: imaging::EnhanceOptions,
     ) -> imaging::EnhancedImage {
@@ -643,44 +642,12 @@ impl AppState {
             height: frame.height,
             bgra: frame.data.clone(),
         };
-        let (corners, corners_frame) = {
-            let guard = self.worker.lock();
-            (guard.corners, guard.corners_frame)
-        };
-        let use_corners = corners_frame == Some((frame.width, frame.height))
-            && corners.is_some()
-            && (options.auto_crop || options.perspective);
-        let mut image = if use_corners {
-            match imaging::perspective_from_corners(
-                frame.width,
-                frame.height,
-                &frame.data,
-                &corners.unwrap(),
-            ) {
-                Ok((width, height, bgra)) => imaging::EnhancedImage {
-                    width,
-                    height,
-                    bgra,
-                },
-                Err(_) => original,
-            }
-        } else if options.is_active() {
+        if options.is_active() {
+            // 直接在真正要保存的帧上检测，精度高于预览用的缩略图角点。
             imaging::enhance(frame.width, frame.height, &frame.data, options).unwrap_or(original)
         } else {
             original
-        };
-        if use_corners && (options.remove_shadow || options.white_background) {
-            let post = imaging::EnhanceOptions {
-                remove_shadow: options.remove_shadow,
-                white_background: options.white_background,
-                strength: options.strength,
-                ..imaging::EnhanceOptions::default()
-            };
-            if let Ok(processed) = imaging::enhance(image.width, image.height, &image.bgra, post) {
-                image = processed;
-            }
         }
-        image
     }
 
     fn enhance_options(&self) -> imaging::EnhanceOptions {
@@ -699,7 +666,7 @@ impl AppState {
             });
         imaging::EnhanceOptions {
             auto_crop,
-            perspective: perspective || auto_crop,
+            perspective,
             deskew,
             remove_shadow,
             white_background,
@@ -1306,7 +1273,8 @@ impl AppState {
                 return;
             }
         };
-        if imaging::detect_document_corners(width, height, &data).is_none() {
+        // 纠偏不依赖文档边界：已经裁过边的页面同样需要转正。
+        if crop && imaging::detect_document_corners(width, height, &data).is_none() {
             self.set_status(i18n::t("status.noBoundary"));
             return;
         }

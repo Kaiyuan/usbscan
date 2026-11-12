@@ -4581,8 +4581,11 @@ fn auto_fix_selected_page(hwnd: HWND, mode: AutoFix) {
                 return;
             }
         };
-        if imaging::detect_document_corners(width, height, &data).is_none() {
-            s.status_msg = "未检测到可信的文档边界，已跳过自动处理".to_string();
+        // 纠偏不依赖文档边界；只有裁边/透视线程需要先确认边界。
+        if matches!(mode, AutoFix::Crop)
+            && imaging::detect_document_corners(width, height, &data).is_none()
+        {
+            s.status_msg = "未检测到可信的文档边界，已跳过自动裁剪".to_string();
             refresh_status(s);
             return;
         }

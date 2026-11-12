@@ -24,7 +24,7 @@ mod transform;
 pub use annotate::{colors, render_annotations, Annotation, AnnotationColor};
 pub use crop::crop_bgra;
 pub use dib::{decode_dib, encode_dib_bgra};
-pub use document::detect_document_corners;
+pub use document::{detect_document_corners, estimate_deskew};
 pub use enhance::{enhance, EnhanceOptions, EnhancedImage};
 pub use letterbox::trim_letterbox;
 pub use perspective::{auto_perspective, perspective_from_corners};

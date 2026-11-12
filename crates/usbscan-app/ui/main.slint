@@ -415,6 +415,7 @@ export component MainWindow inherits Window {
     in property <string> t-naming-hint: "点击变量即可插入模板；日期和时间取自拍摄时刻，序号自动递增。";
     in-out property <bool> show-tesseract-prompt: false;
     in-out property <bool> tesseract-installing: false;
+    in-out property <float> tesseract-progress: 0.0;
     in property <string> tesseract-title: "未找到 Tesseract";
     in property <string> tesseract-status: "OCR 需要 Tesseract。是否现在从 GitHub 下载并安装？安装可能需要管理员权限，完成后会自动继续识别。";
     in property <string> tesseract-install-label: "下载并安装";
@@ -1003,7 +1004,7 @@ export component MainWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: 520px;
-            height: 250px;
+            height: 278px;
             border-radius: 16px;
             background: Theme.card;
             border-width: 1px;
@@ -1027,6 +1028,19 @@ export component MainWindow inherits Window {
                     font-size: 13px;
                     wrap: word-wrap;
                     vertical-stretch: 1;
+                }
+                if (root.tesseract-installing) : Rectangle {
+                    height: 6px;
+                    border-radius: 3px;
+                    background: Theme.control;
+
+                    Rectangle {
+                        width: parent.width * root.tesseract-progress;
+                        height: 100%;
+                        border-radius: 3px;
+                        background: Theme.accent;
+                        animate width { duration: 120ms; }
+                    }
                 }
                 HorizontalLayout {
                     alignment: end;

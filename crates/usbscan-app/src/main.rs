@@ -531,6 +531,7 @@ struct AppState {
     update_downloading: bool,
     tessdata_dir: Option<PathBuf>,
     tesseract_install: Arc<Mutex<Option<Result<tesseract_install::Installed, String>>>>,
+    tesseract_progress: Arc<Mutex<tesseract_install::Progress>>,
     tesseract_installing: bool,
     timer: Option<slint::Timer>,
 }
@@ -1663,18 +1664,28 @@ impl AppState {
             return;
         }
         self.tesseract_installing = true;
+        if let Ok(mut progress) = self.tesseract_progress.lock() {
+            *progress = tesseract_install::Progress::default();
+        }
         if let Some(ui) = self.ui() {
             ui.set_tesseract_installing(true);
+            ui.set_tesseract_progress(0.0);
             ui.set_tesseract_status(i18n::t("tesseract.installing").into());
         }
         let slot = Arc::clone(&self.tesseract_install);
+        let progress = Arc::clone(&self.tesseract_progress);
         let languages = self
             .config
             .ocr_language
             .clone()
             .unwrap_or_else(|| ocr::DEFAULT_LANGUAGE.to_string());
         thread::spawn(move || {
-            let result = tesseract_install::install(&languages);
+            let report = move |value: tesseract_install::Progress| {
+                if let Ok(mut guard) = progress.lock() {
+                    *guard = value;
+                }
+            };
+            let result = tesseract_install::install(&languages, &report);
             if let Ok(mut guard) = slot.lock() {
                 *guard = Some(result);
             }
@@ -1682,6 +1693,25 @@ impl AppState {
     }
 
     fn poll_tesseract(&mut self) {
+        if self.tesseract_installing {
+            let progress = self
+                .tesseract_progress
+                .lock()
+                .map(|progress| *progress)
+                .unwrap_or_default();
+            if let Some(ui) = self.ui() {
+                let fraction = progress.fraction().unwrap_or_else(|| {
+                    if progress.stage == tesseract_install::Stage::Installing {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                });
+                ui.set_tesseract_progress(fraction);
+                ui.set_tesseract_status(tesseract_progress_text(progress).into());
+            }
+        }
+
         let result = self
             .tesseract_install
             .lock()
@@ -1774,6 +1804,42 @@ impl AppState {
 // ---------------------------------------------------------------------------
 // 启动与界面绑定
 // ---------------------------------------------------------------------------
+
+/// 把下载/安装进度格式化成当前语言的提示。
+fn tesseract_progress_text(progress: tesseract_install::Progress) -> String {
+    use tesseract_install::Stage;
+
+    if progress.total.is_none() && progress.received == 0 && progress.stage != Stage::Installing {
+        return i18n::t("tesseract.installing").to_string();
+    }
+    let percent = progress
+        .fraction()
+        .map(|fraction| format!("{}", (fraction * 100.0).round() as u32));
+    match progress.stage {
+        Stage::Downloading => percent.map_or_else(
+            || {
+                i18n::t_args(
+                    "tesseract.downloadingSize",
+                    &[&format!(
+                        "{:.1}",
+                        progress.received as f64 / (1024.0 * 1024.0)
+                    )],
+                )
+            },
+            |percent| i18n::t_args("tesseract.downloading", &[&percent]),
+        ),
+        Stage::Installing => i18n::t("tesseract.waitingElevation").to_string(),
+        Stage::Languages => percent.map_or_else(
+            || {
+                i18n::t_args(
+                    "tesseract.languagesSize",
+                    &[&format!("{}", progress.received / 1024)],
+                )
+            },
+            |percent| i18n::t_args("tesseract.languages", &[&percent]),
+        ),
+    }
+}
 
 fn main() {
     if let Err(err) = run() {
@@ -1993,6 +2059,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         update_downloading: false,
         tessdata_dir,
         tesseract_install: Arc::new(Mutex::new(None)),
+        tesseract_progress: Arc::new(Mutex::new(tesseract_install::Progress::default())),
         tesseract_installing: false,
         timer: None,
     }));

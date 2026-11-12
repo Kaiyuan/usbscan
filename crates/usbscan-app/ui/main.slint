@@ -334,6 +334,8 @@ export component MainWindow inherits Window {
     in-out property <image> preview-source;
     in-out property <bool> has-camera: false;
     in-out property <string> status-text: "就绪";
+    in-out property <bool> update-progress-visible: false;
+    in-out property <float> update-progress: 0.0;
     in-out property <string> output-dir;
     in-out property <string> file-template;
     in-out property <string> folder-template;
@@ -834,6 +836,20 @@ export component MainWindow inherits Window {
             height: 24px;
             background: Theme.panel;
             Rectangle { y: 0px; height: 1px; width: 100%; background: Theme.border; }
+            Rectangle {
+                y: parent.height - 2px;
+                height: 2px;
+                width: 100%;
+                background: transparent;
+                visible: root.update-progress-visible;
+
+                Rectangle {
+                    width: parent.width * root.update-progress;
+                    height: 100%;
+                    background: Theme.accent;
+                    animate width { duration: 120ms; }
+                }
+            }
             HorizontalLayout {
                 padding-left: 12px;
                 padding-right: 12px;

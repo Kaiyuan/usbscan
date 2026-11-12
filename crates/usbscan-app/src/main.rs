@@ -525,6 +525,7 @@ struct AppState {
     audio: Option<Audio>,
     update_check: UpdateCheckSlot,
     update_download: UpdateDownloadSlot,
+    update_progress: Arc<Mutex<update::DownloadProgress>>,
     update_info: Option<update::UpdateInfo>,
     update_checking: bool,
     update_check_manual: bool,
@@ -1070,6 +1071,19 @@ impl AppState {
             }
         }
 
+        if self.update_downloading {
+            let progress = self
+                .update_progress
+                .lock()
+                .map(|progress| *progress)
+                .unwrap_or_default();
+            if let Some(ui) = self.ui() {
+                ui.set_update_progress(progress.fraction().unwrap_or(0.0));
+                ui.set_update_progress_visible(true);
+            }
+            self.set_status(&update_download_text(progress));
+        }
+
         let download = self
             .update_download
             .lock()
@@ -1077,6 +1091,10 @@ impl AppState {
             .and_then(|mut guard| guard.take());
         if let Some(result) = download {
             self.update_downloading = false;
+            if let Some(ui) = self.ui() {
+                ui.set_update_progress_visible(false);
+                ui.set_update_progress(0.0);
+            }
             match result {
                 Ok(path) => {
                     if let Some(ui) = self.ui() {
@@ -1110,12 +1128,23 @@ impl AppState {
             return;
         }
         self.update_downloading = true;
+        if let Ok(mut progress) = self.update_progress.lock() {
+            *progress = update::DownloadProgress::default();
+        }
         if let Some(ui) = self.ui() {
             ui.set_update_text(i18n::t("status.downloadingUpdate").into());
+            ui.set_update_progress(0.0);
+            ui.set_update_progress_visible(true);
         }
         let slot = Arc::clone(&self.update_download);
+        let progress = Arc::clone(&self.update_progress);
         thread::spawn(move || {
-            let result = update::download_installer(&info);
+            let report = move |value: update::DownloadProgress| {
+                if let Ok(mut guard) = progress.lock() {
+                    *guard = value;
+                }
+            };
+            let result = update::download_installer(&info, &report);
             if let Ok(mut guard) = slot.lock() {
                 *guard = Some(result);
             }
@@ -1878,6 +1907,31 @@ fn tesseract_progress_text(progress: tesseract_install::Progress) -> String {
     }
 }
 
+/// 把更新安装包的下载进度格式化成当前语言的提示。
+fn update_download_text(progress: update::DownloadProgress) -> String {
+    progress.fraction().map_or_else(
+        || {
+            if progress.received == 0 {
+                i18n::t("status.downloadingUpdate").to_string()
+            } else {
+                i18n::t_args(
+                    "status.downloadingUpdateSize",
+                    &[&format!(
+                        "{:.1}",
+                        progress.received as f64 / (1024.0 * 1024.0)
+                    )],
+                )
+            }
+        },
+        |fraction| {
+            i18n::t_args(
+                "status.downloadingUpdatePercent",
+                &[&format!("{}", (fraction * 100.0).round() as u32)],
+            )
+        },
+    )
+}
+
 fn main() {
     if let Err(err) = run() {
         eprintln!("usbscan 启动失败：{err}");
@@ -2090,6 +2144,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         audio: None,
         update_check: Arc::new(Mutex::new(None)),
         update_download: Arc::new(Mutex::new(None)),
+        update_progress: Arc::new(Mutex::new(update::DownloadProgress::default())),
         update_info: None,
         update_checking: false,
         update_check_manual: false,

@@ -1631,6 +1631,10 @@ impl AppState {
             .ocr_language
             .clone()
             .unwrap_or_else(|| ocr::DEFAULT_LANGUAGE.to_string());
+        if !ocr::has_language_data(&executable, self.tessdata_dir.as_deref(), &language) {
+            self.prompt_tesseract_languages(&language);
+            return;
+        }
         let path = self.output_root.join(&page.path);
         match ocr::recognize_with_tessdata(
             &executable,
@@ -1655,7 +1659,21 @@ impl AppState {
         if let Some(ui) = self.ui() {
             ui.set_show_about(false);
             ui.set_tesseract_installing(false);
+            ui.set_tesseract_title(i18n::t("tesseract.title").into());
             ui.set_tesseract_status(i18n::t("tesseract.body").into());
+            ui.set_tesseract_install_label(i18n::t("tesseract.install").into());
+            ui.set_show_tesseract_prompt(true);
+        }
+    }
+
+    fn prompt_tesseract_languages(&mut self, language: &str) {
+        self.set_status(i18n::t("status.tesseractLanguagesMissing"));
+        if let Some(ui) = self.ui() {
+            ui.set_show_about(false);
+            ui.set_tesseract_installing(false);
+            ui.set_tesseract_title(i18n::t("tesseract.languageTitle").into());
+            ui.set_tesseract_status(i18n::t_args("tesseract.languageBody", &[language]).into());
+            ui.set_tesseract_install_label(i18n::t("tesseract.downloadLanguages").into());
             ui.set_show_tesseract_prompt(true);
         }
     }

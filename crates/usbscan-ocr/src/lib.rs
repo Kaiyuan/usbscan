@@ -105,6 +105,24 @@ pub fn find_tesseract(configured: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
+/// 检查 OCR 所需语言的 `traineddata` 是否齐全。
+///
+/// `tessdata` 为显式指定的目录（即 `TESSDATA_PREFIX`）；未指定时使用
+/// `tesseract.exe` 同级的 `tessdata`。
+#[must_use]
+pub fn has_language_data(executable: &Path, tessdata: Option<&Path>, language: &str) -> bool {
+    let Some(directory) = tessdata
+        .map(Path::to_path_buf)
+        .or_else(|| executable.parent().map(|parent| parent.join("tessdata")))
+    else {
+        return false;
+    };
+    language
+        .split('+')
+        .filter(|language| !language.is_empty())
+        .all(|language| directory.join(format!("{language}.traineddata")).is_file())
+}
+
 /// 便携版 Tesseract 的 tessdata 目录。
 fn apply_portable_tessdata(command: &mut Command, executable: &Path) {
     let Some(directory) = executable.parent() else {
@@ -424,6 +442,25 @@ mod tests {
     fn explicit_missing_path_falls_back_to_none_when_not_installed() {
         // 不假设机器上安装了 Tesseract；只验证传入不存在的路径不会 panic。
         let _ = find_tesseract(Some(Path::new("Z:\\definitely-missing\\tesseract.exe")));
+    }
+
+    #[test]
+    fn detects_missing_language_data() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("target")
+            .join("tmp")
+            .join("ocr-lang-test");
+        let tessdata = root.join("tessdata");
+        std::fs::create_dir_all(&tessdata).expect("create tessdata");
+        std::fs::write(tessdata.join("eng.traineddata"), b"x").expect("write eng");
+        let executable = root.join("tesseract.exe");
+        assert!(has_language_data(&executable, None, "eng"));
+        assert!(!has_language_data(&executable, None, "chi_sim"));
+        assert!(!has_language_data(&executable, None, "chi_sim+eng"));
+        assert!(has_language_data(&executable, Some(&tessdata), "eng"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

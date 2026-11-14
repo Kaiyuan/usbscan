@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>UsbScan — 把 USB 摄像头变成文档扫描仪</title>
-  <meta name="description" content="UsbScan 是一款 Windows 离线文档扫描软件：任意 UVC 摄像头、自动裁边与透视校正、离线 OCR、PDF 导出、MP4 录像。">
+  <meta name="description" content="UsbScan 是一款跨平台离线文档扫描软件（支持 Windows、macOS 与 UOS/Linux）：任意 UVC 摄像头、自动裁边与透视校正、离线 OCR、PDF 导出、MP4 录像。">
   <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f0f10" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/usbscan_icons/usbscan_32x32.png">
@@ -52,13 +52,13 @@
     <section class="hero">
       <div class="wrap hero-grid">
         <div>
-          <div class="eyebrow"><span class="dot"></span><span data-i18n="hero.badge">Windows 10 / 11 · 完全离线 · 开源</span></div>
+          <div class="eyebrow"><span class="dot"></span><span data-i18n="hero.badge">Windows · macOS · UOS / Linux · 完全离线 · 开源</span></div>
           <h1><span data-i18n="hero.title1">把任意 USB 摄像头，</span><br><span class="grad" data-i18n="hero.title2">变成文档扫描仪。</span></h1>
           <p class="lede" data-i18n="hero.lede">拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，一条完整的工作流。无需专业扫描仪，也无需把文档上传到云端。</p>
           <div class="actions">
-            <a class="btn btn-primary" id="hero-download" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+            <a class="btn btn-primary" id="hero-download" href="#download">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-              <span data-i18n="hero.download">下载 Windows 版</span>
+              <span id="hero-download-text" data-i18n="hero.download">下载 UsbScan</span>
             </a>
             <a class="btn btn-secondary" href="https://github.com/Kaiyuan/usbscan" target="_blank" rel="noopener">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2.17c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg>
@@ -142,25 +142,111 @@
           <div>
             <p class="kicker" data-i18n="download.kicker">下载</p>
             <h2><img src="assets/usbscan_box-64x64.png" data-i18n-alt="brand.alt" alt="UsbScan 安装包"><span data-i18n="download.title">下载 UsbScan</span></h2>
-            <p data-i18n="download.desc">安装版适合大多数用户；便携版解压即用，不写注册表。下载后可直接覆盖旧版本。</p>
-            <div class="download-actions">
-              <a class="btn btn-primary" id="setup-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-                <span data-i18n="download.setup">下载安装版</span>
-              </a>
-              <a class="btn btn-secondary" id="portable-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
-                <span data-i18n="download.portable">下载便携版</span>
-              </a>
+            <p data-i18n="download.desc">自动识别您的操作系统并提供最佳版本。您也可以在下方切换选择其他平台。</p>
+
+            <!-- 平台切换选项卡 -->
+            <div class="platform-tabs" role="tablist">
+              <button class="tab-btn active" id="tab-windows" role="tab" data-platform="windows">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+                <span>Windows</span>
+              </button>
+              <button class="tab-btn" id="tab-macos" role="tab" data-platform="macos">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.62-.75 1.04-1.8 1.01-2.87-.9.04-2.01.6-2.65 1.35-.56.65-.96 1.7-1.01 2.76.99.08 2.03-.49 2.65-1.24z"/></svg>
+                <span>macOS</span>
+              </button>
+              <button class="tab-btn" id="tab-linux" role="tab" data-platform="linux">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.002 0c-4.417 0-8 3.582-8 8 0 2.809 1.458 5.275 3.666 6.697-.333 1.222-1.223 3.86-1.223 4.803 0 2.378 2.48 4.5 5.557 4.5s5.557-2.122 5.557-4.5c0-.943-.89-3.581-1.223-4.803 2.208-1.422 3.666-3.888 3.666-6.697 0-4.418-3.583-8-8-8z"/></svg>
+                <span>UOS / Linux</span>
+              </button>
             </div>
-            <p class="download-deps" data-i18n-html="download.vcRedist">UsbScan 需要 <strong>Microsoft Visual C++ 2015–2022 运行库（x64）</strong>。安装版会自动检测并提供一键安装；便携版或手动安装可<a href="https://aka.ms/vs/17/release/vc_redist.x64.exe" target="_blank" rel="noopener">下载运行库</a>。</p>
+
+            <!-- Windows 面板 -->
+            <div class="platform-content active" id="panel-windows">
+              <div class="download-actions">
+                <a class="btn btn-primary" id="setup-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                  <span data-i18n="download.setup">下载安装版 (.exe)</span>
+                </a>
+                <a class="btn btn-secondary" id="portable-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+                  <span data-i18n="download.portable">下载便携版 (.zip)</span>
+                </a>
+              </div>
+              <div class="deps-box">
+                <div class="deps-box-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  <span data-i18n="download.depsTitle">依赖与运行环境说明</span>
+                </div>
+                <ul>
+                  <li data-i18n-html="download.winVcDesc"><strong>基础运行库：</strong>需安装 <strong>Microsoft Visual C++ 2015–2022 x64</strong> 运行库。<a href="https://aka.ms/vs/17/release/vc_redist.x64.exe" target="_blank" rel="noopener">点击官方下载运行库</a>。</li>
+                  <li data-i18n-html="download.winOcrDesc"><strong>离线 OCR 识别插件：</strong>依赖 <strong>Tesseract 5</strong>。软件内自带一键下载安装向导，并会自动补齐所需语言数据；无需手动配置。</li>
+                  <li data-i18n="download.winPdfDesc"><strong>PDF 页面导入：</strong>调用系统 Windows.Data.Pdf 引擎，无需安装额外插件。</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- macOS 面板 -->
+            <div class="platform-content" id="panel-macos">
+              <div class="download-actions">
+                <a class="btn btn-primary" id="macos-universal-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                  <span data-i18n="download.macosUniversal">下载通用版 (.app / Universal)</span>
+                </a>
+                <a class="btn btn-secondary btn-sm" id="macos-arm64-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <span>Apple Silicon (M系列)</span>
+                </a>
+                <a class="btn btn-secondary btn-sm" id="macos-x64-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <span>Intel (x64)</span>
+                </a>
+              </div>
+              <div class="deps-box">
+                <div class="deps-box-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  <span data-i18n="download.depsTitle">依赖与运行环境说明</span>
+                </div>
+                <ul>
+                  <li data-i18n-html="download.macPermDesc"><strong>相机使用权限：</strong>首次开启时，请在系统提示中点击“允许访问摄像头”，或在<strong>“系统设置 → 隐私与安全性 → 摄像头”</strong>中允许 UsbScan。</li>
+                  <li data-i18n-html="download.macOcrDesc"><strong>离线 OCR 识别插件：</strong>依赖 <strong>Tesseract</strong> 引擎。推荐使用 Homebrew 安装：<code>brew install tesseract tesseract-lang</code>。</li>
+                  <li data-i18n-html="download.macPdfDesc"><strong>PDF 转图片导入插件：</strong>导入多页 PDF 页面功能依赖 <strong>poppler</strong> 工具包：<code>brew install poppler</code>。</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- UOS / Linux 面板 -->
+            <div class="platform-content" id="panel-linux">
+              <div class="download-actions">
+                <a class="btn btn-primary" id="linux-deb-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                  <span data-i18n="download.linuxDeb">下载 UOS / Debian 安装包 (.deb)</span>
+                </a>
+                <a class="btn btn-secondary btn-sm" id="linux-deb-arm64-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <span>ARM64 (.deb)</span>
+                </a>
+                <a class="btn btn-secondary btn-sm" id="linux-tar-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <span data-i18n="download.linuxTar">便携包 (.tar.gz)</span>
+                </a>
+              </div>
+              <div class="deps-box">
+                <div class="deps-box-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  <span data-i18n="download.depsTitle">依赖与运行环境说明</span>
+                </div>
+                <ul>
+                  <li data-i18n-html="download.linuxPermDesc"><strong>摄像头用户权限：</strong>使用 USB 摄像头需将当前用户加入视频组：<code>sudo usermod -aG video $USER</code>，完成后注销重新登录。</li>
+                  <li data-i18n-html="download.linuxOcrDesc"><strong>离线 OCR 识别插件：</strong>在终端安装 Tesseract 核心与中英文数据：<code>sudo apt install tesseract-ocr tesseract-ocr-chi-sim</code>。</li>
+                  <li data-i18n-html="download.linuxPdfDesc"><strong>PDF 页面导入插件：</strong>导入多页 PDF 页面依赖 Poppler 工具包：<code>sudo apt install poppler-utils</code>。</li>
+                  <li data-i18n-html="download.linuxDebDesc"><strong>系统运行依赖：</strong>双击安装 <code>.deb</code> 会自动安装底层采集库 <code>libv4l-0</code>；便携版请确认已安装该库。</li>
+                </ul>
+              </div>
+            </div>
+
             <p class="download-meta" id="release-note">正在读取最新版本…你也可以前往 <a href="https://github.com/Kaiyuan/usbscan/releases" target="_blank" rel="noopener">GitHub Releases</a> 查看全部版本。</p>
           </div>
           <div class="download-side">
             <div class="row"><span data-i18n="download.latest">最新版本</span><span id="latest-version">—</span></div>
-            <div class="row"><span data-i18n="download.system">系统</span><span>Windows 10 / 11 x64</span></div>
+            <div class="row"><span data-i18n="download.system">系统支持</span><span id="side-system">Windows / macOS / UOS</span></div>
+            <div class="row"><span data-i18n="download.arch">支持架构</span><span id="side-arch">x86_64 / arm64 (aarch64)</span></div>
             <div class="row"><span data-i18n="download.runtime">运行环境</span><span data-i18n="download.runtimeValue">无需 .NET / WebView2</span></div>
-            <div class="row"><span data-i18n="download.vcRedistLabel">VC++ 运行库</span><a href="https://aka.ms/vs/17/release/vc_redist.x64.exe" target="_blank" rel="noopener">Microsoft VC++ 2015–2022 x64</a></div>
             <div class="row"><span data-i18n="download.license">许可证</span><span>GPL-3.0-or-later</span></div>
             <div class="row"><span data-i18n="download.checksums">校验和</span><a id="checksums-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt</a></div>
           </div>

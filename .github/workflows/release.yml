@@ -7,83 +7,237 @@ on:
 permissions:
   contents: write
 
-jobs:
-  windows:
-    runs-on: windows-latest
-    env:
-      CARGO_TERM_COLOR: always
+env:
+  CARGO_TERM_COLOR: always
 
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read workspace version
+        id: version
+        shell: bash
+        run: |
+          version="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          if [ -z "$version" ]; then
+            echo "Unable to read the workspace version" >&2
+            exit 1
+          fi
+          tag="${{ github.event.release.tag_name }}"
+          if [ "$tag" != "v$version" ] && [ "$tag" != "$version" ]; then
+            echo "Release tag '$tag' does not match Cargo.toml version '$version'" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: version
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-      - name: Read workspace version
-        id: version
-        shell: pwsh
-        run: |
-          $cargoToml = Get-Content Cargo.toml -Raw
-          $match = [regex]::Match($cargoToml, '(?m)^\s*version\s*=\s*"([^"]+)"')
-          if (-not $match.Success) { throw 'Unable to read the workspace version' }
-          $version = $match.Groups[1].Value
-          $tag = '${{ github.event.release.tag_name }}'
-          if ($tag -ne "v$version" -and $tag -ne $version) {
-            throw "Release tag '$tag' does not match Cargo.toml version '$version'"
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
-
-      - name: Build release
-        run: cargo build --release -p usbscan-app
-
-      - name: Package portable
-        shell: pwsh
-        run: |
-          $version = '${{ steps.version.outputs.version }}'
-          $dist = 'dist'
-          New-Item -ItemType Directory -Force $dist | Out-Null
-          Copy-Item 'target\release\usbscan.exe' $dist -Force
-          Copy-Item 'LICENSE','README.md','THIRD_PARTY.md' $dist -Force
-          Copy-Item 'assets\icons\TABLER-ICONS-LICENSE.txt' $dist -Force
-          $items = @(
-            "$dist\usbscan.exe",
-            "$dist\LICENSE",
-            "$dist\README.md",
-            "$dist\THIRD_PARTY.md",
-            "$dist\TABLER-ICONS-LICENSE.txt"
-          )
-          Compress-Archive -LiteralPath $items -DestinationPath "$dist\usbscan-$version-portable.zip" -Force
+      - name: Build, test and package
+        run: powershell -ExecutionPolicy Bypass -File .\build.ps1
 
       - name: Build installer
         shell: pwsh
         run: |
           choco install innosetup --yes --no-progress
-          $env:USBSCAN_VERSION = '${{ steps.version.outputs.version }}'
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' 'installer\usbscan.iss'
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' `
+            '/DMyAppVersion=${{ needs.version.outputs.version }}' 'installer\usbscan.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 
-      - name: Create checksums
-        shell: pwsh
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          if-no-files-found: error
+          path: |
+            dist/usbscan.exe
+            dist/usbscan-${{ needs.version.outputs.version }}-win-x64.zip
+            dist/usbscan-${{ needs.version.outputs.version }}-setup.exe
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Build Apple Silicon package
+        # 跳过 lint：macOS 专属代码无法在 Windows/Linux 上运行 Clippy，
+        # build/test 仍会完整编译并运行全部测试。
+        run: ./build.sh --skip-lint
+
+      - name: Keep Apple Silicon binary
+        run: cp dist/usbscan.app/Contents/MacOS/usbscan dist/usbscan-arm64
+
+      - name: Build Intel package
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "10.15"
+        run: ./build.sh --target x86_64-apple-darwin
+
+      - name: Build Universal package
+        shell: bash
         run: |
-          $version = '${{ steps.version.outputs.version }}'
-          $files = @(
-            "dist\usbscan-$version-setup.exe",
-            "dist\usbscan-$version-portable.zip"
+          version='${{ needs.version.outputs.version }}'
+          universal="$(mktemp)"
+          lipo -create \
+            dist/usbscan-arm64 \
+            dist/usbscan.app/Contents/MacOS/usbscan \
+            -output "$universal"
+          cp "$universal" dist/usbscan.app/Contents/MacOS/usbscan
+          rm -f "$universal" dist/usbscan-arm64
+          codesign --force --deep --sign - dist/usbscan.app
+          lipo -archs dist/usbscan.app/Contents/MacOS/usbscan
+          tar -czf "dist/usbscan-${version}-macos-universal.tar.gz" -C dist usbscan.app
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          if-no-files-found: error
+          path: dist/usbscan-*-macos-*.tar.gz
+
+  linux:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config cmake nasm \
+            libasound2-dev libssl-dev libfontconfig1-dev libxkbcommon-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libv4l-dev libudev-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Build, test and package
+        run: ./build.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            dist/usbscan-*-linux-*.tar.gz
+            dist/usbscan_*_*.deb
+
+  uos:
+    needs: version
+    runs-on: ubuntu-24.04
+    # UOS V20 基于 Debian 10（glibc 2.28 / OpenSSL 1.1.1），在对应容器中构建，
+    # 保证发布的二进制和 .deb 依赖能在 UOS 上直接使用。
+    container: debian:buster
+    steps:
+      - name: Prepare Debian 10 (UOS V20) container
+        shell: sh
+        run: |
+          sed -i 's|deb.debian.org/debian|archive.debian.org/debian|g' /etc/apt/sources.list
+          sed -i 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' /etc/apt/sources.list
+          sed -i '/buster-updates/d' /etc/apt/sources.list
+          apt-get -o Acquire::Check-Valid-Until=false update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates curl build-essential pkg-config cmake nasm \
+            libasound2-dev libssl-dev libfontconfig1-dev libxkbcommon-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libv4l-dev libudev-dev
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Build, test and package
+        run: ./build.sh
+
+      - name: Rename UOS artifacts
+        shell: bash
+        run: |
+          version='${{ needs.version.outputs.version }}'
+          mv "dist/usbscan-${version}-linux-x64.tar.gz" "dist/usbscan-${version}-uos-x64.tar.gz"
+          mv "dist/usbscan_${version}_amd64.deb" "dist/usbscan_${version}_uos_amd64.deb"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: uos-x64
+          if-no-files-found: error
+          path: |
+            dist/usbscan-*-uos-*.tar.gz
+            dist/usbscan_*_uos_*.deb
+
+  publish:
+    needs: [version, windows, macos, linux, uos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: dist
+        shell: bash
+        run: |
+          files=(
+            usbscan-*-setup.exe
+            usbscan-*-win-*.zip
+            usbscan-*-macos-*.tar.gz
+            usbscan-*-linux-*.tar.gz
+            usbscan-*-uos-*.tar.gz
+            usbscan_*.deb
           )
-          $lines = foreach ($file in $files) {
-            if (-not (Test-Path $file)) { throw "Missing release asset: $file" }
-            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $(Split-Path -Leaf $file)"
-          }
-          Set-Content 'dist\SHA256SUMS.txt' $lines -Encoding ascii
+          ls -l "${files[@]}"
+          sha256sum "${files[@]}" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          fail_on_unmatched_files: true
           files: |
-            dist/usbscan-${{ steps.version.outputs.version }}-setup.exe
-            dist/usbscan-${{ steps.version.outputs.version }}-portable.zip
+            dist/usbscan-*-setup.exe
+            dist/usbscan-*-win-*.zip
+            dist/usbscan-*-macos-*.tar.gz
+            dist/usbscan-*-linux-*.tar.gz
+            dist/usbscan-*-uos-*.tar.gz
+            dist/usbscan_*.deb
             dist/SHA256SUMS.txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

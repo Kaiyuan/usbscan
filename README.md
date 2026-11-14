@@ -136,9 +136,13 @@ cargo fmt --all -- --check
 | **macOS** | Apple Silicon (arm64) | `.tar.gz` (`usbscan.app`) | 适配 M1 / M2 / M3 / M4 芯片的 Mac |
 | **macOS** | Intel (x64) | `.tar.gz` (`usbscan.app`) | 适配 Intel 芯片的老款 Mac |
 | **macOS** | Universal (双架构) | `.tar.gz` (`usbscan.app`) | 通过 `lipo` 打包的通用二进制包，即插即用 |
-| **UOS / Linux** | AMD64 (x64) | `.deb` 安装包 & `.tar.gz` 绿色包 | 统信 UOS、Debian、Ubuntu、Deepin 双击安装 |
-| **UOS / Linux** | ARM64 (aarch64) | `.deb` 安装包 & `.tar.gz` 绿色包 | 飞腾、鲲鹏、麒麟等国产 ARM64 处理器设备 |
+| **UOS V20** | AMD64 (x64) | `.deb` 安装包 & `.tar.gz` 绿色包 | 在 Debian 10 环境构建（glibc 2.28 / OpenSSL 1.1.1），适配 UOS 20、Deepin 20 |
+| **Linux** | AMD64 (x64) | `.deb` 安装包 & `.tar.gz` 绿色包 | Debian 12+ / Ubuntu 22.04+ / Deepin 23+ |
+| **Linux** | ARM64 (aarch64) | `.deb` 安装包 & `.tar.gz` 绿色包 | 飞腾、鲲鹏、麒麟等国产 ARM64 处理器设备（glibc 2.35+） |
 | **全平台** | - | `SHA256SUMS.txt` | 所有发布产物的 SHA-256 校验和 |
+
+> UOS V20（glibc 2.28）使用 `usbscan-<版本>-uos-x64.tar.gz` 或 `usbscan_<版本>_uos_amd64.deb`；
+> 其他 Linux 发行版使用 `linux-*` / `_amd64.deb` / `_arm64.deb` 产物。
 
 ## 目录结构
 

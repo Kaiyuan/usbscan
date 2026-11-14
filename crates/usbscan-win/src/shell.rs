@@ -34,7 +34,10 @@ impl std::fmt::Display for ElevatedError {
             Self::Cancelled => write!(f, "elevation was cancelled"),
             Self::Launch(msg) => write!(f, "failed to launch elevated process: {msg}"),
             Self::Wait(msg) => write!(f, "waiting for elevated process failed: {msg}"),
-            Self::NotSupported => write!(f, "automatic elevation is not supported on this platform; please install manually"),
+            Self::NotSupported => write!(
+                f,
+                "automatic elevation is not supported on this platform; please install manually"
+            ),
         }
     }
 }
@@ -49,7 +52,9 @@ impl std::error::Error for ElevatedError {}
 mod windows_impl {
     use std::path::Path;
 
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_CANCELLED, WAIT_OBJECT_0};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_CANCELLED, WAIT_OBJECT_0,
+    };
     use windows_sys::Win32::System::Threading::{
         GetExitCodeProcess, WaitForSingleObject, INFINITE,
     };
@@ -95,7 +100,9 @@ mod windows_impl {
         }
         if read == 0 {
             let code = unsafe { GetLastError() };
-            return Err(ElevatedError::Wait(format!("GetExitCodeProcess error {code}")));
+            return Err(ElevatedError::Wait(format!(
+                "GetExitCodeProcess error {code}"
+            )));
         }
         Ok(exit_code)
     }
@@ -145,7 +152,7 @@ mod unix_impl {
 
     /// 以特权运行安装脚本并等待退出。
     ///
-    /// **macOS**：使用 `osascript` AppleScript `do shell script ... with administrator privileges`。
+    /// **macOS**：使用 `osascript` `AppleScript` `do shell script ... with administrator privileges`。
     ///
     /// **Linux / UOS**：优先使用 `pkexec`（Polkit 图形授权，UOS 预装）；
     /// `pkexec` 不可用时返回 [`ElevatedError::NotSupported`]，
@@ -219,15 +226,9 @@ mod unix_impl {
         {
             // 尝试 Nautilus（GNOME / UOS 默认）的 --select 选项
             if which_command("nautilus").is_some() {
-                let _ = Command::new("nautilus")
-                    .arg("--select")
-                    .arg(path)
-                    .spawn();
+                let _ = Command::new("nautilus").arg("--select").arg(path).spawn();
             } else if which_command("dolphin").is_some() {
-                let _ = Command::new("dolphin")
-                    .arg("--select")
-                    .arg(path)
-                    .spawn();
+                let _ = Command::new("dolphin").arg("--select").arg(path).spawn();
             } else {
                 // 退化：打开父目录
                 if let Some(parent) = path.parent() {
@@ -238,6 +239,7 @@ mod unix_impl {
     }
 
     /// 检查命令是否存在于 PATH 中。
+    #[cfg(target_os = "linux")]
     fn which_command(name: &str) -> Option<std::ffi::OsString> {
         if let Some(path_var) = std::env::var_os("PATH") {
             for dir in std::env::split_paths(&path_var) {

@@ -638,7 +638,7 @@ pub fn draw_item(item: *const DRAWITEMSTRUCT, dark: bool) -> bool {
         let old_font = SelectObject(item.hDC, GetStockObject(DEFAULT_GUI_FONT));
         if !top_level && state & MF_CHECKED != 0 {
             let center_x = item.rcItem.left + 14;
-            let center_y = (item.rcItem.top + item.rcItem.bottom) / 2;
+            let center_y = item.rcItem.top.midpoint(item.rcItem.bottom);
             let pen = windows_sys::Win32::Graphics::Gdi::CreatePen(
                 windows_sys::Win32::Graphics::Gdi::PS_SOLID,
                 2,

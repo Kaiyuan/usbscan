@@ -35,9 +35,9 @@ pub use mp4::Mp4Writer;
 
 // --- Unix 专属重导出 ---
 #[cfg(not(windows))]
-pub use unix::{ensure_platform, init_thread, ComGuard};
-#[cfg(not(windows))]
 pub use mf_stub::CameraInfo;
+#[cfg(not(windows))]
+pub use unix::{ensure_platform, init_thread, ComGuard};
 
 // --- 非 Windows 下 CameraInfo 存根（结构与 Windows 版保持一致）---
 #[cfg(not(windows))]
@@ -250,8 +250,6 @@ mod tests {
             pnp_key(r"@device:pnp:\\?\usb#vid_1234#5&abc&0&1#{guid}"),
             Some("usb#vid_1234#5&abc&0&1".to_string())
         );
-        assert!(
-            pnp_key("@device:sw:{860BB310-5D01-11D0-BD3B-00A0C911CE86}\\{A3FCE0F5}").is_none()
-        );
+        assert!(pnp_key("@device:sw:{860BB310-5D01-11D0-BD3B-00A0C911CE86}\\{A3FCE0F5}").is_none());
     }
 }

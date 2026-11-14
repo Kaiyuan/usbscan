@@ -74,7 +74,7 @@ impl From<io::Error> for PdfError {
 
 #[cfg(windows)]
 mod windows_impl {
-    use super::*;
+    use super::{fs, imaging, unique_path, Path, PdfError, PdfPageImage, RENDER_DPI};
     use windows::core::HSTRING;
     use windows::Data::Pdf::{PdfDocument, PdfPageRenderOptions};
     use windows::Storage::StorageFile;
@@ -87,8 +87,9 @@ mod windows_impl {
     ) -> Result<Vec<PdfPageImage>, PdfError> {
         fs::create_dir_all(output_dir)?;
         let mut temporary = None;
-        let direct = StorageFile::GetFileFromPathAsync(&HSTRING::from(pdf.to_string_lossy().as_ref()))
-            .and_then(|operation| operation.get());
+        let direct =
+            StorageFile::GetFileFromPathAsync(&HSTRING::from(pdf.to_string_lossy().as_ref()))
+                .and_then(|operation| operation.get());
         let file = if let Ok(file) = direct {
             file
         } else {
@@ -177,7 +178,7 @@ mod windows_impl {
 
 #[cfg(not(windows))]
 mod unix_impl {
-    use super::*;
+    use super::{fs, imaging, unique_path, Path, PathBuf, PdfError, PdfPageImage, RENDER_DPI};
     use std::process::Command;
 
     pub fn render_pdf(
@@ -191,9 +192,11 @@ mod unix_impl {
         let has_pdftoppm = which_command("pdftoppm").is_some();
         if !has_pdftoppm {
             #[cfg(target_os = "macos")]
-            let tip = "未找到 pdftoppm 工具。在 macOS 上请通过 Homebrew 安装：\nbrew install poppler";
+            let tip =
+                "未找到 pdftoppm 工具。在 macOS 上请通过 Homebrew 安装：\nbrew install poppler";
             #[cfg(target_os = "linux")]
-            let tip = "未找到 pdftoppm 工具。在 UOS / Linux 上请安装：\nsudo apt install poppler-utils";
+            let tip =
+                "未找到 pdftoppm 工具。在 UOS / Linux 上请安装：\nsudo apt install poppler-utils";
             #[cfg(not(any(target_os = "macos", target_os = "linux")))]
             let tip = "未找到 pdftoppm，请安装 poppler 工具包";
             return Err(PdfError::Render(tip.to_string()));
@@ -229,7 +232,11 @@ mod unix_impl {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name.starts_with(prefix_file_stem.as_ref()) && name.ends_with(".jpg") {
+                        if name.starts_with(prefix_file_stem.as_ref())
+                            && Path::new(name)
+                                .extension()
+                                .is_some_and(|extension| extension.eq_ignore_ascii_case("jpg"))
+                        {
                             generated.push(path);
                         }
                     }
@@ -248,10 +255,7 @@ mod unix_impl {
             fs::rename(&gen_path, &target)?;
 
             // 读取图片尺寸
-            let (width, height) = match image::image_dimensions(&target) {
-                Ok((w, h)) => (w, h),
-                Err(_) => (1000, 1400),
-            };
+            let (width, height) = imaging::image_dimensions(&target).unwrap_or((1000, 1400));
 
             pages.push(PdfPageImage {
                 path: target,

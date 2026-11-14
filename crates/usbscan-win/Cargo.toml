@@ -13,14 +13,14 @@ workspace = true
 
 [dependencies]
 usbscan-capture = { path = "../usbscan-capture" }
+
+[target.'cfg(windows)'.dependencies]
 usbscan-doc = { path = "../usbscan-doc" }
 usbscan-export = { path = "../usbscan-export" }
 usbscan-imaging = { path = "../usbscan-imaging" }
 usbscan-naming = { path = "../usbscan-naming" }
 usbscan-ocr = { path = "../usbscan-ocr" }
 usbscan-pdf = { path = "../usbscan-pdf" }
-
-[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",

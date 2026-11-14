@@ -10,18 +10,17 @@
 //! 输出格式统一为 top-down BGRA8。
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use nokhwa::pixel_format::RgbAFormat;
 use nokhwa::utils::{
-    ApiBackend, CameraIndex, CameraInfo as NokhwaCameraInfo, RequestedFormat,
-    RequestedFormatType, Resolution,
+    ApiBackend, CameraIndex, CameraInfo as NokhwaCameraInfo, RequestedFormat, RequestedFormatType,
+    Resolution,
 };
 use nokhwa::Camera as NokhwaCamera;
 
 use crate::error::CaptureError;
 use crate::frame::{Frame, PixelFormat};
-use crate::mf::CameraInfo;
+use crate::CameraInfo;
 
 // ---------------------------------------------------------------------------
 // 枚举设备
@@ -30,14 +29,13 @@ use crate::mf::CameraInfo;
 /// 枚举系统中所有视频采集设备。
 pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
     let backend = preferred_backend();
-    let devices = nokhwa::query(backend)
-        .map_err(|err| CaptureError::Backend(err.to_string()))?;
-    Ok(devices.into_iter().map(nokhwa_info_to_camera_info).collect())
+    let devices = nokhwa::query(backend).map_err(|err| CaptureError::Backend(err.to_string()))?;
+    Ok(devices.iter().map(nokhwa_info_to_camera_info).collect())
 }
 
-fn nokhwa_info_to_camera_info(info: NokhwaCameraInfo) -> CameraInfo {
+fn nokhwa_info_to_camera_info(info: &NokhwaCameraInfo) -> CameraInfo {
     let id = format!("unix:{}", info.index());
-    let name = info.human_name().to_string();
+    let name = info.human_name().clone();
     CameraInfo { id, name }
 }
 
@@ -104,7 +102,10 @@ impl UnixCamera {
 
     /// 当前设备支持的分辨率列表（去重，按面积降序）。
     pub fn formats(&self) -> Vec<(u32, u32)> {
-        let camera = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut camera = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let Ok(formats) = camera.compatible_camera_formats() else {
             return vec![(self.width, self.height)];
         };
@@ -136,13 +137,17 @@ impl UnixCamera {
     /// 阻塞读取下一帧（BGRA8，top-down）。
     pub fn read_frame(&mut self) -> Result<Frame, CaptureError> {
         let frame = {
-            let mut camera = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let mut camera = self
+                .inner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             camera
                 .frame()
                 .map_err(|err| CaptureError::Backend(err.to_string()))?
         };
 
-        let (width, height) = (frame.width(), frame.height());
+        let resolution = frame.resolution();
+        let (width, height) = (resolution.width_x, resolution.height_y);
         // nokhwa 解码为 RGBA；我们需要 BGRA（蓝/红通道互换）。
         let rgba_buf: Vec<u8> = frame
             .decode_image::<RgbAFormat>()
@@ -151,7 +156,7 @@ impl UnixCamera {
 
         let mut bgra = rgba_buf;
         // RGBA → BGRA：交换 R(0) 与 B(2)
-        for chunk in bgra.chunks_exact_mut(4) {
+        for chunk in bgra.as_chunks_mut::<4>().0 {
             chunk.swap(0, 2);
         }
 

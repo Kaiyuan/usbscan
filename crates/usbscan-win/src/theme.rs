@@ -25,15 +25,12 @@ mod windows_impl {
         DWMWCP_ROUND,
     };
     use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
-    use windows_sys::Win32::System::Registry::{
-        RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD,
-    };
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
     use windows_sys::Win32::UI::Controls::SetWindowTheme;
 
     use crate::text::wide;
 
-    const PERSONALIZE_KEY: &str =
-        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+    const PERSONALIZE_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
     const APPS_USE_LIGHT_THEME: &str = "AppsUseLightTheme";
 
     pub fn system_uses_dark_mode() -> bool {
@@ -61,9 +58,7 @@ mod windows_impl {
             if module.is_null() {
                 return;
             }
-            if let Some(set_mode) =
-                resolve::<unsafe extern "system" fn(i32) -> i32>(module, 135)
-            {
+            if let Some(set_mode) = resolve::<unsafe extern "system" fn(i32) -> i32>(module, 135) {
                 set_mode(if dark { 2 } else { 3 });
             }
         }

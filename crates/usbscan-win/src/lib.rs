@@ -13,12 +13,14 @@
 //! （`paths` 和 `config`），UI 完全由 Slint（`usbscan-app`）驱动。
 
 // Win32 句柄本身就是裸指针，封装层把这些参数视为不透明句柄。
-#[cfg(windows)]
-#![allow(
-    clippy::not_unsafe_ptr_arg_deref,
-    clippy::borrow_as_ptr,
-    clippy::ptr_as_ptr,
-    clippy::unnecessary_cast
+#![cfg_attr(
+    windows,
+    allow(
+        clippy::not_unsafe_ptr_arg_deref,
+        clippy::borrow_as_ptr,
+        clippy::ptr_as_ptr,
+        clippy::unnecessary_cast
+    )
 )]
 
 // ---------------------------------------------------------------------------

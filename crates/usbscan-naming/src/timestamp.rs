@@ -100,7 +100,7 @@ impl TimeStamp {
             let millis = duration.subsec_millis() as u16;
 
             let mut tm = std::mem::MaybeUninit::<PosixTm>::zeroed();
-            let res = unsafe { localtime_r(&secs, tm.as_mut_ptr()) };
+            let res = unsafe { localtime_r(&raw const secs, tm.as_mut_ptr()) };
             if res.is_null() {
                 return Self::new(1970, 1, 1, 0, 0, 0, 0, 4);
             }

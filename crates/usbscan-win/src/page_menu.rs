@@ -49,14 +49,14 @@ pub struct PageMenuLabels<'a> {
 
 #[cfg(windows)]
 mod windows_impl {
-    use super::*;
+    use super::{PageMenuCommand, PageMenuLabels};
     use windows_sys::Win32::Foundation::POINT;
     use windows_sys::Win32::Graphics::Gdi::{DeleteObject, HBITMAP};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, PostMessageW,
-        SetForegroundWindow, SetMenuItemBitmaps, TrackPopupMenu, MF_BYCOMMAND, MF_SEPARATOR, MF_STRING,
-        SM_CXMENUCHECK, SM_CYMENUCHECK, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_TOPALIGN,
-        WM_NULL,
+        SetForegroundWindow, SetMenuItemBitmaps, TrackPopupMenu, MF_BYCOMMAND, MF_SEPARATOR,
+        MF_STRING, SM_CXMENUCHECK, SM_CYMENUCHECK, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+        TPM_TOPALIGN, WM_NULL,
     };
 
     use crate::icons;
@@ -101,16 +101,64 @@ mod windows_impl {
             };
 
             append_item(menu, &mut bitmaps, 1, labels.open, ICON_OPEN, size, color);
-            append_item(menu, &mut bitmaps, 2, labels.rename, ICON_RENAME, size, color);
-            append_item(menu, &mut bitmaps, 3, labels.reveal, ICON_REVEAL, size, color);
+            append_item(
+                menu,
+                &mut bitmaps,
+                2,
+                labels.rename,
+                ICON_RENAME,
+                size,
+                color,
+            );
+            append_item(
+                menu,
+                &mut bitmaps,
+                3,
+                labels.reveal,
+                ICON_REVEAL,
+                size,
+                color,
+            );
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-            append_item(menu, &mut bitmaps, 4, labels.auto_crop, ICON_AUTO_CROP, size, color);
-            append_item(menu, &mut bitmaps, 5, labels.auto_deskew, ICON_AUTO_DESKEW, size, color);
+            append_item(
+                menu,
+                &mut bitmaps,
+                4,
+                labels.auto_crop,
+                ICON_AUTO_CROP,
+                size,
+                color,
+            );
+            append_item(
+                menu,
+                &mut bitmaps,
+                5,
+                labels.auto_deskew,
+                ICON_AUTO_DESKEW,
+                size,
+                color,
+            );
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
             append_item(menu, &mut bitmaps, 6, labels.ocr, ICON_OCR, size, color);
-            append_item(menu, &mut bitmaps, 7, labels.export_jpg, ICON_EXPORT_JPG, size, color);
+            append_item(
+                menu,
+                &mut bitmaps,
+                7,
+                labels.export_jpg,
+                ICON_EXPORT_JPG,
+                size,
+                color,
+            );
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-            append_item(menu, &mut bitmaps, 8, labels.delete, ICON_DELETE, size, color);
+            append_item(
+                menu,
+                &mut bitmaps,
+                8,
+                labels.delete,
+                ICON_DELETE,
+                size,
+                color,
+            );
 
             SetForegroundWindow(hwnd);
             let command = TrackPopupMenu(

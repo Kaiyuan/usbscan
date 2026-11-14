@@ -69,7 +69,7 @@ pub fn rotate_bgra(
         90 | 270 => (source_height, source_width),
         _ => (source_width, source_height),
     };
-    if degrees % 360 == 0 {
+    if degrees.is_multiple_of(360) {
         return Ok((width, height, bgra.to_vec()));
     }
     let mut out = vec![0u8; target_width * target_height * 4];

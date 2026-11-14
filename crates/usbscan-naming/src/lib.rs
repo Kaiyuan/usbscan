@@ -397,10 +397,13 @@ mod tests {
         let rendered = engine.render(&rule, &ctx()).expect("render");
         assert_eq!(rendered.file_name, "扫描_20261107_143012_001");
         assert_eq!(rendered.folder, PathBuf::from("2026").join("11").join("07"));
-        assert_eq!(
-            rendered.path(Path::new("D:\\扫描"), "jpg"),
-            PathBuf::from("D:\\扫描\\2026\\11\\07\\扫描_20261107_143012_001.jpg")
-        );
+        let root = Path::new("扫描");
+        let expected = root
+            .join("2026")
+            .join("11")
+            .join("07")
+            .join("扫描_20261107_143012_001.jpg");
+        assert_eq!(rendered.path(root, "jpg"), expected);
     }
 
     #[test]

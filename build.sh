@@ -78,6 +78,29 @@ done
 command -v cargo >/dev/null 2>&1 || { echo "Error: cargo not found. Please install Rust from https://rustup.rs/" >&2; exit 1; }
 command -v rustc >/dev/null 2>&1 || { echo "Error: rustc not found." >&2; exit 1; }
 
+# 依赖的最低 Rust 版本（与 Cargo.toml 的 rust-version 保持一致）。
+REQUIRED_RUST="1.88"
+RUSTC_VERSION="$(rustc --version | awk '{print $2}' | sed 's/[^0-9.].*$//')"
+
+# 返回 0 表示 $1 < $2；纯 bash 实现，兼容 macOS 的 bash 3.2 / BSD sort。
+version_lt() {
+    local IFS=.
+    local -a left=($1)
+    local -a right=($2)
+    local i
+    for i in 0 1 2; do
+        if (( ${left[i]:-0} < ${right[i]:-0} )); then return 0; fi
+        if (( ${left[i]:-0} > ${right[i]:-0} )); then return 1; fi
+    done
+    return 1
+}
+
+if version_lt "$RUSTC_VERSION" "$REQUIRED_RUST"; then
+    echo "Error: Rust $REQUIRED_RUST or newer is required (found $RUSTC_VERSION)." >&2
+    echo "       Install it with: rustup update stable" >&2
+    exit 1
+fi
+
 OS_TYPE="$(uname -s)"
 HOST_ARCH="$(uname -m)"
 
@@ -127,9 +150,9 @@ fi
 
 if [[ $SKIP_LINT -eq 0 && -z "$TARGET" ]]; then
     echo "> cargo fmt --all -- --check"
-    cargo fmt --all -- --check || true
-    echo "> cargo clippy --workspace"
-    cargo clippy --workspace || true
+    cargo fmt --all -- --check
+    echo "> cargo clippy --workspace --all-targets -- -D warnings"
+    cargo clippy --workspace --all-targets -- -D warnings
 fi
 
 if [[ $SKIP_TESTS -eq 0 && -z "$TARGET" ]]; then
@@ -148,10 +171,12 @@ fi
 echo "> cargo ${BUILD_ARGS[*]}"
 cargo "${BUILD_ARGS[@]}"
 
+# 与 cargo 保持一致：允许通过 CARGO_TARGET_DIR 自定义输出目录。
+TARGET_ROOT="${CARGO_TARGET_DIR:-$ROOT_DIR/target}"
 if [[ -n "$TARGET" ]]; then
-    BUILT_BIN="target/$TARGET/$CONFIGURATION/usbscan"
+    BUILT_BIN="$TARGET_ROOT/$TARGET/$CONFIGURATION/usbscan"
 else
-    BUILT_BIN="target/$CONFIGURATION/usbscan"
+    BUILT_BIN="$TARGET_ROOT/$CONFIGURATION/usbscan"
 fi
 
 if [[ ! -f "$BUILT_BIN" ]]; then
@@ -179,6 +204,11 @@ if [[ "$OS_TYPE" == "Darwin" ]]; then
 
     if [[ -f "assets/macos/Info.plist" ]]; then
         cp "assets/macos/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+        # 同步版本号，避免 Info.plist 与 Cargo.toml 版本漂移。
+        if command -v plutil >/dev/null 2>&1; then
+            plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP_BUNDLE/Contents/Info.plist"
+            plutil -replace CFBundleVersion -string "$VERSION" "$APP_BUNDLE/Contents/Info.plist"
+        fi
     fi
 
     # 生成 AppIcon.icns（如果在 macOS 原生环境且有 iconutil）
@@ -197,6 +227,11 @@ if [[ "$OS_TYPE" == "Darwin" ]]; then
         cp "assets/icons/usbscan_icons/usbscan_1024x1024.png" "$ICONSET_DIR/icon_512x512@2x.png" 2>/dev/null || true
         iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns" 2>/dev/null || true
         rm -rf "$(dirname "$ICONSET_DIR")"
+    fi
+
+    # 未做正式签名/公证，至少做 ad-hoc 签名，减少 Gatekeeper 直接拦截。
+    if command -v codesign >/dev/null 2>&1; then
+        codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
     fi
 
     ARCHIVE="$DIST_DIR/usbscan-$VERSION-macos-$ARCH.tar.gz"
@@ -246,8 +281,9 @@ INSTALL_SH
     # 打包 UOS / Debian .deb 包
     if [[ $BUILD_DEB -eq 1 ]] || command -v dpkg-deb >/dev/null 2>&1; then
         echo "Building .deb package for UOS ($DEB_ARCH)..."
-        DEB_BUILD_DIR="$DIST_DIR/deb-build-$DEB_ARCH"
-        rm -rf "$DEB_BUILD_DIR"
+        # 在系统临时目录中打包，避免 DrvFs 等文件系统不支持 Unix 权限位。
+        DEB_WORK="$(mktemp -d)"
+        DEB_BUILD_DIR="$DEB_WORK/usbscan-deb"
         mkdir -p "$DEB_BUILD_DIR/DEBIAN"
         mkdir -p "$DEB_BUILD_DIR/usr/bin"
         mkdir -p "$DEB_BUILD_DIR/usr/share/applications"
@@ -260,6 +296,25 @@ INSTALL_SH
             cp "assets/icons/usbscan_icons/usbscan_256x256.png" "$DEB_BUILD_DIR/usr/share/icons/hicolor/256x256/apps/usbscan.png"
         fi
 
+        # 计算运行时共享库依赖；dpkg-shlibdeps（dpkg-dev）缺失时回退到常见包名。
+        SHLIBS_DEPENDS=""
+        if command -v dpkg-shlibdeps >/dev/null 2>&1; then
+            SHLIBS_TMP="$(mktemp -d)"
+            mkdir -p "$SHLIBS_TMP/debian"
+            cat > "$SHLIBS_TMP/debian/control" <<DEB_SOURCE
+Source: usbscan
+
+Package: usbscan
+Architecture: $DEB_ARCH
+DEB_SOURCE
+            cp "$BUILT_BIN" "$SHLIBS_TMP/usbscan"
+            SHLIBS_DEPENDS="$(cd "$SHLIBS_TMP" && dpkg-shlibdeps -O usbscan 2>/dev/null | sed -n 's/^shlibs:Depends=//p')"
+            rm -rf "$SHLIBS_TMP"
+        fi
+        if [[ -z "$SHLIBS_DEPENDS" ]]; then
+            SHLIBS_DEPENDS="libasound2 | libasound2t64, libssl3 | libssl3t64 | libssl1.1, libfontconfig1, libfreetype6"
+        fi
+
         cat <<DEB_CONTROL > "$DEB_BUILD_DIR/DEBIAN/control"
 Package: usbscan
 Version: $VERSION
@@ -270,13 +325,18 @@ Maintainer: usbscan contributors <https://github.com/Kaiyuan/usbscan>
 Description: Lightweight USB Document Scanner
  A modern, offline document scanning and OCR tool for USB cameras and doc scanners.
  Compatible with Deepin / UnionTech OS (UOS) and Debian-based Linux.
-Depends: libv4l-0, poppler-utils
+Depends: $SHLIBS_DEPENDS, poppler-utils
+Recommends: libgl1, libxkbcommon0
 Suggests: tesseract-ocr, tesseract-ocr-chi-sim
 DEB_CONTROL
 
+        # 某些文件系统（如 WSL 的 DrvFs）会给出 777 权限，dpkg-deb 要求控制目录为 0755。
+        chmod 0755 "$DEB_BUILD_DIR/DEBIAN"
+        chmod 0644 "$DEB_BUILD_DIR/DEBIAN/control"
+
         DEB_FILE="$DIST_DIR/usbscan_${VERSION}_${DEB_ARCH}.deb"
         dpkg-deb --build --root-owner-group "$DEB_BUILD_DIR" "$DEB_FILE"
-        rm -rf "$DEB_BUILD_DIR"
+        rm -rf "$DEB_WORK"
         echo "Created: $DEB_FILE"
     fi
 fi

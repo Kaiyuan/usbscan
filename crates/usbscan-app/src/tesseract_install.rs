@@ -13,17 +13,22 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
 use serde::Deserialize;
 
+#[cfg(windows)]
 use usbscan_win::shell::{self, ElevatedError};
 
 use crate::http;
 
+#[cfg(windows)]
 const RELEASES_API: &str =
     "https://api.github.com/repos/tesseract-ocr/tesseract/releases?per_page=10";
 const TESSDATA_URL: &str = "https://github.com/tesseract-ocr/tessdata_fast/raw/main";
+#[cfg(windows)]
 const FALLBACK_INSTALLER: &str = "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.3/tesseract-ocr-w64-setup-5.5.3.20260724.exe";
 const USER_AGENT: &str = "UsbScan";
+#[cfg(windows)]
 const API_TIMEOUT: Duration = Duration::from_secs(60);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 /// 进度回调的最小间隔，避免频繁刷新界面。
@@ -60,11 +65,13 @@ impl Progress {
     }
 }
 
+#[cfg(windows)]
 #[derive(Deserialize)]
 struct Release {
     assets: Vec<Asset>,
 }
 
+#[cfg(windows)]
 #[derive(Deserialize)]
 struct Asset {
     name: String,
@@ -103,68 +110,11 @@ pub fn install(
     let agent = http::agent()?;
 
     // 已经装好 Tesseract（例如用户手动安装）时直接复用，不再重复下载安装。
-    let executable =
-        if let Some(existing) = usbscan_ocr::find_tesseract(None) {
-            existing
-        } else {
-            #[cfg(windows)]
-            {
-                let url = latest_installer_url(&agent);
-                let file_name = url
-                    .rsplit('/')
-                    .next()
-                    .filter(|name| {
-                        Path::new(name)
-                            .extension()
-                            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-                    })
-                    .unwrap_or("tesseract-setup.exe");
-                let directory = std::env::temp_dir().join("usbscan-tesseract");
-                fs::create_dir_all(&directory).map_err(|err| format!("create temp folder: {err}"))?;
-                let installer = directory.join(file_name);
-                if !installer.is_file() {
-                    download(
-                        &agent,
-                        &url,
-                        &installer,
-                        Stage::Downloading,
-                        progress,
-                        cancel,
-                    )?;
-                }
-                ensure_running(cancel)?;
-
-                progress(Progress {
-                    stage: Stage::Installing,
-                    received: 0,
-                    total: None,
-                });
-                let exit = shell::run_elevated_and_wait(&installer, "/SILENT /NORESTART /SP-")
-                    .map_err(|err| match err {
-                        ElevatedError::Cancelled => crate::i18n::t("tesseract.cancelled").to_string(),
-                        other => format!("run installer: {other}"),
-                    })?;
-                if exit != 0 {
-                    return Err(format!("installer exited with code {exit}"));
-                }
-                ensure_running(cancel)?;
-
-                usbscan_ocr::find_tesseract(None)
-                    .ok_or_else(|| "tesseract.exe was not found after installation".to_string())?
-            }
-            #[cfg(target_os = "macos")]
-            {
-                return Err("未检测到 Tesseract。在 macOS 上，请先通过 Homebrew 安装：\nbrew install tesseract tesseract-lang".to_string());
-            }
-            #[cfg(target_os = "linux")]
-            {
-                return Err("未检测到 Tesseract。在 UOS / Linux 上，请先安装：\nsudo apt install tesseract-ocr tesseract-ocr-chi-sim".to_string());
-            }
-            #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-            {
-                return Err("当前平台不支持自动安装 Tesseract，请手动安装并加入 PATH".to_string());
-            }
-        };
+    let executable = if let Some(existing) = usbscan_ocr::find_tesseract(None) {
+        existing
+    } else {
+        install_executable(&agent, progress, cancel)?
+    };
 
     let tessdata = ensure_languages(&agent, &executable, ocr_language, progress, cancel)?;
     Ok(Installed {
@@ -173,6 +123,75 @@ pub fn install(
     })
 }
 
+/// 下载并运行 Tesseract 安装器。仅 Windows 支持自动安装。
+#[cfg(windows)]
+fn install_executable(
+    agent: &ureq::Agent,
+    progress: &dyn Fn(Progress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, String> {
+    let url = latest_installer_url(agent);
+    let file_name = url
+        .rsplit('/')
+        .next()
+        .filter(|name| {
+            Path::new(name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        })
+        .unwrap_or("tesseract-setup.exe");
+    let directory = std::env::temp_dir().join("usbscan-tesseract");
+    fs::create_dir_all(&directory).map_err(|err| format!("create temp folder: {err}"))?;
+    let installer = directory.join(file_name);
+    if !installer.is_file() {
+        download(
+            agent,
+            &url,
+            &installer,
+            Stage::Downloading,
+            progress,
+            cancel,
+        )?;
+    }
+    ensure_running(cancel)?;
+
+    progress(Progress {
+        stage: Stage::Installing,
+        received: 0,
+        total: None,
+    });
+    let exit = shell::run_elevated_and_wait(&installer, "/SILENT /NORESTART /SP-").map_err(
+        |err| match err {
+            ElevatedError::Cancelled => crate::i18n::t("tesseract.cancelled").to_string(),
+            other => format!("run installer: {other}"),
+        },
+    )?;
+    if exit != 0 {
+        return Err(format!("installer exited with code {exit}"));
+    }
+    ensure_running(cancel)?;
+
+    usbscan_ocr::find_tesseract(None)
+        .ok_or_else(|| "tesseract.exe was not found after installation".to_string())
+}
+
+/// 非 Windows 平台不自动安装，提示用户使用系统包管理器。
+#[cfg(not(windows))]
+fn install_executable(
+    _agent: &ureq::Agent,
+    _progress: &dyn Fn(Progress),
+    _cancel: &AtomicBool,
+) -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    let message = "未检测到 Tesseract。在 macOS 上，请先通过 Homebrew 安装：\nbrew install tesseract tesseract-lang";
+    #[cfg(target_os = "linux")]
+    let message = "未检测到 Tesseract。在 UOS / Linux 上，请先安装：\nsudo apt install tesseract-ocr tesseract-ocr-chi-sim";
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let message = "当前平台不支持自动安装 Tesseract，请手动安装并加入 PATH";
+    Err(message.to_string())
+}
+
+#[cfg(windows)]
 fn latest_installer_url(agent: &ureq::Agent) -> String {
     let releases = agent
         .get(RELEASES_API)

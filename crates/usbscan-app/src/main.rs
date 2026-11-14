@@ -2197,6 +2197,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     let hwnd = usbscan_win::window::main_window();
     if !hwnd.is_null() {
+        #[cfg(windows)]
         usbscan_win::theme::apply_window(hwnd, dark);
         usbscan_win::window::set_window_icon();
     }
@@ -2477,7 +2478,12 @@ fn bgra_to_buffer(width: u32, height: u32, data: &[u8]) -> SharedPixelBuffer<Rgb
     let dst = buffer.make_mut_bytes();
     // 逐像素交换 R/B，并强制不透明：部分摄像头驱动把 alpha 写成 0，
     // 直接透传会让预览整块变黑。
-    for (src, out) in data.chunks_exact(4).zip(dst.chunks_exact_mut(4)) {
+    for (src, out) in data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(dst.as_chunks_mut::<4>().0)
+    {
         out[0] = src[2];
         out[1] = src[1];
         out[2] = src[0];

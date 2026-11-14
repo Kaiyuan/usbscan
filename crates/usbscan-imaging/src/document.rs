@@ -1391,7 +1391,7 @@ mod tests {
         let mut data = canvas(width, height, [20, 20, 20, 255]);
         fill_rect(&mut data, width, 120, 90, 520, 390, [250, 250, 250, 255]);
         for index in 0..width * height {
-            if index % 17 == 0 {
+            if index.is_multiple_of(17) {
                 let offset = index * 4;
                 data[offset..offset + 4].copy_from_slice(&[240, 240, 240, 255]);
             }
@@ -1593,7 +1593,7 @@ mod tests {
         // 页面内的深色内容 + 传感器噪声。
         fill_rect(&mut data, width, 260, 200, 480, 380, [50, 55, 65, 255]);
         let mut seed = 0x9e37_79b9_u32;
-        for pixel in data.chunks_exact_mut(4) {
+        for pixel in data.as_chunks_mut::<4>().0 {
             seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             let noise = ((seed >> 25) % 7) as i32 - 3;
             for channel in 0..3 {

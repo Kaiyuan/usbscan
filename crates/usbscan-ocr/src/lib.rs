@@ -86,10 +86,7 @@ pub fn find_tesseract(configured: Option<&Path>) -> Option<PathBuf> {
     if let Ok(executable) = std::env::current_exe() {
         if let Some(directory) = executable.parent() {
             #[cfg(windows)]
-            let relatives = &[
-                r"tesseract\tesseract.exe",
-                r"tesseract\bin\tesseract.exe",
-            ][..];
+            let relatives = &[r"tesseract\tesseract.exe", r"tesseract\bin\tesseract.exe"][..];
             #[cfg(not(windows))]
             let relatives = &["tesseract/tesseract", "tesseract/bin/tesseract"][..];
             for relative in relatives {
@@ -141,10 +138,7 @@ pub fn find_tesseract(configured: Option<&Path>) -> Option<PathBuf> {
     // Linux（UOS / Debian / Ubuntu）：标准系统路径
     #[cfg(target_os = "linux")]
     {
-        for dir in [
-            "/usr/bin/tesseract",
-            "/usr/local/bin/tesseract",
-        ] {
+        for dir in ["/usr/bin/tesseract", "/usr/local/bin/tesseract"] {
             let candidate = Path::new(dir);
             if candidate.is_file() {
                 return Some(candidate.to_path_buf());

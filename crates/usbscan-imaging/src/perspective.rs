@@ -339,7 +339,7 @@ mod tests {
         let width = 160u32;
         let height = 120u32;
         let mut data = vec![20u8; width as usize * height as usize * 4];
-        for pixel in data.chunks_exact_mut(4) {
+        for pixel in data.as_chunks_mut::<4>().0 {
             pixel[3] = 255;
         }
         // 一个梯形页面：上边比下边窄。

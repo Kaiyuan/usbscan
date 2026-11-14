@@ -433,7 +433,7 @@ fn remove_shadow(image: &mut EnhancedImage, strength: u8) {
 
 fn normalize_levels(image: &mut EnhancedImage, strength: u8) {
     let mut histogram = [0u32; 256];
-    for pixel in image.bgra.chunks_exact(4) {
+    for pixel in image.bgra.as_chunks::<4>().0 {
         histogram[luminance(pixel) as usize] += 1;
     }
     let total: u32 = histogram.iter().sum();
@@ -466,7 +466,7 @@ fn normalize_levels(image: &mut EnhancedImage, strength: u8) {
 
     let strength = u32::from(strength.min(100));
     let span = (high - low) as u32;
-    for pixel in image.bgra.chunks_exact_mut(4) {
+    for pixel in image.bgra.as_chunks_mut::<4>().0 {
         for channel in 0..3 {
             let original = u32::from(pixel[channel]);
             let stretched = (original.saturating_sub(low as u32) * 255 / span).min(255);

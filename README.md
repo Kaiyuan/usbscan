@@ -72,7 +72,7 @@ usbscan 是一款面向 Windows 的文档采集软件。插上任一 UVC 摄像�
 > 旧 Win32 界面保留在 `usbscan-win` 中作为参考，打印、批注、Word 导出等能力
 > 仍在逐步迁移到 Slint 界面。
 
-前置条件：Rust stable + Visual Studio Build Tools（“使用 C++ 的桌面开发”负载）。
+前置条件：Rust stable ≥ 1.88 + Visual Studio Build Tools（“使用 C++ 的桌面开发”负载）。
 
 ```powershell
 git clone https://github.com/Kaiyuan/usbscan.git
@@ -90,11 +90,15 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 ### macOS / UOS (Linux) 构建
 
 **系统依赖**：
-- **macOS**：通过 Homebrew 安装 `brew install tesseract tesseract-lang poppler`。
-- **UOS / Debian Linux**：安装系统开发库与依赖包：
+- **macOS**：Rust stable ≥ 1.88；Xcode Command Line Tools（`xcode-select --install`）；通过 Homebrew 安装 `brew install tesseract tesseract-lang poppler`。
+- **UOS / Debian Linux**：Rust stable ≥ 1.88；安装系统开发库与依赖包：
   ```bash
   sudo apt update
-  sudo apt install -y build-essential libv4l-dev libudev-dev pkg-config tesseract-ocr tesseract-ocr-chi-sim poppler-utils
+  sudo apt install -y build-essential pkg-config libasound2-dev libssl-dev \
+      libfontconfig1-dev libxkbcommon-dev libgl1-mesa-dev libegl1-mesa-dev \
+      libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+      libv4l-dev libudev-dev
+  sudo apt install -y tesseract-ocr tesseract-ocr-chi-sim poppler-utils
   ```
 
 **一键构建脚本**：

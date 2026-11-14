@@ -140,10 +140,7 @@ mod unix_impl {
         // 再解析 user-dirs.dirs 文件
         let config_home = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(|h| PathBuf::from(h).join(".config"))
-            })?;
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
         let dirs_file = config_home.join("user-dirs.dirs");
         let text = std::fs::read_to_string(dirs_file).ok()?;
         let search = format!("{env_key}=");
@@ -221,8 +218,12 @@ pub fn app_data_dir() -> PathBuf {
         std::env::var_os("XDG_DATA_HOME")
             .map(|base| PathBuf::from(base).join("usbscan"))
             .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(|home| PathBuf::from(home).join(".local").join("share").join("usbscan"))
+                std::env::var_os("HOME").map(|home| {
+                    PathBuf::from(home)
+                        .join(".local")
+                        .join("share")
+                        .join("usbscan")
+                })
             })
             .unwrap_or_else(|| PathBuf::from(".usbscan"))
     }

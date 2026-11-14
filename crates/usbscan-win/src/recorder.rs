@@ -12,12 +12,16 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::Receiver;
+#[cfg(windows)]
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+#[cfg(windows)]
 use std::time::{Duration, Instant};
 
 use usbscan_capture as capture;
+#[cfg(windows)]
 use usbscan_imaging as imaging;
 
 /// 正在进行的录像。
@@ -100,8 +104,8 @@ fn encode_loop(
     {
         let _com = capture::init_thread();
         capture::ensure_platform().map_err(|err| err.to_string())?;
-        let mut writer = capture::Mp4Writer::create(path, width, height, fps)
-            .map_err(|err| err.to_string())?;
+        let mut writer =
+            capture::Mp4Writer::create(path, width, height, fps).map_err(|err| err.to_string())?;
 
         let start = Instant::now();
         let frame_interval = 1.0 / f64::from(fps.max(1));
@@ -145,6 +149,7 @@ fn encode_loop(
     }
 }
 
+#[cfg(windows)]
 fn prepare_frame(frame: &capture::Frame, width: u32, height: u32) -> Vec<u8> {
     if frame.width == width && frame.height == height {
         return frame.data.clone();

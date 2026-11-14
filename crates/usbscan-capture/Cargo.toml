@@ -24,7 +24,8 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # Unix（Linux / macOS）通用后端
 [target.'cfg(not(windows))'.dependencies]
 nokhwa = { version = "0.10", default-features = false, features = [
-    "input-native",   # Linux: V4L2；macOS: AVFoundation
-    "output-threaded-callback",
+    "input-native",     # Linux: V4L2；macOS: AVFoundation
+    "decoding",         # 把原始帧解码为 RGBA
+    "output-threaded",  # open_stream / frame()
 ] }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }

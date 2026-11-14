@@ -31,7 +31,7 @@ pub fn trim_letterbox(
         let start = y * w * 4;
         let row = &bgra[start..start + w * 4];
         let mut dark = 0usize;
-        for pixel in row.chunks_exact(4) {
+        for pixel in row.as_chunks::<4>().0 {
             if luma(pixel) < DARK_LUMA {
                 dark += 1;
             }

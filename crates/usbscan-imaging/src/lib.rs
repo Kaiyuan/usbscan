@@ -141,7 +141,7 @@ pub fn encode_jpeg_bgra<W: Write>(
     }
 
     let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
-    for pixel in bgra[..expected].chunks_exact(4) {
+    for pixel in bgra[..expected].as_chunks::<4>().0 {
         // BGRA -> RGB
         rgb.push(pixel[2]);
         rgb.push(pixel[1]);
@@ -158,7 +158,7 @@ pub fn encode_jpeg_bgra<W: Write>(
 pub fn bgra_to_rgb(width: u32, height: u32, bgra: &[u8]) -> Vec<u8> {
     let pixels = width as usize * height as usize;
     let mut rgb = Vec::with_capacity(pixels * 3);
-    for pixel in bgra.chunks_exact(4).take(pixels) {
+    for pixel in bgra.as_chunks::<4>().0.iter().take(pixels) {
         rgb.push(pixel[2]);
         rgb.push(pixel[1]);
         rgb.push(pixel[0]);
@@ -228,7 +228,7 @@ pub fn load_bgra(path: &Path) -> Result<(u32, u32, Vec<u8>), ImagingError> {
     let (width, height) = image.dimensions();
     let rgba = image.into_raw();
     let mut bgra = Vec::with_capacity(rgba.len());
-    for pixel in rgba.chunks_exact(4) {
+    for pixel in rgba.as_chunks::<4>().0 {
         bgra.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
     }
     Ok((width, height, bgra))
@@ -263,7 +263,7 @@ pub fn image_thumbnail_bgra(
     let (width, height) = image.dimensions();
     let rgba = image.into_raw();
     let mut bgra = Vec::with_capacity(rgba.len());
-    for pixel in rgba.chunks_exact(4) {
+    for pixel in rgba.as_chunks::<4>().0 {
         bgra.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
     }
     thumbnail_bgra(width, height, &bgra, max_width, max_height)

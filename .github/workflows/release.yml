@@ -158,7 +158,17 @@ jobs:
 
   uos:
     needs: version
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+            deb_arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            deb_arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -173,6 +183,8 @@ jobs:
       - name: Build in Debian 10 (UOS V20) container
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          HOST_ARCH: ${{ matrix.arch }}
+          DEB_ARCH: ${{ matrix.deb_arch }}
         run: |
           docker run --rm \
             -v "$PWD:/src" \
@@ -183,6 +195,8 @@ jobs:
             -e CARGO_HOME=/root/.cargo \
             -e PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
             -e VERSION \
+            -e HOST_ARCH \
+            -e DEB_ARCH \
             debian:buster bash -euc '
               sed -i "s|deb.debian.org/debian|archive.debian.org/debian|g" /etc/apt/sources.list
               sed -i "s|security.debian.org/debian-security|archive.debian.org/debian-security|g" /etc/apt/sources.list
@@ -194,14 +208,14 @@ jobs:
                 libgl1-mesa-dev libegl1-mesa-dev libwayland-dev libx11-dev \
                 libxcursor-dev libxrandr-dev libxi-dev libv4l-dev libudev-dev
               ./build.sh
-              mv "dist/usbscan-${VERSION}-linux-x64.tar.gz" "dist/usbscan-${VERSION}-uos-x64.tar.gz"
-              mv "dist/usbscan_${VERSION}_amd64.deb" "dist/usbscan_${VERSION}_uos_amd64.deb"
+              mv "dist/usbscan-${VERSION}-linux-${HOST_ARCH}.tar.gz" "dist/usbscan-${VERSION}-uos-${HOST_ARCH}.tar.gz"
+              mv "dist/usbscan_${VERSION}_${DEB_ARCH}.deb" "dist/usbscan_${VERSION}_uos_${DEB_ARCH}.deb"
             '
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: uos-x64
+          name: uos-${{ matrix.arch }}
           if-no-files-found: error
           path: |
             dist/usbscan-*-uos-*.tar.gz

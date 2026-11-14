@@ -159,23 +159,7 @@ jobs:
   uos:
     needs: version
     runs-on: ubuntu-24.04
-    # UOS V20 基于 Debian 10（glibc 2.28 / OpenSSL 1.1.1），在对应容器中构建，
-    # 保证发布的二进制和 .deb 依赖能在 UOS 上直接使用。
-    container: debian:buster
     steps:
-      - name: Prepare Debian 10 (UOS V20) container
-        shell: sh
-        run: |
-          sed -i 's|deb.debian.org/debian|archive.debian.org/debian|g' /etc/apt/sources.list
-          sed -i 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' /etc/apt/sources.list
-          sed -i '/buster-updates/d' /etc/apt/sources.list
-          apt-get -o Acquire::Check-Valid-Until=false update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            git ca-certificates curl build-essential pkg-config cmake nasm \
-            libasound2-dev libssl-dev libfontconfig1-dev libxkbcommon-dev \
-            libgl1-mesa-dev libegl1-mesa-dev libwayland-dev libx11-dev \
-            libxcursor-dev libxrandr-dev libxi-dev libv4l-dev libudev-dev
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -184,15 +168,35 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Build, test and package
-        run: ./build.sh
-
-      - name: Rename UOS artifacts
-        shell: bash
+      # UOS V20 基于 Debian 10（glibc 2.28 / OpenSSL 1.1.1）。只在容器中编译和打包，
+      # 复用宿主机安装的 Rust 工具链，避免依赖容器内的 Node/action 环境。
+      - name: Build in Debian 10 (UOS V20) container
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          version='${{ needs.version.outputs.version }}'
-          mv "dist/usbscan-${version}-linux-x64.tar.gz" "dist/usbscan-${version}-uos-x64.tar.gz"
-          mv "dist/usbscan_${version}_amd64.deb" "dist/usbscan_${version}_uos_amd64.deb"
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            -v "$HOME/.cargo:/root/.cargo" \
+            -v "$HOME/.rustup:/root/.rustup" \
+            -e RUSTUP_HOME=/root/.rustup \
+            -e CARGO_HOME=/root/.cargo \
+            -e PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            -e VERSION \
+            debian:buster bash -euc '
+              sed -i "s|deb.debian.org/debian|archive.debian.org/debian|g" /etc/apt/sources.list
+              sed -i "s|security.debian.org/debian-security|archive.debian.org/debian-security|g" /etc/apt/sources.list
+              sed -i "/buster-updates/d" /etc/apt/sources.list
+              apt-get -o Acquire::Check-Valid-Until=false update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                ca-certificates build-essential pkg-config cmake nasm tar gzip \
+                libasound2-dev libssl-dev libfontconfig1-dev libxkbcommon-dev \
+                libgl1-mesa-dev libegl1-mesa-dev libwayland-dev libx11-dev \
+                libxcursor-dev libxrandr-dev libxi-dev libv4l-dev libudev-dev
+              ./build.sh
+              mv "dist/usbscan-${VERSION}-linux-x64.tar.gz" "dist/usbscan-${VERSION}-uos-x64.tar.gz"
+              mv "dist/usbscan_${VERSION}_amd64.deb" "dist/usbscan_${VERSION}_uos_amd64.deb"
+            '
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

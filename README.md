@@ -94,7 +94,7 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 - **UOS / Debian Linux**：Rust stable ≥ 1.88；安装系统开发库与依赖包：
   ```bash
   sudo apt update
-  sudo apt install -y build-essential pkg-config libasound2-dev libssl-dev \
+  sudo apt install -y build-essential pkg-config libclang-dev libasound2-dev libssl-dev \
       libfontconfig1-dev libxkbcommon-dev libgl1-mesa-dev libegl1-mesa-dev \
       libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
       libv4l-dev libudev-dev

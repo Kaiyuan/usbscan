@@ -15,7 +15,7 @@ pub enum PixelFormat {
 /// 一帧图像。
 ///
 /// 采集后端统一输出 top-down、行间无填充的 BGRA8，
-/// 这样预览（GDI `StretchDIBits`）与文件编码都可以直接使用。
+/// 这样预览与文件编码都可以直接使用。
 #[derive(Debug, Clone)]
 pub struct Frame {
     pub width: u32,

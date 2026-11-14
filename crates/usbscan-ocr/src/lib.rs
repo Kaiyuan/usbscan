@@ -66,18 +66,33 @@ pub fn find_tesseract(configured: Option<&Path>) -> Option<PathBuf> {
             return Some(path.to_path_buf());
         }
     }
+
+    // 确定平台上的可执行文件名：Windows 为 tesseract.exe，其余为 tesseract
+    #[cfg(windows)]
+    let exe_name = "tesseract.exe";
+    #[cfg(not(windows))]
+    let exe_name = "tesseract";
+
     if let Some(path) = std::env::var_os("PATH") {
         for directory in std::env::split_paths(&path) {
-            let candidate = directory.join("tesseract.exe");
+            let candidate = directory.join(exe_name);
             if candidate.is_file() {
                 return Some(candidate);
             }
         }
     }
-    // 便携版：与 usbscan.exe 同目录的 tesseract\tesseract.exe。
+
+    // 便携版：与主程序同目录的 tesseract 子目录
     if let Ok(executable) = std::env::current_exe() {
         if let Some(directory) = executable.parent() {
-            for relative in ["tesseract\\tesseract.exe", "tesseract\\bin\\tesseract.exe"] {
+            #[cfg(windows)]
+            let relatives = &[
+                r"tesseract\tesseract.exe",
+                r"tesseract\bin\tesseract.exe",
+            ][..];
+            #[cfg(not(windows))]
+            let relatives = &["tesseract/tesseract", "tesseract/bin/tesseract"][..];
+            for relative in relatives {
                 let candidate = directory.join(relative);
                 if candidate.is_file() {
                     return Some(candidate);
@@ -85,23 +100,58 @@ pub fn find_tesseract(configured: Option<&Path>) -> Option<PathBuf> {
             }
         }
     }
-    let mut roots = Vec::new();
-    for key in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
-        if let Some(value) = std::env::var_os(key) {
-            roots.push(PathBuf::from(value));
+
+    // 平台特定的常见安装路径
+    #[cfg(windows)]
+    {
+        let mut roots = Vec::new();
+        for key in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+            if let Some(value) = std::env::var_os(key) {
+                roots.push(PathBuf::from(value));
+            }
         }
-    }
-    for root in roots {
-        for relative in [
-            "Tesseract-OCR\\tesseract.exe",
-            "Programs\\Tesseract-OCR\\tesseract.exe",
-        ] {
-            let candidate = root.join(relative);
-            if candidate.is_file() {
-                return Some(candidate);
+        for root in roots {
+            for relative in [
+                r"Tesseract-OCR\tesseract.exe",
+                r"Programs\Tesseract-OCR\tesseract.exe",
+            ] {
+                let candidate = root.join(relative);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
             }
         }
     }
+
+    // macOS：Homebrew 安装路径
+    #[cfg(target_os = "macos")]
+    {
+        for dir in [
+            "/usr/local/bin/tesseract",
+            "/opt/homebrew/bin/tesseract",
+            "/opt/local/bin/tesseract",
+        ] {
+            let candidate = Path::new(dir);
+            if candidate.is_file() {
+                return Some(candidate.to_path_buf());
+            }
+        }
+    }
+
+    // Linux（UOS / Debian / Ubuntu）：标准系统路径
+    #[cfg(target_os = "linux")]
+    {
+        for dir in [
+            "/usr/bin/tesseract",
+            "/usr/local/bin/tesseract",
+        ] {
+            let candidate = Path::new(dir);
+            if candidate.is_file() {
+                return Some(candidate.to_path_buf());
+            }
+        }
+    }
+
     None
 }
 
@@ -128,8 +178,12 @@ fn apply_portable_tessdata(command: &mut Command, executable: &Path) {
     let Some(directory) = executable.parent() else {
         return;
     };
-    for relative in ["tessdata", "..\\tessdata"] {
-        let candidate = directory.join(relative);
+    // 检查同目录的 tessdata，以及上一级的 tessdata（便携包常见布局）
+    let candidates = [
+        directory.join("tessdata"),
+        directory.join("..").join("tessdata"),
+    ];
+    for candidate in &candidates {
         if candidate.is_dir() {
             command.env("TESSDATA_PREFIX", candidate);
             return;

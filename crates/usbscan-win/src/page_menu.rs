@@ -3,33 +3,6 @@
 
 //! 页面缩略图的原生右键菜单。
 
-use windows_sys::Win32::Foundation::POINT;
-use windows_sys::Win32::Graphics::Gdi::{DeleteObject, HBITMAP};
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, PostMessageW,
-    SetForegroundWindow, SetMenuItemBitmaps, TrackPopupMenu, MF_BYCOMMAND, MF_SEPARATOR, MF_STRING,
-    SM_CXMENUCHECK, SM_CYMENUCHECK, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_TOPALIGN,
-    WM_NULL,
-};
-
-use crate::icons;
-use crate::theme;
-use crate::window::main_window;
-
-// Tabler Icons 字形码点。
-const ICON_OPEN: u32 = 0xEB0A; // photo
-const ICON_RENAME: u32 = 0xEB04; // pencil
-const ICON_REVEAL: u32 = 0xFAF7; // folder-open
-const ICON_AUTO_CROP: u32 = 0xEA85; // crop
-const ICON_AUTO_DESKEW: u32 = 0xEB16; // rotate
-const ICON_OCR: u32 = 0xF204; // text-recognition
-const ICON_EXPORT_JPG: u32 = 0xEDE9; // file-export
-const ICON_DELETE: u32 = 0xEB41; // trash
-
-// 与 Slint 主题中的正文颜色一致（COLORREF：0x00BBGGRR）。
-const ICON_COLOR_DARK: u32 = 0x00F7_F5F5; // #f5f5f7
-const ICON_COLOR_LIGHT: u32 = 0x001E_1C1C; // #1c1c1e
-
 /// 右键菜单选择结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PageMenuCommand {
@@ -45,6 +18,7 @@ pub enum PageMenuCommand {
 }
 
 impl PageMenuCommand {
+    #[allow(dead_code)]
     fn from_id(id: i32) -> Self {
         match id {
             1 => Self::Open,
@@ -73,139 +47,123 @@ pub struct PageMenuLabels<'a> {
     pub delete: &'a str,
 }
 
-/// 在鼠标位置弹出页面右键菜单并返回用户选择。
-#[must_use]
-pub fn show_page_menu(labels: &PageMenuLabels<'_>) -> PageMenuCommand {
-    let hwnd = main_window();
-    if hwnd.is_null() {
-        return PageMenuCommand::None;
+#[cfg(windows)]
+mod windows_impl {
+    use super::*;
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::{DeleteObject, HBITMAP};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, PostMessageW,
+        SetForegroundWindow, SetMenuItemBitmaps, TrackPopupMenu, MF_BYCOMMAND, MF_SEPARATOR, MF_STRING,
+        SM_CXMENUCHECK, SM_CYMENUCHECK, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_TOPALIGN,
+        WM_NULL,
+    };
+
+    use crate::icons;
+    use crate::theme;
+    use crate::window::main_window;
+
+    const ICON_OPEN: u32 = 0xEB0A;
+    const ICON_RENAME: u32 = 0xEB04;
+    const ICON_REVEAL: u32 = 0xFAF7;
+    const ICON_AUTO_CROP: u32 = 0xEA85;
+    const ICON_AUTO_DESKEW: u32 = 0xEB16;
+    const ICON_OCR: u32 = 0xF204;
+    const ICON_EXPORT_JPG: u32 = 0xEDE9;
+    const ICON_DELETE: u32 = 0xEB41;
+
+    const ICON_COLOR_DARK: u32 = 0x00F7_F5F5;
+    const ICON_COLOR_LIGHT: u32 = 0x001E_1C1C;
+
+    pub fn show_page_menu(labels: &PageMenuLabels<'_>) -> PageMenuCommand {
+        let hwnd = main_window();
+        if hwnd.is_null() {
+            return PageMenuCommand::None;
+        }
+        let mut point = POINT { x: 0, y: 0 };
+        unsafe {
+            if GetCursorPos(&mut point) == 0 {
+                return PageMenuCommand::None;
+            }
+            let menu = CreatePopupMenu();
+            if menu.is_null() {
+                return PageMenuCommand::None;
+            }
+
+            let mut bitmaps = Vec::new();
+            let size = GetSystemMetrics(SM_CXMENUCHECK)
+                .max(GetSystemMetrics(SM_CYMENUCHECK))
+                .max(12);
+            let color = if theme::system_uses_dark_mode() {
+                ICON_COLOR_DARK
+            } else {
+                ICON_COLOR_LIGHT
+            };
+
+            append_item(menu, &mut bitmaps, 1, labels.open, ICON_OPEN, size, color);
+            append_item(menu, &mut bitmaps, 2, labels.rename, ICON_RENAME, size, color);
+            append_item(menu, &mut bitmaps, 3, labels.reveal, ICON_REVEAL, size, color);
+            AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+            append_item(menu, &mut bitmaps, 4, labels.auto_crop, ICON_AUTO_CROP, size, color);
+            append_item(menu, &mut bitmaps, 5, labels.auto_deskew, ICON_AUTO_DESKEW, size, color);
+            AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+            append_item(menu, &mut bitmaps, 6, labels.ocr, ICON_OCR, size, color);
+            append_item(menu, &mut bitmaps, 7, labels.export_jpg, ICON_EXPORT_JPG, size, color);
+            AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+            append_item(menu, &mut bitmaps, 8, labels.delete, ICON_DELETE, size, color);
+
+            SetForegroundWindow(hwnd);
+            let command = TrackPopupMenu(
+                menu,
+                TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
+                point.x,
+                point.y,
+                0,
+                hwnd,
+                std::ptr::null(),
+            );
+            DestroyMenu(menu);
+            for bitmap in bitmaps {
+                DeleteObject(bitmap);
+            }
+            let _ = PostMessageW(hwnd, WM_NULL, 0, 0);
+            PageMenuCommand::from_id(command)
+        }
     }
-    let mut point = POINT { x: 0, y: 0 };
-    // SAFETY: 标准 Win32 调用，指针均有效。
-    unsafe {
-        if GetCursorPos(&mut point) == 0 {
-            return PageMenuCommand::None;
-        }
-        let menu = CreatePopupMenu();
-        if menu.is_null() {
-            return PageMenuCommand::None;
-        }
 
-        let mut bitmaps = Vec::new();
-        let size = GetSystemMetrics(SM_CXMENUCHECK)
-            .max(GetSystemMetrics(SM_CYMENUCHECK))
-            .max(12);
-        // 让图标颜色跟随浅色/深色主题，而不是依赖固定系统颜色。
-        let color = if theme::system_uses_dark_mode() {
-            ICON_COLOR_DARK
-        } else {
-            ICON_COLOR_LIGHT
-        };
-
-        append_item(menu, &mut bitmaps, 1, labels.open, ICON_OPEN, size, color);
-        append_item(
-            menu,
-            &mut bitmaps,
-            2,
-            labels.rename,
-            ICON_RENAME,
-            size,
-            color,
-        );
-        append_item(
-            menu,
-            &mut bitmaps,
-            3,
-            labels.reveal,
-            ICON_REVEAL,
-            size,
-            color,
-        );
-        AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-        append_item(
-            menu,
-            &mut bitmaps,
-            4,
-            labels.auto_crop,
-            ICON_AUTO_CROP,
-            size,
-            color,
-        );
-        append_item(
-            menu,
-            &mut bitmaps,
-            5,
-            labels.auto_deskew,
-            ICON_AUTO_DESKEW,
-            size,
-            color,
-        );
-        AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-        append_item(menu, &mut bitmaps, 6, labels.ocr, ICON_OCR, size, color);
-        append_item(
-            menu,
-            &mut bitmaps,
-            7,
-            labels.export_jpg,
-            ICON_EXPORT_JPG,
-            size,
-            color,
-        );
-        AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-        append_item(
-            menu,
-            &mut bitmaps,
-            8,
-            labels.delete,
-            ICON_DELETE,
-            size,
-            color,
-        );
-
-        // 让菜单在点击外部时能正常关闭。
-        SetForegroundWindow(hwnd);
-        let command = TrackPopupMenu(
-            menu,
-            TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
-            point.x,
-            point.y,
-            0,
-            hwnd,
-            std::ptr::null(),
-        );
-        DestroyMenu(menu);
-        for bitmap in bitmaps {
-            DeleteObject(bitmap);
+    unsafe fn append_item(
+        menu: windows_sys::Win32::UI::WindowsAndMessaging::HMENU,
+        bitmaps: &mut Vec<HBITMAP>,
+        id: usize,
+        label: &str,
+        codepoint: u32,
+        size: i32,
+        color: u32,
+    ) {
+        let label: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
+        unsafe {
+            AppendMenuW(menu, MF_STRING, id, label.as_ptr());
+            let bitmap = icons::menu_bitmap(codepoint, size, color);
+            if bitmap.is_null() {
+                return;
+            }
+            if SetMenuItemBitmaps(menu, id as u32, MF_BYCOMMAND, bitmap, bitmap) == 0 {
+                DeleteObject(bitmap);
+            } else {
+                bitmaps.push(bitmap);
+            }
         }
-        let _ = PostMessageW(hwnd, WM_NULL, 0, 0);
-        PageMenuCommand::from_id(command)
     }
 }
 
-/// 追加一个带图标的菜单项。
-///
-/// `SetMenuItemBitmaps` 不复制位图，因此创建的位图要由调用方在菜单销毁后释放。
-unsafe fn append_item(
-    menu: windows_sys::Win32::UI::WindowsAndMessaging::HMENU,
-    bitmaps: &mut Vec<HBITMAP>,
-    id: usize,
-    label: &str,
-    codepoint: u32,
-    size: i32,
-    color: u32,
-) {
-    let label: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
-    // SAFETY: 菜单句柄与字符串指针由调用方保证有效。
-    unsafe {
-        AppendMenuW(menu, MF_STRING, id, label.as_ptr());
-        let bitmap = icons::menu_bitmap(codepoint, size, color);
-        if bitmap.is_null() {
-            return;
-        }
-        if SetMenuItemBitmaps(menu, id as u32, MF_BYCOMMAND, bitmap, bitmap) == 0 {
-            DeleteObject(bitmap);
-        } else {
-            bitmaps.push(bitmap);
-        }
+/// 在鼠标位置弹出页面右键菜单并返回用户选择。
+#[must_use]
+pub fn show_page_menu(labels: &PageMenuLabels<'_>) -> PageMenuCommand {
+    #[cfg(windows)]
+    return windows_impl::show_page_menu(labels);
+    #[cfg(not(windows))]
+    {
+        let _ = labels;
+        PageMenuCommand::None
     }
 }

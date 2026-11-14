@@ -1,0 +1,16 @@
+[Desktop Entry]
+Name=usbscan
+Name[zh_CN]=文档扫描 (usbscan)
+Name[zh_TW]=文檔掃描 (usbscan)
+GenericName=Document Scanner
+GenericName[zh_CN]=文档扫描仪
+Comment=Lightweight USB Document Scanner
+Comment[zh_CN]=轻量高效的 USB 高拍仪与文档扫描工具
+Exec=usbscan %U
+Icon=usbscan
+Terminal=false
+Type=Application
+Categories=Office;Graphics;Scanning;
+Keywords=scan;scanner;camera;document;ocr;pdf;
+StartupNotify=true
+StartupWMClass=usbscan

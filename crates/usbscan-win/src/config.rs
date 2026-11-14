@@ -292,17 +292,44 @@ pub fn config_path() -> PathBuf {
     paths::app_data_dir().join("config.toml")
 }
 
-/// 旧版配置位置：`%APPDATA%\usbscan\config.toml`，仅用于首次迁移。
-fn legacy_config_path() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("USERPROFILE")
-                .map(|home| PathBuf::from(home).join("AppData").join("Roaming"))
-        })
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("usbscan").join("config.toml")
-}
+    /// 旧版配置位置，仅用于首次迁移。
+    ///
+    /// **Windows**：`%APPDATA%\usbscan\config.toml`
+    ///
+    /// **macOS**：`~/Library/Application Support/usbscan/config.toml`（新路径等同于当前路径，跳过迁移）
+    ///
+    /// **Linux**：`~/.config/usbscan/config.toml`（旧 XDG_CONFIG_HOME 路径）
+    fn legacy_config_path() -> PathBuf {
+        #[cfg(windows)]
+        {
+            let base = std::env::var_os("APPDATA")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("USERPROFILE")
+                        .map(|home| PathBuf::from(home).join("AppData").join("Roaming"))
+                })
+                .unwrap_or_else(|| PathBuf::from("."));
+            base.join("usbscan").join("config.toml")
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // 旧版可能放在 ~/.config/usbscan/config.toml
+            std::env::var_os("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME")
+                        .map(|home| PathBuf::from(home).join(".config"))
+                })
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("usbscan")
+                .join("config.toml")
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
+        {
+            // macOS 或其他平台：无旧版路径，返回当前路径（load() 检测到相同路径时不做迁移）
+            config_path()
+        }
+    }
 
 /// 从一行 `key = "value"` 中取出字符串值。
 fn toml_string(line: &str, key: &str) -> Option<String> {

@@ -6,7 +6,9 @@
 //! 命名规则里的日期占位符按 [`TimeStamp::format`] 渲染，
 //! 时间来源是系统本地时间（`GetLocalTime`），与用户看到的时间一致。
 
+#[cfg(windows)]
 use windows_sys::Win32::Foundation::SYSTEMTIME;
+#[cfg(windows)]
 use windows_sys::Win32::System::SystemInformation::GetLocalTime;
 
 /// 一个本地时间快照。
@@ -54,20 +56,65 @@ impl TimeStamp {
     /// 读取当前本地时间。
     #[must_use]
     pub fn now() -> Self {
-        let mut st: SYSTEMTIME = unsafe { std::mem::zeroed() };
-        // SAFETY: GetLocalTime 只写入调用方提供的 SYSTEMTIME。
-        unsafe {
-            GetLocalTime(std::ptr::from_mut(&mut st));
+        #[cfg(windows)]
+        {
+            let mut st: SYSTEMTIME = unsafe { std::mem::zeroed() };
+            // SAFETY: GetLocalTime 只写入调用方提供的 SYSTEMTIME。
+            unsafe {
+                GetLocalTime(std::ptr::from_mut(&mut st));
+            }
+            Self {
+                year: st.wYear,
+                month: st.wMonth,
+                day: st.wDay,
+                hour: st.wHour,
+                minute: st.wMinute,
+                second: st.wSecond,
+                millis: st.wMilliseconds,
+                weekday: st.wDayOfWeek,
+            }
         }
-        Self {
-            year: st.wYear,
-            month: st.wMonth,
-            day: st.wDay,
-            hour: st.wHour,
-            minute: st.wMinute,
-            second: st.wSecond,
-            millis: st.wMilliseconds,
-            weekday: st.wDayOfWeek,
+        #[cfg(not(windows))]
+        {
+            #[repr(C)]
+            struct PosixTm {
+                sec: i32,
+                min: i32,
+                hour: i32,
+                mday: i32,
+                mon: i32,
+                year: i32,
+                wday: i32,
+                _rest: [u8; 96], // 预留足够空间适配不同 OS 的 tm 扩展字段
+            }
+
+            extern "C" {
+                fn localtime_r(timep: *const i64, result: *mut PosixTm) -> *mut PosixTm;
+            }
+
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let duration = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default();
+            let secs = duration.as_secs() as i64;
+            let millis = duration.subsec_millis() as u16;
+
+            let mut tm = std::mem::MaybeUninit::<PosixTm>::zeroed();
+            let res = unsafe { localtime_r(&secs, tm.as_mut_ptr()) };
+            if res.is_null() {
+                return Self::new(1970, 1, 1, 0, 0, 0, 0, 4);
+            }
+            let tm = unsafe { tm.assume_init() };
+            Self {
+                year: (tm.year + 1900) as u16,
+                month: (tm.mon + 1) as u16,
+                day: tm.mday as u16,
+                hour: tm.hour as u16,
+                minute: tm.min as u16,
+                second: tm.sec as u16,
+                millis,
+                weekday: tm.wday as u16,
+            }
         }
     }
 

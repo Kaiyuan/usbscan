@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 usbscan contributors
 
-//! 录像线程：接收采集帧并用 Media Foundation 编码为 MP4/H.264。
+//! 录像线程：接收采集帧并编码为 MP4/H.264。
 //!
-//! 采集线程只负责把最新帧放进有界队列；编码在独立线程完成，避免拖慢预览。
-//! 输出帧率高于摄像头实际帧率时，重复上一帧补齐时间轴。
+//! **Windows**：使用 Media Foundation (`Mp4Writer`)。
+//!
+//! **非 Windows**：录像功能暂不支持，`Recorder::start` 立即返回错误。
+//! 未来可接入 `gstreamer` 或 `ffmpeg` crate 实现跨平台录像。
 
 #![allow(clippy::cast_precision_loss)]
 
@@ -27,6 +29,8 @@ pub struct Recorder {
 
 impl Recorder {
     /// 启动录像线程。`receiver` 由采集线程写入。
+    ///
+    /// **非 Windows**：立即返回 `Err`，录像功能尚未在此平台实现。
     pub fn start(
         path: PathBuf,
         width: u32,
@@ -92,44 +96,53 @@ fn encode_loop(
     stop: &AtomicBool,
     frames: &AtomicU64,
 ) -> Result<PathBuf, String> {
-    let _com = capture::init_thread();
-    capture::ensure_platform().map_err(|err| err.to_string())?;
-    let mut writer =
-        capture::Mp4Writer::create(path, width, height, fps).map_err(|err| err.to_string())?;
+    #[cfg(windows)]
+    {
+        let _com = capture::init_thread();
+        capture::ensure_platform().map_err(|err| err.to_string())?;
+        let mut writer = capture::Mp4Writer::create(path, width, height, fps)
+            .map_err(|err| err.to_string())?;
 
-    let start = Instant::now();
-    let frame_interval = 1.0 / f64::from(fps.max(1));
-    let mut next_tick = 0u64;
-    let mut last: Option<Vec<u8>> = None;
+        let start = Instant::now();
+        let frame_interval = 1.0 / f64::from(fps.max(1));
+        let mut next_tick = 0u64;
+        let mut last: Option<Vec<u8>> = None;
 
-    loop {
-        if stop.load(Ordering::SeqCst) {
-            break;
-        }
-        match receiver.recv_timeout(Duration::from_millis(5)) {
-            Ok(frame) => {
-                last = Some(prepare_frame(&frame, width, height));
-            }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
-
-        let elapsed = start.elapsed().as_secs_f64();
-        // 编码落后太多时丢弃已经过期的重复帧，避免录像越拖越长。
-        if next_tick as f64 * frame_interval + 1.0 < elapsed {
-            next_tick = (elapsed / frame_interval).floor() as u64;
-        }
-        while next_tick as f64 * frame_interval <= elapsed {
-            let Some(pixels) = last.as_deref() else {
+        loop {
+            if stop.load(Ordering::SeqCst) {
                 break;
-            };
-            writer.write_frame(pixels).map_err(|err| err.to_string())?;
-            frames.fetch_add(1, Ordering::Relaxed);
-            next_tick = next_tick.saturating_add(1);
+            }
+            match receiver.recv_timeout(Duration::from_millis(5)) {
+                Ok(frame) => {
+                    last = Some(prepare_frame(&frame, width, height));
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+
+            let elapsed = start.elapsed().as_secs_f64();
+            if next_tick as f64 * frame_interval + 1.0 < elapsed {
+                next_tick = (elapsed / frame_interval).floor() as u64;
+            }
+            while next_tick as f64 * frame_interval <= elapsed {
+                let Some(pixels) = last.as_deref() else {
+                    break;
+                };
+                writer.write_frame(pixels).map_err(|err| err.to_string())?;
+                frames.fetch_add(1, Ordering::Relaxed);
+                next_tick = next_tick.saturating_add(1);
+            }
         }
+
+        writer.finish().map_err(|err| err.to_string())
     }
 
-    writer.finish().map_err(|err| err.to_string())
+    #[cfg(not(windows))]
+    {
+        // 防止 unused 警告
+        let _ = (path, width, height, fps, receiver, stop, frames);
+        Err("录像功能在当前平台尚未支持（需要 gstreamer 或 ffmpeg 集成）".to_string())
+    }
 }
 
 fn prepare_frame(frame: &capture::Frame, width: u32, height: u32) -> Vec<u8> {

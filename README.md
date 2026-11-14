@@ -2,7 +2,7 @@
 
 > 把任意 USB 摄像头变成文档扫描仪。
 
-Windows 10 / 11 · Rust · Slint 界面 · 完全离线 · 开源
+Windows 10 / 11 · macOS · UOS (统信桌面操作系统 / Linux) · Rust · Slint 界面 · 完全离线 · 开源
 
 [项目主页](https://kaiyuan.github.io/usbscan/) · [下载最新版本](https://github.com/Kaiyuan/usbscan/releases/latest)
 
@@ -79,33 +79,39 @@ git clone https://github.com/Kaiyuan/usbscan.git
 cd usbscan
 ```
 
-### 一键构建（推荐）
+### Windows 一键构建（推荐）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-脚本依次执行格式检查、Clippy、全部测试和 Release 构建，并在 `dist\` 生成：
+脚本依次执行格式检查、Clippy、全部测试和 Release 构建，并在 `dist\` 生成 Windows 发布包。
 
-- `usbscan.exe`
-- `usbscan-<版本>-win-x64.zip`
-- `SHA256SUMS.txt`
+### macOS / UOS (Linux) 构建
 
-常用参数：
+**系统依赖**：
+- **macOS**：通过 Homebrew 安装 `brew install tesseract tesseract-lang poppler`。
+- **UOS / Debian Linux**：安装系统开发库与依赖包：
+  ```bash
+  sudo apt update
+  sudo apt install -y build-essential libv4l-dev libudev-dev pkg-config tesseract-ocr tesseract-ocr-chi-sim poppler-utils
+  ```
 
-```powershell
-.\build.ps1 -SkipTests      # 跳过测试
-.\build.ps1 -SkipLint       # 跳过 fmt / clippy
-.\build.ps1 -Configuration debug
-.\build.ps1 -Clean          # 先 cargo clean
-.\build.ps1 -NoPackage      # 只构建，不生成 dist
+**一键构建脚本**：
+```bash
+chmod +x ./build.sh
+./build.sh
 ```
+
+- **macOS 产物**：`dist/usbscan.app` 与 `dist/usbscan-<版本>-macos-<架构>.tar.gz`（已内置相机权限描述 `NSCameraUsageDescription` 与高清图标）。
+- **UOS / Linux 产物**：`dist/usbscan-<版本>-linux-<架构>.tar.gz`（包含可执行程序、`.desktop` 桌面图标、安装脚本 `install.sh`）。
 
 ### 手工构建
 
-```powershell
+```bash
 cargo build --release -p usbscan-app
-# 产物：target\release\usbscan.exe
+# Windows 产物：target\release\usbscan.exe
+# macOS / Linux 产物：target/release/usbscan
 ```
 
 运行测试：
@@ -116,13 +122,19 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-## 发布
+## 发布与多平台支持
 
-在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.1`）后，`.github/workflows/release.yml` 会自动构建并上传：
+在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.3`）后，`.github/workflows/release.yml` 会自动构建多平台、多架构产物并上传：
 
-- `usbscan-<版本>-setup.exe`：Inno Setup 安装版（`installer/usbscan.iss`），安装向导支持简体中文、繁體中文、English、Deutsch、Français、Italiano、Español、日本語、한국어，默认勾选创建桌面快捷方式
-- `usbscan-<版本>-portable.zip`：便携版
-- `SHA256SUMS.txt`：SHA-256 校验和
+| 平台 | 架构 | 发布产物格式 | 说明 |
+|---|---|---|---|
+| **Windows** | x64 | `.zip` 便携包 / `usbscan.exe` | 适用于 64 位 Windows 10 / 11 |
+| **macOS** | Apple Silicon (arm64) | `.tar.gz` (`usbscan.app`) | 适配 M1 / M2 / M3 / M4 芯片的 Mac |
+| **macOS** | Intel (x64) | `.tar.gz` (`usbscan.app`) | 适配 Intel 芯片的老款 Mac |
+| **macOS** | Universal (双架构) | `.tar.gz` (`usbscan.app`) | 通过 `lipo` 打包的通用二进制包，即插即用 |
+| **UOS / Linux** | AMD64 (x64) | `.deb` 安装包 & `.tar.gz` 绿色包 | 统信 UOS、Debian、Ubuntu、Deepin 双击安装 |
+| **UOS / Linux** | ARM64 (aarch64) | `.deb` 安装包 & `.tar.gz` 绿色包 | 飞腾、鲲鹏、麒麟等国产 ARM64 处理器设备 |
+| **全平台** | - | `SHA256SUMS.txt` | 所有发布产物的 SHA-256 校验和 |
 
 ## 目录结构
 

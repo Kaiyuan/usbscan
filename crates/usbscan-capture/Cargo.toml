@@ -1,6 +1,6 @@
 [package]
 name = "usbscan-capture"
-description = "摄像头采集抽象层（Media Foundation 后端）"
+description = "摄像头采集抽象层（Media Foundation / V4L2 / AVFoundation 后端）"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,5 +18,13 @@ windows = { version = "0.61", features = [
     "Win32_Media_DirectShow",
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",
+] }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+# Unix（Linux / macOS）通用后端
+[target.'cfg(not(windows))'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = [
+    "input-native",   # Linux: V4L2；macOS: AVFoundation
+    "output-threaded-callback",
 ] }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }

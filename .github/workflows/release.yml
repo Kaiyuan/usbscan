@@ -89,7 +89,7 @@ jobs:
       - name: Build Apple Silicon package
         # 跳过 lint：macOS 专属代码无法在 Windows/Linux 上运行 Clippy，
         # build/test 仍会完整编译并运行全部测试。
-        run: ./build.sh --skip-lint
+        run: bash ./build.sh --skip-lint
 
       - name: Keep Apple Silicon binary
         run: cp dist/usbscan.app/Contents/MacOS/usbscan dist/usbscan-arm64
@@ -97,7 +97,7 @@ jobs:
       - name: Build Intel package
         env:
           MACOSX_DEPLOYMENT_TARGET: "10.15"
-        run: ./build.sh --target x86_64-apple-darwin
+        run: bash ./build.sh --target x86_64-apple-darwin
 
       - name: Build Universal package
         shell: bash
@@ -151,7 +151,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Build, test and package
-        run: ./build.sh
+        run: bash ./build.sh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -213,7 +213,7 @@ jobs:
                 libasound2-dev libssl-dev libfontconfig1-dev libxkbcommon-dev \
                 libgl1-mesa-dev libegl1-mesa-dev libwayland-dev libx11-dev \
                 libxcursor-dev libxrandr-dev libxi-dev libv4l-dev libudev-dev
-              ./build.sh
+              bash ./build.sh
               mv "dist/usbscan-${VERSION}-linux-${HOST_ARCH}.tar.gz" "dist/usbscan-${VERSION}-uos-${HOST_ARCH}.tar.gz"
               mv "dist/usbscan_${VERSION}_${DEB_ARCH}.deb" "dist/usbscan_${VERSION}_uos_${DEB_ARCH}.deb"
             '

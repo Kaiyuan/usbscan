@@ -98,6 +98,20 @@ mod windows_impl {
                 0,
                 0,
             );
+            // 运行时切换主题时，标题栏不会自动重绘；强制刷新非客户区。
+            windows_sys::Win32::UI::WindowsAndMessaging::SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                windows_sys::Win32::UI::WindowsAndMessaging::SWP_NOMOVE
+                    | windows_sys::Win32::UI::WindowsAndMessaging::SWP_NOSIZE
+                    | windows_sys::Win32::UI::WindowsAndMessaging::SWP_NOZORDER
+                    | windows_sys::Win32::UI::WindowsAndMessaging::SWP_NOACTIVATE
+                    | windows_sys::Win32::UI::WindowsAndMessaging::SWP_FRAMECHANGED,
+            );
             let corner = DWMWCP_ROUND;
             DwmSetWindowAttribute(
                 hwnd,

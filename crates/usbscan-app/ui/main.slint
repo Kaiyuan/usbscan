@@ -492,6 +492,9 @@ export component MainWindow inherits Window {
     in property <string> t-view-github: "在 GitHub 查看";
     in property <string> t-close: "关闭";
     in property <string> t-language: "语言";
+    in property <string> t-theme: "主题";
+    in property <[string]> theme-options: ["跟随系统", "浅色", "深色"];
+    in-out property <int> theme-index: 0;
     in property <string> t-page-prefix: "第 ";
     in property <string> t-page-suffix: " 页";
     in property <string> t-clear-pages: "清空";
@@ -541,6 +544,7 @@ export component MainWindow inherits Window {
     callback install-update();
     callback refresh-devices();
     callback language-changed(int);
+    callback theme-changed(int);
     callback install-tesseract();
     callback cancel-tesseract();
     callback copy-ocr-text();
@@ -1262,7 +1266,7 @@ export component MainWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: 480px;
-            height: 440px;
+            height: 500px;
             border-radius: 16px;
             background: Theme.card;
             border-width: 1px;
@@ -1306,22 +1310,44 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                     }
                 }
+                Rectangle { height: 8px; }
                 HorizontalLayout {
-                    spacing: 10px;
-                    Text {
-                        text: root.t-language;
-                        color: Theme.text;
-                        font-size: 13px;
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
+                    spacing: 12px;
+                    // 左侧：界面语言
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: root.t-language;
+                            color: Theme.text;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                        }
+                        Dropdown {
+                            width: 132px;
+                            model: root.language-options;
+                            current-index <=> root.language-index;
+                            selected(index) => { root.language-changed(index); }
+                        }
                     }
-                    Dropdown {
-                        width: 150px;
-                        model: root.language-options;
-                        current-index <=> root.language-index;
-                        selected(index) => { root.language-changed(index); }
+                    Rectangle { horizontal-stretch: 1; }
+                    // 右侧：主题模式
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: root.t-theme;
+                            color: Theme.text;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                        }
+                        Dropdown {
+                            width: 124px;
+                            model: root.theme-options;
+                            current-index <=> root.theme-index;
+                            selected(index) => { root.theme-changed(index); }
+                        }
                     }
                 }
+                Rectangle { height: 8px; }
                 ToggleRow {
                     label: root.t-auto-check;
                     checked <=> root.auto-check-updates;

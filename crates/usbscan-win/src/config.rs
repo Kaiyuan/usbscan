@@ -69,6 +69,8 @@ pub struct Config {
     pub auto_check_updates: Option<bool>,
     /// 界面语言：`zh-Hans`、`zh-Hant`、`en`、`de`、`fr`、`it`、`es`、`ja`、`ko`。
     pub language: Option<String>,
+    /// 界面主题：`auto`（跟随系统）、`light`、`dark`。
+    pub theme: Option<String>,
 }
 
 impl Config {
@@ -155,6 +157,8 @@ impl Config {
                 config.auto_check_updates = Some(value);
             } else if let Some(value) = toml_string(line, "language") {
                 config.language = Some(value);
+            } else if let Some(value) = toml_string(line, "theme") {
+                config.theme = Some(value);
             }
         }
         config
@@ -262,6 +266,7 @@ impl Config {
 
         text.push_str("\n[ui]\n");
         push_option_string(&mut text, "language", self.language.as_deref());
+        push_option_string(&mut text, "theme", self.theme.as_deref());
 
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
@@ -475,13 +480,18 @@ mod tests {
         let path = directory.join("config.toml");
         let config = Config {
             language: Some("en".to_string()),
+            theme: Some("dark".to_string()),
             tessdata_dir: Some(r"C:\tessdata".to_string()),
             ..Config::default()
         };
         config.save_to(&path).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("language = \"en\""));
+        assert!(text.contains("theme = \"dark\""));
         assert!(text.contains(r#"tessdata_dir = "C:\\tessdata""#));
+        let parsed = Config::parse(&text);
+        assert_eq!(parsed.language.as_deref(), Some("en"));
+        assert_eq!(parsed.theme.as_deref(), Some("dark"));
         let _ = fs::remove_dir_all(directory);
     }
 }

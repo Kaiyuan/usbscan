@@ -498,11 +498,64 @@ fn sleep_interruptible(stop: &AtomicBool, duration: Duration) {
 type UpdateCheckSlot = Arc<Mutex<Option<Result<Option<update::UpdateInfo>, String>>>>;
 type UpdateDownloadSlot = Arc<Mutex<Option<Result<PathBuf, String>>>>;
 
+/// 界面主题模式。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ThemeMode {
+    /// 跟随系统亮色/深色设置。
+    Auto,
+    Light,
+    Dark,
+}
+
+impl ThemeMode {
+    fn from_config(value: Option<&str>) -> Self {
+        match value {
+            Some("light") => Self::Light,
+            Some("dark") => Self::Dark,
+            _ => Self::Auto,
+        }
+    }
+
+    fn from_index(index: usize) -> Self {
+        match index {
+            1 => Self::Light,
+            2 => Self::Dark,
+            _ => Self::Auto,
+        }
+    }
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Auto => 0,
+            Self::Light => 1,
+            Self::Dark => 2,
+        }
+    }
+
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    fn resolve(self) -> bool {
+        match self {
+            Self::Auto => theme::system_uses_dark_mode(),
+            Self::Light => false,
+            Self::Dark => true,
+        }
+    }
+}
+
 #[allow(clippy::struct_excessive_bools)]
 struct AppState {
     ui: slint::Weak<MainWindow>,
     worker: Worker,
     config: Config,
+    dark: bool,
+    theme_mode: ThemeMode,
     session: doc::Session,
     store: doc::SessionStore,
     output_root: PathBuf,
@@ -1038,6 +1091,42 @@ impl AppState {
                 i18n::t_args("dialog.updateBody", &[&info.version])
             };
             ui.set_update_text(text.into());
+        }
+    }
+
+    fn set_theme_mode(&mut self, mode: ThemeMode) {
+        self.theme_mode = mode;
+        self.config.theme = Some(mode.code().to_string());
+        self.config.save();
+        self.apply_theme();
+        if let Some(ui) = self.ui() {
+            ui.set_theme_index(mode.index() as i32);
+        }
+    }
+
+    /// 根据当前模式刷新深色状态，并同步 Slint 与原生窗口标题栏。
+    fn apply_theme(&mut self) {
+        let dark = self.theme_mode.resolve();
+        if dark == self.dark {
+            return;
+        }
+        self.dark = dark;
+        theme::init_process(dark);
+        if let Some(ui) = self.ui() {
+            ui.set_dark(dark);
+            ui.window().request_redraw();
+        }
+        let hwnd = usbscan_win::window::main_window();
+        if !hwnd.is_null() {
+            #[cfg(windows)]
+            usbscan_win::theme::apply_window(hwnd, dark);
+        }
+    }
+
+    /// “跟随系统”模式下定期检查系统主题是否变化。
+    fn poll_system_theme(&mut self) {
+        if self.theme_mode == ThemeMode::Auto {
+            self.apply_theme();
         }
     }
 
@@ -2136,6 +2225,13 @@ fn apply_ui_language(ui: &MainWindow) {
         .collect();
     ui.set_language_options(ModelRc::from(Rc::new(VecModel::from(options))));
     ui.set_language_index(i18n::current().index() as i32);
+    ui.set_t_theme(i18n::t("ui.theme").into());
+    let themes = vec![
+        slint::SharedString::from(i18n::t("theme.auto")),
+        slint::SharedString::from(i18n::t("theme.light")),
+        slint::SharedString::from(i18n::t("theme.dark")),
+    ];
+    ui.set_theme_options(ModelRc::from(Rc::new(VecModel::from(themes))));
     apply_naming_variables(ui);
 }
 
@@ -2215,9 +2311,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     if let Some(folder) = &config.folder_template {
         rule.folder.clone_from(folder);
     }
-    let dark = theme::system_uses_dark_mode();
+    let theme_mode = ThemeMode::from_config(config.theme.as_deref());
+    let dark = theme_mode.resolve();
     theme::init_process(dark);
     ui.set_dark(dark);
+    ui.set_theme_index(theme_mode.index() as i32);
     ui.set_output_dir(output_root.to_string_lossy().to_string().into());
     ui.set_file_template(rule.template.clone().into());
     ui.set_folder_template(rule.folder.clone().into());
@@ -2255,6 +2353,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         ui: ui.as_weak(),
         worker,
         config,
+        dark,
+        theme_mode,
         session,
         store,
         output_root,
@@ -2374,6 +2474,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let was_minimized = std::cell::Cell::new(usbscan_win::window::is_minimized(hwnd));
         let was_visible = std::cell::Cell::new(usbscan_win::window::is_visible(hwnd));
         let last_tick = std::cell::Cell::new(std::time::Instant::now());
+        let last_theme_check = std::cell::Cell::new(std::time::Instant::now());
         let timer = slint::Timer::default();
         timer.start(
             slint::TimerMode::Repeated,
@@ -2399,6 +2500,9 @@ fn run() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 let mut app = timer_state.borrow_mut();
+                if now.duration_since(last_theme_check.replace(now)) > Duration::from_secs(3) {
+                    app.poll_system_theme();
+                }
                 app.poll();
                 app.poll_updates();
                 app.poll_tesseract();
@@ -2562,6 +2666,14 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
             state
                 .borrow_mut()
                 .set_language(i18n::Lang::from_index(index as usize));
+        });
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_theme_changed(move |index| {
+            state
+                .borrow_mut()
+                .set_theme_mode(ThemeMode::from_index(index as usize));
         });
     }
     {

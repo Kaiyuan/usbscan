@@ -626,6 +626,52 @@ mod tests {
     }
 
     #[test]
+    fn deskew_corrects_tilted_document_photo() {
+        // 模拟“深色桌面 + 旋转 5° 的纸张 + 纸张上的文字行”。
+        let width = 640u32;
+        let height = 480u32;
+        let mut data = solid(width, height, [90, 80, 70, 255]);
+        let angle = 5.0f32.to_radians();
+        let (sin, cos) = angle.sin_cos();
+        let paper_width = 460.0f32;
+        let paper_height = 320.0f32;
+        let center_x = width as f32 / 2.0;
+        let center_y = height as f32 / 2.0;
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as f32 - center_x;
+                let dy = y as f32 - center_y;
+                let px = dx * cos + dy * sin;
+                let py = -dx * sin + dy * cos;
+                if px.abs() > paper_width / 2.0 || py.abs() > paper_height / 2.0 {
+                    continue;
+                }
+                let mut value = 250u8;
+                if ((py + paper_height / 2.0) / 24.0).fract() < 0.18 {
+                    value = 20;
+                }
+                let offset = ((y * width + x) * 4) as usize;
+                data[offset..offset + 4].copy_from_slice(&[value, value, value, 255]);
+            }
+        }
+        let out = enhance(
+            width,
+            height,
+            &data,
+            EnhanceOptions {
+                deskew: true,
+                strength: 60,
+                ..EnhanceOptions::default()
+            },
+        )
+        .expect("enhance");
+        assert!(
+            out.width != width || out.height != height,
+            "tilted document should be rotated back upright"
+        );
+    }
+
+    #[test]
     fn rotation_expands_canvas() {
         let data = solid(20, 10, [255, 255, 255, 255]);
         let image = EnhancedImage {

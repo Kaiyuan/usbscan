@@ -1063,11 +1063,15 @@ impl AppState {
     }
 
     fn show_toast(&self, message: &str) {
+        self.show_toast_for(message, 1600);
+    }
+
+    fn show_toast_for(&self, message: &str, millis: u64) {
         if let Some(ui) = self.ui() {
             ui.set_toast_text(message.into());
             ui.set_show_toast(true);
             let weak = ui.as_weak();
-            slint::Timer::single_shot(Duration::from_millis(1600), move || {
+            slint::Timer::single_shot(Duration::from_millis(millis), move || {
                 if let Some(ui) = weak.upgrade() {
                     ui.set_show_toast(false);
                 }
@@ -1390,10 +1394,8 @@ impl AppState {
             }
         };
         // 纠偏不依赖文档边界：已经裁过边的页面同样需要转正。
-        if crop && imaging::detect_document_corners(width, height, &data).is_none() {
-            self.set_status(i18n::t("status.noBoundary"));
-            return;
-        }
+        // 裁边不能因为有/没有四边形就提前放弃：检测不到边界时，增强管线会
+        // 回退到“背景色包围盒”策略。这里直接把检测与回退都交给模型层。
         let options = imaging::EnhanceOptions {
             auto_crop: crop,
             perspective: crop,
@@ -1413,6 +1415,12 @@ impl AppState {
         };
         if fixed.width == width && fixed.height == height && fixed.bgra == data {
             self.set_status(i18n::t("status.noCorrectionNeeded"));
+            if crop {
+                // 背景太杂或纸张已铺满画面时无从裁边，提醒用户改善拍摄环境。
+                self.show_toast(i18n::t("toast.cropHint"));
+            } else {
+                self.show_toast(i18n::t("toast.noCorrection"));
+            }
             return;
         }
         if let Err(err) = write_jpeg_atomic(
@@ -1438,6 +1446,11 @@ impl AppState {
             i18n::t("status.autoCropped")
         } else {
             i18n::t("status.deskewed")
+        });
+        self.show_toast(if crop {
+            i18n::t("toast.autoCropped")
+        } else {
+            i18n::t("toast.deskewed")
         });
     }
 
@@ -1780,13 +1793,33 @@ impl AppState {
         ) {
             Ok(text) => {
                 let text_path = path.with_extension("txt");
-                let _ = fs::write(&text_path, text.as_bytes());
+                if let Err(err) = fs::write(&text_path, text.as_bytes()) {
+                    self.set_status(&i18n::t_args("status.saveImageFailed", &[&err.to_string()]));
+                }
                 self.set_status(&i18n::t_args(
                     "status.ocrDone",
                     &[&text.chars().count().to_string()],
                 ));
+                self.show_toast_for(i18n::t("toast.ocrSaved"), 3000);
+                if let Some(ui) = self.ui() {
+                    let info = i18n::t_args("dialog.ocrSaved", &[&text_path.display().to_string()]);
+                    ui.set_ocr_info(info.into());
+                    ui.set_ocr_text(text.into());
+                    ui.set_show_ocr_result(true);
+                }
             }
             Err(err) => self.set_status(&i18n::t_args("status.ocrFailed", &[&err.to_string()])),
+        }
+    }
+
+    fn copy_ocr_text(&mut self) {
+        // 文本通过 Slint `TextEdit` 的剪贴板接口复制，跨平台一致。
+        self.show_toast(i18n::t("ui.copied"));
+    }
+
+    fn close_ocr_result(&mut self) {
+        if let Some(ui) = self.ui() {
+            ui.set_show_ocr_result(false);
         }
     }
 
@@ -2091,6 +2124,9 @@ fn apply_ui_language(ui: &MainWindow) {
     ui.set_t_page_suffix(i18n::t("ui.pageSuffix").into());
     ui.set_t_clear_pages(i18n::t("ui.clearPages").into());
     ui.set_t_naming_hint(i18n::t("ui.namingHint").into());
+    ui.set_t_clean_hint(i18n::t("ui.cleanBackgroundHint").into());
+    ui.set_t_ocr_title(i18n::t("dialog.ocrTitle").into());
+    ui.set_t_ocr_copy(i18n::t("ui.copy").into());
     ui.set_tesseract_title(i18n::t("tesseract.title").into());
     ui.set_tesseract_install_label(i18n::t("tesseract.install").into());
 
@@ -2535,6 +2571,14 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     {
         let state = std::rc::Rc::clone(state);
         ui.on_cancel_tesseract(move || state.borrow_mut().cancel_tesseract_install());
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_copy_ocr_text(move || state.borrow_mut().copy_ocr_text());
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_close_ocr_result(move || state.borrow_mut().close_ocr_result());
     }
 }
 

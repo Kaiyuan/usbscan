@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 usbscan contributors
 
-import { Palette, ScrollView, Slider } from "std-widgets.slint";
+import { Palette, ScrollView, Slider, TextEdit } from "std-widgets.slint";
 
 export global Theme {
     in-out property <bool> dark: true;
@@ -496,6 +496,13 @@ export component MainWindow inherits Window {
     in property <string> t-page-suffix: " 页";
     in property <string> t-clear-pages: "清空";
     in property <string> t-naming-hint: "点击变量即可插入模板；日期和时间取自拍摄时刻，序号自动递增。";
+    in property <string> t-clean-hint: "保持画面背景干净平整，自动裁剪效果更好。";
+    // OCR 结果窗口
+    in-out property <bool> show-ocr-result: false;
+    in-out property <string> ocr-text;
+    in-out property <string> ocr-info;
+    in property <string> t-ocr-title: "OCR 识别结果";
+    in property <string> t-ocr-copy: "复制";
     in-out property <bool> show-tesseract-prompt: false;
     in-out property <bool> tesseract-installing: false;
     in-out property <float> tesseract-progress: 0.0;
@@ -536,6 +543,8 @@ export component MainWindow inherits Window {
     callback language-changed(int);
     callback install-tesseract();
     callback cancel-tesseract();
+    callback copy-ocr-text();
+    callback close-ocr-result();
 
     Rectangle {
         width: 100%;
@@ -624,7 +633,7 @@ export component MainWindow inherits Window {
                     clicked => { root.refresh-devices(); }
                 }
                 IconPill {
-                    icon: root.recording ? @image-url("../../../assets/icons/svg/player-stop.svg") : @image-url("../../../assets/icons/svg/player-record.svg");
+                    icon: root.recording ? @image-url("../../../assets/icons/svg/player-stop.svg") : @image-url("../../../assets/icons/svg/video.svg");
                     has-icon: true;
                     icon-color: root.recording ? #ff453a : Theme.text;
                     text: root.recording ? root.t-record-stop : root.t-record-start;
@@ -780,7 +789,7 @@ export component MainWindow inherits Window {
                 if (root.show-toast) : Rectangle {
                     x: (parent.width - self.width) / 2;
                     y: parent.height - 58px - (root.recording ? 42px : 0px);
-                    width: 210px;
+                    width: 360px;
                     height: 36px;
                     border-radius: 18px;
                     background: #0000008c;
@@ -811,6 +820,8 @@ export component MainWindow inherits Window {
                         padding-right: 14px;
                         spacing: 8px;
                         alignment: center;
+                        // 交叉轴居中可以避免红点被拉成竖条，并让圆点与时间文字对齐。
+                        cross-axis-alignment: center;
                         Rectangle {
                             width: 10px;
                             height: 10px;
@@ -890,13 +901,21 @@ export component MainWindow inherits Window {
                         Section {
                             title: root.t-enhance;
                             icon: @image-url("../../../assets/icons/svg/wand.svg");
-                            // 5 × 28px 开关 + 5 × 5px 间距 + 24px 强度行
-                            content-height: 189px;
+                            // 5 × 28px 开关 + 30px 背景提示 + 24px 强度行 + 6 × 5px 间距
+                            content-height: 224px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
                                 spacing: 5px;
                                 ToggleRow { label: root.t-auto-crop; icon: @image-url("../../../assets/icons/svg/crop.svg"); checked <=> root.auto-crop; }
+                                Text {
+                                    text: root.t-clean-hint;
+                                    color: Theme.muted;
+                                    font-size: 11px;
+                                    height: 30px;
+                                    wrap: word-wrap;
+                                    vertical-alignment: center;
+                                }
                                 ToggleRow { label: root.t-auto-deskew; icon: @image-url("../../../assets/icons/svg/rotate-clockwise.svg"); checked <=> root.auto-deskew; }
                                 ToggleRow { label: root.t-perspective; icon: @image-url("../../../assets/icons/svg/perspective.svg"); checked <=> root.perspective; }
                                 ToggleRow { label: root.t-remove-shadow; icon: @image-url("../../../assets/icons/svg/shadow-off.svg"); checked <=> root.remove-shadow; }
@@ -1089,6 +1108,74 @@ export component MainWindow inherits Window {
                         primary: true;
                         width: 90px;
                         clicked => { root.rename-confirm(root.rename-text); }
+                    }
+                }
+            }
+        }
+    }
+
+    // OCR result dialog: shows the recognized text so the user can copy it.
+    if (root.show-ocr-result) : Rectangle {
+        background: #00000066;
+        width: 100%;
+        height: 100%;
+
+        TouchArea { width: 100%; height: 100%; }
+
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 640px;
+            height: 480px;
+            border-radius: 16px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.separator;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000055;
+            drop-shadow-offset-y: 8px;
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text {
+                    text: root.t-ocr-title;
+                    color: Theme.text;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: root.ocr-info;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+                ocr-editor := TextEdit {
+                    text: root.ocr-text;
+                    read-only: true;
+                    wrap: word-wrap;
+                    font-size: 13px;
+                    vertical-stretch: 1;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PillButton {
+                        text: root.t-ocr-copy;
+                        width: 96px;
+                        clicked => {
+                            // Slint 自带的剪贴板在 Windows/macOS/Linux 都可用；
+                            // Rust 侧的 Win32 写入用于再兜底并给出状态反馈。
+                            ocr-editor.select-all();
+                            ocr-editor.copy();
+                            root.copy-ocr-text();
+                        }
+                    }
+                    PillButton {
+                        text: root.t-close;
+                        primary: true;
+                        width: 96px;
+                        clicked => { root.close-ocr-result(); }
                     }
                 }
             }

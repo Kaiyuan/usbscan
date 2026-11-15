@@ -113,6 +113,7 @@ component IconPill inherits TouchArea {
 
 component Section inherits Rectangle {
     in property <string> title;
+    in property <image> icon;
     in property <length> content-height: 0px;
 
     background: Theme.card;
@@ -124,20 +125,58 @@ component Section inherits Rectangle {
     drop-shadow-offset-y: 1px;
     height: content-height + 46px;
 
-    Text {
+    HorizontalLayout {
         x: 14px;
-        y: 11px;
-        text: root.title;
-        color: Theme.text;
-        font-size: 13px;
-        font-weight: 600;
+        y: 9px;
+        width: parent.width - 28px;
+        height: 20px;
+        spacing: 6px;
+        Rectangle {
+            width: 16px;
+            height: 100%;
+            Image {
+                width: 16px;
+                height: 16px;
+                y: (parent.height - self.height) / 2;
+                source: root.icon;
+                image-fit: contain;
+                colorize: Theme.muted;
+            }
+        }
+        Text {
+            text: root.title;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
     }
 }
 
-component FieldLabel inherits Text {
-    color: Theme.muted;
-    font-size: 12px;
-    vertical-alignment: center;
+component IconLabel inherits HorizontalLayout {
+    in property <image> icon;
+    in property <string> text;
+    height: 16px;
+    spacing: 6px;
+
+    Rectangle {
+        width: 16px;
+        height: 100%;
+        Image {
+            width: 14px;
+            height: 14px;
+            y: (parent.height - self.height) / 2;
+            source: root.icon;
+            image-fit: contain;
+            colorize: Theme.muted;
+        }
+    }
+    Text {
+        text: root.text;
+        color: Theme.muted;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
 }
 
 // 输入框，圆角与按钮保持一致。
@@ -197,6 +236,7 @@ component VariableChip inherits TouchArea {
 
 component ToggleRow inherits TouchArea {
     in property <string> label;
+    in property <image> icon;
     in-out property <bool> checked;
     callback toggled(bool);
 
@@ -207,6 +247,18 @@ component ToggleRow inherits TouchArea {
         height: 100%;
         spacing: 10px;
 
+        Rectangle {
+            width: 16px;
+            height: 100%;
+            Image {
+                width: 16px;
+                height: 16px;
+                y: (parent.height - self.height) / 2;
+                source: root.icon;
+                image-fit: contain;
+                colorize: Theme.muted;
+            }
+        }
         Text {
             text: root.label;
             color: Theme.text;
@@ -350,7 +402,7 @@ export component MainWindow inherits Window {
     in-out property <bool> dark: true;
     in property <[string]> device-options;
     in property <[string]> format-options;
-    in property <[string]> fps-options: ["25 fps", "30 fps", "50 fps", "60 fps"];
+    in property <[string]> fps-options;
     in-out property <int> device-index: 0;
     in-out property <int> format-index: 0;
     in-out property <int> fps-index: 0;
@@ -573,7 +625,7 @@ export component MainWindow inherits Window {
                 IconPill {
                     icon: root.recording ? @image-url("../../../assets/icons/svg/player-stop.svg") : @image-url("../../../assets/icons/svg/player-record.svg");
                     has-icon: true;
-                    icon-color: #ff453a;
+                    icon-color: root.recording ? #ff453a : Theme.text;
                     text: root.recording ? root.t-record-stop : root.t-record-start;
                     clicked => { root.toggle-record(); }
                 }
@@ -730,7 +782,7 @@ export component MainWindow inherits Window {
                     width: 210px;
                     height: 36px;
                     border-radius: 18px;
-                    background: #000000a6;
+                    background: #0000008c;
 
                     Text {
                         width: 100%;
@@ -749,9 +801,9 @@ export component MainWindow inherits Window {
                     width: 108px;
                     height: 32px;
                     border-radius: 16px;
-                    background: #000000b3;
+                    background: #00000099;
                     border-width: 1px;
-                    border-color: #ffffff26;
+                    border-color: #ffffff33;
 
                     HorizontalLayout {
                         padding-left: 12px;
@@ -791,12 +843,13 @@ export component MainWindow inherits Window {
 
                         Section {
                             title: root.t-scan-settings;
+                            icon: @image-url("../../../assets/icons/svg/settings.svg");
                             content-height: 306px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
                                 spacing: 7px;
-                                FieldLabel { text: root.t-output-dir; }
+                                IconLabel { text: root.t-output-dir; icon: @image-url("../../../assets/icons/svg/folder.svg"); horizontal-stretch: 1; }
                                 HorizontalLayout {
                                     spacing: 6px;
                                     InputField {
@@ -806,7 +859,7 @@ export component MainWindow inherits Window {
                                     }
                                     PillButton { text: root.t-browse; width: 96px; clicked => { root.browse-output(); } }
                                 }
-                                FieldLabel { text: root.t-file-template; }
+                                IconLabel { text: root.t-file-template; icon: @image-url("../../../assets/icons/svg/file-text.svg"); horizontal-stretch: 1; }
                                 InputField { text: root.file-template; edited(text) => { root.file-template = text; } }
                                 HorizontalLayout {
                                     spacing: 6px;
@@ -815,7 +868,7 @@ export component MainWindow inherits Window {
                                         clicked => { root.file-template = root.file-template + variable.token; }
                                     }
                                 }
-                                FieldLabel { text: root.t-folder-template; }
+                                IconLabel { text: root.t-folder-template; icon: @image-url("../../../assets/icons/svg/folders.svg"); horizontal-stretch: 1; }
                                 InputField { text: root.folder-template; edited(text) => { root.folder-template = text; } }
                                 HorizontalLayout {
                                     spacing: 6px;
@@ -835,21 +888,22 @@ export component MainWindow inherits Window {
 
                         Section {
                             title: root.t-enhance;
+                            icon: @image-url("../../../assets/icons/svg/wand.svg");
                             content-height: 214px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
                                 spacing: 5px;
-                                ToggleRow { label: root.t-auto-crop; checked <=> root.auto-crop; }
-                                ToggleRow { label: root.t-auto-deskew; checked <=> root.auto-deskew; }
-                                ToggleRow { label: root.t-perspective; checked <=> root.perspective; }
-                                ToggleRow { label: root.t-remove-shadow; checked <=> root.remove-shadow; }
-                                ToggleRow { label: root.t-white-background; checked <=> root.white-background; }
+                                ToggleRow { label: root.t-auto-crop; icon: @image-url("../../../assets/icons/svg/crop.svg"); checked <=> root.auto-crop; }
+                                ToggleRow { label: root.t-auto-deskew; icon: @image-url("../../../assets/icons/svg/rotate-clockwise.svg"); checked <=> root.auto-deskew; }
+                                ToggleRow { label: root.t-perspective; icon: @image-url("../../../assets/icons/svg/perspective.svg"); checked <=> root.perspective; }
+                                ToggleRow { label: root.t-remove-shadow; icon: @image-url("../../../assets/icons/svg/shadow-off.svg"); checked <=> root.remove-shadow; }
+                                ToggleRow { label: root.t-white-background; icon: @image-url("../../../assets/icons/svg/contrast.svg"); checked <=> root.white-background; }
                                 HorizontalLayout {
                                     spacing: 8px;
-                                    FieldLabel { text: root.t-strength; width: 34px; }
+                                    IconLabel { text: root.t-strength; icon: @image-url("../../../assets/icons/svg/adjustments.svg"); width: 72px; }
                                     Slider { minimum: 0; maximum: 100; value <=> root.strength; horizontal-stretch: 1; }
-                                    Text { text: root.strength; color: Theme.text; width: 28px; horizontal-alignment: right; }
+                                    Text { text: root.strength; color: Theme.text; width: 28px; horizontal-alignment: right; vertical-alignment: center; }
                                 }
                             }
                         }

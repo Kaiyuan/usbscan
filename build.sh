@@ -270,6 +270,23 @@ if [ -f share/icons/hicolor/256x256/apps/usbscan.png ]; then
     install -Dm644 share/icons/hicolor/256x256/apps/usbscan.png "$PREFIX/share/icons/hicolor/256x256/apps/usbscan.png"
 fi
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q || true
+
+# 离线环境提示：缺少运行时库时程序无法启动。
+if command -v ldd >/dev/null 2>&1; then
+    missing="$(ldd "$PREFIX/bin/usbscan" 2>/dev/null | awk '/not found/{print $1}' | sort -u)"
+    if [ -n "$missing" ]; then
+        echo ""
+        echo "Warning: the following runtime libraries are missing:"
+        echo "$missing"
+        echo "Install them with your package manager before running usbscan."
+    fi
+fi
+
+echo ""
+echo "Optional components for offline use:"
+echo "  OCR       : tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng"
+echo "  PDF pages : poppler-utils"
+echo "  File dialogs: xdg-desktop-portal"
 echo "Installation completed!"
 INSTALL_SH
     chmod +x "$PACKAGE_DIR/install.sh"
@@ -312,7 +329,8 @@ DEB_SOURCE
             rm -rf "$SHLIBS_TMP"
         fi
         if [[ -z "$SHLIBS_DEPENDS" ]]; then
-            SHLIBS_DEPENDS="libasound2 | libasound2t64, libssl3 | libssl3t64 | libssl1.1, libfontconfig1, libfreetype6"
+            # 离线安装时 dpkg -i 不会补齐依赖，这里给出覆盖 UOS 20 / Debian 10-12 的完整回退列表。
+            SHLIBS_DEPENDS="libc6, libgcc1 | libgcc-s1, libssl1.1 | libssl3 | libssl3t64, libfontconfig1, libfreetype6, libasound2 | libasound2t64, libexpat1, zlib1g, libpng16-16, libbz2-1.0, libbrotli1, libzstd1"
         fi
 
         cat <<DEB_CONTROL > "$DEB_BUILD_DIR/DEBIAN/control"
@@ -325,9 +343,9 @@ Maintainer: usbscan contributors <https://github.com/Kaiyuan/usbscan>
 Description: Lightweight USB Document Scanner
  A modern, offline document scanning and OCR tool for USB cameras and doc scanners.
  Compatible with Deepin / UnionTech OS (UOS) and Debian-based Linux.
-Depends: $SHLIBS_DEPENDS, poppler-utils
-Recommends: libgl1, libxkbcommon0
-Suggests: tesseract-ocr, tesseract-ocr-chi-sim
+Depends: $SHLIBS_DEPENDS
+Recommends: libgl1, libegl1, libxkbcommon0, xdg-desktop-portal, poppler-utils
+Suggests: tesseract-ocr, tesseract-ocr-chi-sim, tesseract-ocr-eng
 DEB_CONTROL
 
         # 某些文件系统（如 WSL 的 DrvFs）会给出 777 权限，dpkg-deb 要求控制目录为 0755。

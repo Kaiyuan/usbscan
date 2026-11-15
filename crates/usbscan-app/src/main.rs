@@ -1918,8 +1918,22 @@ impl AppState {
             ui.set_show_about(false);
             ui.set_tesseract_installing(false);
             ui.set_tesseract_title(i18n::t("tesseract.title").into());
-            ui.set_tesseract_status(i18n::t("tesseract.body").into());
-            ui.set_tesseract_install_label(i18n::t("tesseract.install").into());
+            // Linux / macOS 不支持自动安装安装包，直接给出包管理器命令；离线时同样适用。
+            #[cfg(target_os = "linux")]
+            {
+                ui.set_tesseract_status(i18n::t("tesseract.linuxBody").into());
+                ui.set_tesseract_install_label(i18n::t("tesseract.known").into());
+            }
+            #[cfg(target_os = "macos")]
+            {
+                ui.set_tesseract_status(i18n::t("tesseract.macBody").into());
+                ui.set_tesseract_install_label(i18n::t("tesseract.known").into());
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+            {
+                ui.set_tesseract_status(i18n::t("tesseract.body").into());
+                ui.set_tesseract_install_label(i18n::t("tesseract.install").into());
+            }
             ui.set_show_tesseract_prompt(true);
         }
     }
@@ -1930,7 +1944,10 @@ impl AppState {
             ui.set_show_about(false);
             ui.set_tesseract_installing(false);
             ui.set_tesseract_title(i18n::t("tesseract.languageTitle").into());
-            ui.set_tesseract_status(i18n::t_args("tesseract.languageBody", &[language]).into());
+            let body = i18n::t_args("tesseract.languageBody", &[language]);
+            #[cfg(not(windows))]
+            let body = format!("{body}\n\n{}", i18n::t("tesseract.offlineHint"));
+            ui.set_tesseract_status(body.into());
             ui.set_tesseract_install_label(i18n::t("tesseract.downloadLanguages").into());
             ui.set_show_tesseract_prompt(true);
         }
@@ -1939,6 +1956,18 @@ impl AppState {
     fn install_tesseract(&mut self) {
         if self.tesseract_installing {
             return;
+        }
+        // 非 Windows 不支持静默安装 Tesseract 本体。提示改为说明后，按钮只负责关闭。
+        #[cfg(not(windows))]
+        {
+            let configured = self.config.tesseract_path.as_deref().map(Path::new);
+            if ocr::find_tesseract(configured).is_none() {
+                if let Some(ui) = self.ui() {
+                    ui.set_show_tesseract_prompt(false);
+                }
+                self.set_status(i18n::t("status.tesseractManual"));
+                return;
+            }
         }
         self.tesseract_installing = true;
         // 每次安装使用新的取消标记，旧线程持有的标记保持为已取消。

@@ -6,6 +6,7 @@
 //! 不联网、不上传图片。程序只负责定位 `tesseract.exe`、执行识别并返回文本；
 //! 语言模型由用户安装的 Tesseract 提供。
 
+use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -151,20 +152,67 @@ pub fn find_tesseract(configured: Option<&Path>) -> Option<PathBuf> {
 
 /// 检查 OCR 所需语言的 `traineddata` 是否齐全。
 ///
-/// `tessdata` 为显式指定的目录（即 `TESSDATA_PREFIX`）；未指定时使用
-/// `tesseract.exe` 同级的 `tessdata`。
+/// `tessdata` 为显式指定的目录（即 `TESSDATA_PREFIX`）。除检查该目录与
+/// Tesseract 同级的 `tessdata` 外，还会执行 `tesseract --list-langs`，
+/// 以便识别 Debian/UOS/macOS 把语言数据安装在 `/usr/share/...` 的情况。
 #[must_use]
 pub fn has_language_data(executable: &Path, tessdata: Option<&Path>, language: &str) -> bool {
-    let Some(directory) = tessdata
-        .map(Path::to_path_buf)
-        .or_else(|| executable.parent().map(|parent| parent.join("tessdata")))
-    else {
-        return false;
-    };
-    language
+    let wanted: Vec<&str> = language
         .split('+')
         .filter(|language| !language.is_empty())
-        .all(|language| directory.join(format!("{language}.traineddata")).is_file())
+        .collect();
+    if wanted.is_empty() {
+        return false;
+    }
+
+    let mut directories: Vec<PathBuf> = Vec::new();
+    if let Some(directory) = tessdata {
+        directories.push(directory.to_path_buf());
+    }
+    if let Some(parent) = executable.parent() {
+        directories.push(parent.join("tessdata"));
+        // 便携包常见布局：tesseract/bin/tesseract 与 tesseract/tessdata。
+        if let Some(grandparent) = parent.parent() {
+            directories.push(grandparent.join("tessdata"));
+        }
+    }
+    for directory in directories {
+        if wanted
+            .iter()
+            .all(|language| directory.join(format!("{language}.traineddata")).is_file())
+        {
+            return true;
+        }
+    }
+
+    // 系统级安装（UOS/Debian/Ubuntu/Homebrew）的语言数据不在可执行文件旁边，
+    // 直接询问 Tesseract 自己是最可靠的方式。
+    let mut command = Command::new(executable);
+    if let Some(directory) = tessdata {
+        command.env("TESSDATA_PREFIX", directory);
+    } else {
+        apply_portable_tessdata(&mut command, executable);
+    }
+    let Ok(output) = command.arg("--list-langs").output() else {
+        return false;
+    };
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    text.push('\n');
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    let available = parse_language_list(&text);
+    wanted.iter().all(|language| available.contains(*language))
+}
+
+/// 从 `tesseract --list-langs` 的输出中提取语言名。
+fn parse_language_list(text: &str) -> HashSet<&str> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| {
+            line.chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+        })
+        .collect()
 }
 
 /// 便携版 Tesseract 的 tessdata 目录。
@@ -509,6 +557,19 @@ mod tests {
         assert!(!has_language_data(&executable, None, "chi_sim+eng"));
         assert!(has_language_data(&executable, Some(&tessdata), "eng"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn parses_tesseract_language_listing() {
+        let output = "List of available languages in \"/usr/share/tesseract-ocr/5/tessdata/\" (3):\nchi_sim\neng\nosd\n";
+        let languages = parse_language_list(output);
+        assert!(languages.contains("chi_sim"));
+        assert!(languages.contains("eng"));
+        assert!(languages.contains("osd"));
+        assert!(!languages.contains(
+            "List of available languages in \"/usr/share/tesseract-ocr/5/tessdata/\" (3):"
+        ));
+        assert!(parse_language_list("Error opening data file\n").is_empty());
     }
 
     #[test]

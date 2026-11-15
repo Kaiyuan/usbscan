@@ -126,6 +126,43 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
+## UOS 离线安装
+
+`.deb` 只安装主程序，`dpkg -i` 不会联网补齐依赖。标准 UOS 20 桌面通常已包含运行库；精简系统或完全离线时，请提前准备：
+
+- **必需**（一般已预装）：`libc6`、`libgcc1`、`libssl1.1`、`libfontconfig1`、`libfreetype6`、`libasound2`、`libexpat1`、`zlib1g`、`libpng16-16`、`libbz2-1.0`、`libbrotli1`、`libzstd1`
+- **推荐**：`libgl1`、`libegl1`、`libxkbcommon0`、`xdg-desktop-portal`、`poppler-utils`
+- **OCR 可选**：`tesseract-ocr`、`tesseract-ocr-chi-sim`、`tesseract-ocr-eng`
+
+在同版本、可联网的 UOS 机器上下载依赖：
+
+```bash
+sudo apt-get install --download-only --reinstall \
+  libssl1.1 libfontconfig1 libfreetype6 libasound2 libexpat1 zlib1g \
+  libpng16-16 libbz2-1.0 libbrotli1 libzstd1 \
+  libgl1 libegl1 libxkbcommon0 xdg-desktop-portal poppler-utils \
+  tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng
+```
+
+把 `usbscan_<版本>_uos_<架构>.deb` 与 `/var/cache/apt/archives/*.deb` 一起拷贝到离线机器：
+
+```bash
+sudo dpkg -i *.deb
+# 或在依赖已就绪时
+sudo apt install ./usbscan_<版本>_uos_<架构>.deb
+
+# 确认没有缺失的动态库
+ldd /usr/bin/usbscan | grep "not found"
+```
+
+离线使用说明：
+
+- **OCR**：Linux/macOS 不会自动安装 Tesseract，请预先安装 `tesseract-ocr` 及对应语言包。安装后软件会通过 `tesseract --list-langs` 自动识别系统语言数据。
+- **PDF 页面导入**：需要 `poppler-utils`（`pdftoppm`）。
+- **文件选择框**：需要 `xdg-desktop-portal`；UOS 桌面通常自带。
+- **摄像头**：确保当前用户在 `video` 组，并在系统隐私设置中允许访问摄像头。
+- **联网功能**：检查更新、在线下载 OCR 语言数据在离线时会失败，但不影响拍照、裁剪、纠偏、导入和导出。
+
 ## 发布与多平台支持
 
 在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.5`）后，`.github/workflows/release.yml` 会自动构建多平台、多架构产物并上传：

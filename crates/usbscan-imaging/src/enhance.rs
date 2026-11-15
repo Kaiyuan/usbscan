@@ -339,8 +339,14 @@ fn document_skew(corners: &[(f64, f64); 4]) -> Option<f32> {
         (corners[0], corners[1], corners[2], corners[3]);
     let top = (top_right.1 - top_left.1).atan2(top_right.0 - top_left.0);
     let bottom = (bottom_right.1 - bottom_left.1).atan2(bottom_right.0 - bottom_left.0);
-    let average = f64::midpoint(top, bottom).to_degrees();
-    (average.abs() <= 15.0).then_some(-average as f32)
+    let top = top.to_degrees();
+    let bottom = bottom.to_degrees();
+    // 上下边倾角应一致；不一致说明检测到的四边形不可信，宁可保持原样。
+    if (top - bottom).abs() > 3.0 {
+        return Some(0.0);
+    }
+    let average = f64::midpoint(top, bottom);
+    (average.abs() > 0.5 && average.abs() <= 15.0).then_some(-average as f32)
 }
 
 fn rotate(image: &EnhancedImage, degrees: f32) -> EnhancedImage {

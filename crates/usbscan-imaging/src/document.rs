@@ -1218,24 +1218,54 @@ pub(crate) fn estimate_deskew_in_quad(
 
     let cx = small as f32 / 2.0;
     let cy = tall as f32 / 2.0;
-    let mut row_bins = vec![0.0f32; tall + 2];
-    let mut column_bins = vec![0.0f32; small + 2];
-    let zero_score = projection_sharpness(&points, cx, cy, 0.0, &mut row_bins, &mut column_bins);
+    // 旋转后坐标会移出原始画面边界。直方图必须按对角线长度留足空间，
+    // 否则某些角度会静默丢掉边缘采样点，分量方差被抬高，正文档反而“选中”斜角。
+    let extent = ((small * small + tall * tall) as f32).sqrt().ceil() as usize + 4;
+    let mut row_bins = vec![0.0f32; extent];
+    let mut column_bins = vec![0.0f32; extent];
+    let zero_score = projection_sharpness(
+        &points,
+        cx,
+        cy,
+        extent,
+        0.0,
+        &mut row_bins,
+        &mut column_bins,
+    );
     let mut best_angle = 0.0f32;
-    let mut best_score = 0.0f32;
+    // 从 0° 起步，确保“没有明显更优角度”时保持正立。
+    let mut best_score = zero_score;
     let mut angle = -22.0f32;
     while angle <= 22.0 {
-        let score = projection_sharpness(&points, cx, cy, angle, &mut row_bins, &mut column_bins);
-        if score > best_score {
-            best_score = score;
-            best_angle = angle;
+        if angle != 0.0 {
+            let score = projection_sharpness(
+                &points,
+                cx,
+                cy,
+                extent,
+                angle,
+                &mut row_bins,
+                &mut column_bins,
+            );
+            if score > best_score {
+                best_score = score;
+                best_angle = angle;
+            }
         }
         angle += 0.5;
     }
     let coarse = best_angle;
     let mut angle = coarse - 0.5;
     while angle <= coarse + 0.5 {
-        let score = projection_sharpness(&points, cx, cy, angle, &mut row_bins, &mut column_bins);
+        let score = projection_sharpness(
+            &points,
+            cx,
+            cy,
+            extent,
+            angle,
+            &mut row_bins,
+            &mut column_bins,
+        );
         if score > best_score {
             best_score = score;
             best_angle = angle;
@@ -1249,8 +1279,8 @@ pub(crate) fn estimate_deskew_in_quad(
     if best_angle.abs() > 21.0 {
         return None;
     }
-    // 转正后投影没有明显变锐利，就不要为了 0.4° 的噪声旋转图片。
-    if best_score <= zero_score * 1.02 {
+    // 只有倾斜角带来的投影增益足够明显时才旋转；否则宁可保持正立。
+    if best_angle.abs() < 0.5 || best_score <= zero_score * 1.08 {
         return Some(0.0);
     }
     Some(best_angle)
@@ -1260,19 +1290,21 @@ fn projection_sharpness(
     points: &[(f32, f32, f32)],
     cx: f32,
     cy: f32,
+    extent: usize,
     angle: f32,
     row_bins: &mut [f32],
     column_bins: &mut [f32],
 ) -> f32 {
     row_bins.fill(0.0);
     column_bins.fill(0.0);
+    let offset = extent as f32 / 2.0;
     let radians = angle.to_radians();
     let (sin, cos) = radians.sin_cos();
     for &(x, y, weight) in points {
         let dx = x - cx;
         let dy = y - cy;
-        let row = dx * sin + dy * cos + cy;
-        let column = dx * cos - dy * sin + cx;
+        let row = dx * sin + dy * cos + offset;
+        let column = dx * cos - dy * sin + offset;
         let row_index = row as isize;
         if row_index >= 0 && (row_index as usize) < row_bins.len() {
             row_bins[row_index as usize] += weight;
@@ -1671,6 +1703,33 @@ mod tests {
         assert!(
             (angle + 7.0).abs() < 1.5,
             "expected correction around -7°, got {angle}"
+        );
+    }
+
+    #[test]
+    fn deskew_keeps_upright_text_upright() {
+        let width = 640u32;
+        let height = 480u32;
+        let mut data = canvas(width as usize, height as usize, [250, 250, 250, 255]);
+        let (cx, cy) = (320.0f64, 240.0f64);
+        for line in -4i32..=4 {
+            let y = cy + f64::from(line) * 28.0;
+            for t in 0..=280 {
+                let x = cx - 140.0 + f64::from(t);
+                for local_y in 0..6 {
+                    let y = y + f64::from(local_y);
+                    if x < 0.0 || y < 0.0 || x >= f64::from(width) || y >= f64::from(height) {
+                        continue;
+                    }
+                    let offset = (y as usize * width as usize + x as usize) * 4;
+                    data[offset..offset + 4].copy_from_slice(&[30, 30, 30, 255]);
+                }
+            }
+        }
+        let angle = estimate_deskew(width, height, &data).expect("skew");
+        assert!(
+            angle.abs() < 0.5,
+            "upright text must stay upright, got {angle}"
         );
     }
 }

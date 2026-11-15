@@ -154,9 +154,13 @@
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.62-.75 1.04-1.8 1.01-2.87-.9.04-2.01.6-2.65 1.35-.56.65-.96 1.7-1.01 2.76.99.08 2.03-.49 2.65-1.24z"/></svg>
                 <span>macOS</span>
               </button>
+              <button class="tab-btn" id="tab-uos" role="tab" data-platform="uos">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v10l-8 4-8-4V7z"/><path d="M4 7l8 4 8-4"/><path d="M12 11v10"/></svg>
+                <span>UOS 20</span>
+              </button>
               <button class="tab-btn" id="tab-linux" role="tab" data-platform="linux">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.002 0c-4.417 0-8 3.582-8 8 0 2.809 1.458 5.275 3.666 6.697-.333 1.222-1.223 3.86-1.223 4.803 0 2.378 2.48 4.5 5.557 4.5s5.557-2.122 5.557-4.5c0-.943-.89-3.581-1.223-4.803 2.208-1.422 3.666-3.888 3.666-6.697 0-4.418-3.583-8-8-8z"/></svg>
-                <span>UOS / Linux</span>
+                <span>Linux</span>
               </button>
             </div>
 
@@ -212,31 +216,20 @@
               </div>
             </div>
 
-            <!-- UOS / Linux 面板 -->
-            <div class="platform-content" id="panel-linux">
+            <!-- UOS 20 面板 -->
+            <div class="platform-content" id="panel-uos">
+              <p class="download-hint" data-i18n="download.uosHint">适用于 UOS 20 / Deepin 20（Debian 10 基线）。常规 Debian / Ubuntu 请选择 Linux。</p>
               <div class="download-actions">
-                <a class="btn btn-primary" id="linux-deb-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                <a class="btn btn-primary" id="uos-deb-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-                  <span data-i18n="download.linuxDeb">下载 UOS / Debian 安装包 (.deb)</span>
+                  <span data-i18n="download.uosDeb">下载 UOS 20 安装包 (.deb)</span>
                 </a>
-                <a class="btn btn-secondary btn-sm" id="linux-deb-arm64-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
-                  <span>ARM64 (.deb)</span>
+                <a class="btn btn-secondary btn-sm" id="uos-deb-arm64-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <span data-i18n="download.uosDebArm64">UOS 20 ARM64 (.deb)</span>
                 </a>
-                <a class="btn btn-secondary btn-sm" id="linux-tar-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
-                  <span data-i18n="download.linuxTar">便携包 (.tar.gz)</span>
+                <a class="btn btn-secondary btn-sm" id="uos-tar-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <span data-i18n="download.uosTar">UOS 20 便携包 (.tar.gz)</span>
                 </a>
-              </div>
-              <div class="deps-box">
-                <div class="deps-box-title">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                  <span data-i18n="download.depsTitle">依赖与运行环境说明</span>
-                </div>
-                <ul>
-                  <li data-i18n-html="download.linuxPermDesc"><strong>摄像头用户权限：</strong>使用 USB 摄像头需将当前用户加入视频组：<code>sudo usermod -aG video $USER</code>，完成后注销重新登录。</li>
-                  <li data-i18n-html="download.linuxOcrDesc"><strong>离线 OCR 识别插件：</strong>在终端安装 Tesseract 核心与中英文数据：<code>sudo apt install tesseract-ocr tesseract-ocr-chi-sim</code>。</li>
-                  <li data-i18n-html="download.linuxPdfDesc"><strong>PDF 页面导入插件：</strong>导入多页 PDF 页面依赖 Poppler 工具包：<code>sudo apt install poppler-utils</code>。</li>
-                  <li data-i18n-html="download.linuxDebDesc"><strong>系统运行依赖：</strong>安装包会声明所需的运行库；离线安装前请准备好对应版本的 deb 包，安装后可用 <code>ldd /usr/bin/usbscan | grep "not found"</code> 检查。</li>
-                </ul>
               </div>
               <div class="deps-box">
                 <div class="deps-box-title">
@@ -249,6 +242,35 @@
                   <li data-i18n-html="download.uosOfflineOcr"><strong>离线 OCR：</strong>请预先安装 <code>tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng</code>；软件会自动识别系统已安装的语言数据。</li>
                   <li data-i18n-html="download.uosOfflineExtras"><strong>可选组件：</strong>PDF 页面导入需要 <code>poppler-utils</code>；文件选择框需要 <code>xdg-desktop-portal</code>。摄像头权限：<code>sudo usermod -aG video $USER</code> 后重新登录。</li>
                   <li data-i18n="download.uosOfflineNetwork">检查更新和在线下载语言数据在离线时会失败，但不影响拍照、裁剪、纠偏、导入和导出。</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- 常规 Linux 面板 -->
+            <div class="platform-content" id="panel-linux">
+              <p class="download-hint" data-i18n="download.linuxHint">适用于 Debian 12+ / Ubuntu 22.04+。UOS 20 / Deepin 20 请选择 UOS 20。</p>
+              <div class="download-actions">
+                <a class="btn btn-primary" id="linux-deb-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                  <span data-i18n="download.linuxDeb">下载 Linux 安装包 (.deb)</span>
+                </a>
+                <a class="btn btn-secondary btn-sm" id="linux-deb-arm64-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <span data-i18n="download.linuxDebArm64">Linux ARM64 (.deb)</span>
+                </a>
+                <a class="btn btn-secondary btn-sm" id="linux-tar-link" href="https://github.com/Kaiyuan/usbscan/releases/latest" target="_blank" rel="noopener">
+                  <span data-i18n="download.linuxTar">Linux 便携包 (.tar.gz)</span>
+                </a>
+              </div>
+              <div class="deps-box">
+                <div class="deps-box-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  <span data-i18n="download.depsTitle">依赖与运行环境说明</span>
+                </div>
+                <ul>
+                  <li data-i18n-html="download.linuxPermDesc"><strong>摄像头用户权限：</strong>使用 USB 摄像头需将当前用户加入视频组：<code>sudo usermod -aG video $USER</code>，完成后注销重新登录。</li>
+                  <li data-i18n-html="download.linuxOcrDesc"><strong>离线 OCR 识别插件：</strong>在终端安装 Tesseract 核心与中英文数据：<code>sudo apt install tesseract-ocr tesseract-ocr-chi-sim</code>。</li>
+                  <li data-i18n-html="download.linuxPdfDesc"><strong>PDF 页面导入插件：</strong>导入多页 PDF 页面依赖 Poppler 工具包：<code>sudo apt install poppler-utils</code>。</li>
+                  <li data-i18n-html="download.linuxDebDesc"><strong>系统运行依赖：</strong>安装包会声明所需的运行库；离线安装前请准备好对应版本的 deb 包，安装后可用 <code>ldd /usr/bin/usbscan | grep "not found"</code> 检查。</li>
                 </ul>
               </div>
             </div>

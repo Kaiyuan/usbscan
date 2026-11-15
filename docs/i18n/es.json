@@ -75,5 +75,16 @@
   "docs.repoTitle": "Repositorio de GitHub",
   "docs.repoDesc": "Código fuente, issues y releases",
   "page.title": "UsbScan — Convierte cualquier cámara USB en un escáner de documentos",
-  "page.description": "UsbScan es una app de Windows para escanear documentos sin conexión: cualquier cámara UVC, recorte automático y corrección de perspectiva, OCR sin conexión, exportación a PDF y grabación MP4."
+  "page.description": "UsbScan es una app de Windows para escanear documentos sin conexión: cualquier cámara UVC, recorte automático y corrección de perspectiva, OCR sin conexión, exportación a PDF y grabación MP4.",
+  "hero.downloadUos": "Descargar para UOS 20 (.deb)",
+  "hero.downloadLinux": "Descargar para Linux (.deb)",
+  "download.uosHint": "Para UOS 20 / Deepin 20 (base Debian 10). Los usuarios de Debian / Ubuntu estándar deben elegir Linux.",
+  "download.uosDeb": "Descargar paquete UOS 20 (.deb)",
+  "download.uosDebArm64": "UOS 20 ARM64 (.deb)",
+  "download.uosTar": "Paquete portátil UOS 20 (.tar.gz)",
+  "download.linuxHint": "Para Debian 12+ / Ubuntu 22.04+. Los usuarios de UOS 20 / Deepin 20 deben elegir UOS 20.",
+  "download.linuxDeb": "Descargar paquete Linux (.deb)",
+  "download.linuxDebArm64": "Linux ARM64 (.deb)",
+  "download.linuxTar": "Paquete portátil Linux (.tar.gz)",
+  "hero.chooseLinux": "Elegir distribución de Linux"
 }

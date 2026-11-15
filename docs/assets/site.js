@@ -33,6 +33,11 @@
     if (/macintosh|mac os x|mac_powerpc/i.test(ua) || /Mac/i.test(platform)) {
       return 'macos';
     }
+    // UOS / UnionTech / Deepin 基于 Debian 10，需使用 uos-* 安装包；
+    // 必须放在通用 Linux 判断之前。
+    if (/uos|uniontech|deepin/i.test(ua) || /uos|uniontech|deepin/i.test(platform)) {
+      return 'uos';
+    }
     if (/linux|x11/i.test(ua) || /Linux/i.test(platform)) {
       return 'linux';
     }
@@ -199,8 +204,11 @@
     if (platform === 'macos') {
       if (sideSystem) sideSystem.textContent = 'macOS 10.15+';
       if (sideArch) sideArch.textContent = 'Apple Silicon (M1-M4) / Intel';
+    } else if (platform === 'uos') {
+      if (sideSystem) sideSystem.textContent = 'UOS 20 / Deepin 20';
+      if (sideArch) sideArch.textContent = 'x86_64 / arm64 (aarch64)';
     } else if (platform === 'linux') {
-      if (sideSystem) sideSystem.textContent = 'UOS / Debian / Ubuntu';
+      if (sideSystem) sideSystem.textContent = 'Debian 12+ / Ubuntu 22.04+';
       if (sideArch) sideArch.textContent = 'x86_64 / arm64 (aarch64)';
     } else {
       if (sideSystem) sideSystem.textContent = 'Windows 10 / 11';
@@ -220,10 +228,15 @@
       var macLink = document.getElementById('macos-universal-link');
       if (macLink && macLink.href && macLink.href !== '#') heroBtn.href = macLink.href;
       heroText.textContent = d['hero.downloadMac'] || '下载 macOS 版 (Universal)';
+    } else if (currentPlatform === 'uos') {
+      var uosLink = document.getElementById('uos-deb-link');
+      if (uosLink && uosLink.href && uosLink.href !== '#') heroBtn.href = uosLink.href;
+      heroText.textContent = d['hero.downloadUos'] || '下载 UOS 20 版 (.deb)';
     } else if (currentPlatform === 'linux') {
-      var linuxLink = document.getElementById('linux-deb-link');
-      if (linuxLink && linuxLink.href && linuxLink.href !== '#') heroBtn.href = linuxLink.href;
-      heroText.textContent = d['hero.downloadLinux'] || '下载 UOS / Linux 版 (.deb)';
+      // 通用 Linux 无法可靠区分 UOS / Debian / Ubuntu，先滚动到发行版选择，
+      // 避免 UOS 用户直接下载到常规 Linux 安装包。
+      heroBtn.href = '#download';
+      heroText.textContent = d['hero.chooseLinux'] || '选择 Linux 发行版';
     } else {
       var winLink = document.getElementById('setup-link');
       if (winLink && winLink.href && winLink.href !== '#') heroBtn.href = winLink.href;
@@ -251,8 +264,8 @@
   function bindRelease() {
     var fallback = 'https://github.com/Kaiyuan/usbscan/releases/latest';
     ['setup-link', 'portable-link', 'hero-download', 'macos-universal-link',
-     'macos-arm64-link', 'macos-x64-link', 'linux-deb-link', 'linux-deb-arm64-link',
-     'linux-tar-link'].forEach(function (id) {
+     'macos-arm64-link', 'macos-x64-link', 'uos-deb-link', 'uos-deb-arm64-link',
+     'uos-tar-link', 'linux-deb-link', 'linux-deb-arm64-link', 'linux-tar-link'].forEach(function (id) {
       setDownloadHref(id, fallback);
     });
 
@@ -285,14 +298,39 @@
         if (macArm64) setDownloadHref('macos-arm64-link', macArm64.browser_download_url);
         if (macX64) setDownloadHref('macos-x64-link', macX64.browser_download_url);
 
-        // Linux / UOS
-        var debX64 = assets.find(function (a) { return /(amd64|x64|x86_64).*\.deb$/i.test(a.name); });
-        var debArm64 = assets.find(function (a) { return /(arm64|aarch64).*\.deb$/i.test(a.name); });
-        var tarX64 = assets.find(function (a) { return /linux.*x64.*\.tar\.gz$/i.test(a.name); });
+        // UOS 20（Debian 10 基线）：文件名包含 uos，必须与常规 Linux 严格区分。
+        var uosDebX64 = assets.find(function (a) {
+          return /uos/i.test(a.name) && /(amd64|x64|x86_64)/i.test(a.name) && /\.deb$/i.test(a.name);
+        });
+        var uosDebArm64 = assets.find(function (a) {
+          return /uos/i.test(a.name) && /(arm64|aarch64)/i.test(a.name) && /\.deb$/i.test(a.name);
+        });
+        var uosTar = assets.find(function (a) {
+          return /uos/i.test(a.name) && /\.tar\.gz$/i.test(a.name) && /(x64|amd64|x86_64)/i.test(a.name);
+        }) || assets.find(function (a) {
+          return /uos/i.test(a.name) && /\.tar\.gz$/i.test(a.name);
+        });
 
-        if (debX64) setDownloadHref('linux-deb-link', debX64.browser_download_url);
-        if (debArm64) setDownloadHref('linux-deb-arm64-link', debArm64.browser_download_url);
-        if (tarX64) setDownloadHref('linux-tar-link', tarX64.browser_download_url);
+        // 常规 Linux（Debian 12+ / Ubuntu 22.04+）：排除 uos-* 产物。
+        var linuxDebX64 = assets.find(function (a) {
+          return !/uos/i.test(a.name) && /(amd64|x64|x86_64)/i.test(a.name) && /\.deb$/i.test(a.name);
+        });
+        var linuxDebArm64 = assets.find(function (a) {
+          return !/uos/i.test(a.name) && /(arm64|aarch64)/i.test(a.name) && /\.deb$/i.test(a.name);
+        });
+        var linuxTarX64 = assets.find(function (a) {
+          return !/uos/i.test(a.name) && /linux/i.test(a.name) && /\.tar\.gz$/i.test(a.name) && /(x64|amd64|x86_64)/i.test(a.name);
+        }) || assets.find(function (a) {
+          return !/uos/i.test(a.name) && /linux/i.test(a.name) && /\.tar\.gz$/i.test(a.name);
+        });
+
+        if (uosDebX64) setDownloadHref('uos-deb-link', uosDebX64.browser_download_url);
+        if (uosDebArm64) setDownloadHref('uos-deb-arm64-link', uosDebArm64.browser_download_url);
+        if (uosTar) setDownloadHref('uos-tar-link', uosTar.browser_download_url);
+
+        if (linuxDebX64) setDownloadHref('linux-deb-link', linuxDebX64.browser_download_url);
+        if (linuxDebArm64) setDownloadHref('linux-deb-arm64-link', linuxDebArm64.browser_download_url);
+        if (linuxTarX64) setDownloadHref('linux-tar-link', linuxTarX64.browser_download_url);
 
         // Checksums
         var checksums = assets.find(function (a) { return /SHA256SUMS\.txt$/i.test(a.name); });

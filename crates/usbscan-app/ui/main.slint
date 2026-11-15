@@ -18,6 +18,11 @@ export global Theme {
     out property <color> control: dark ? #3a3a3c : #e8e8ed;
 }
 
+export global Assets {
+    // Windows / macOS 使用矢量 SVG；Linux / UOS 使用预渲染 PNG。
+    in-out property <bool> svg-icons: true;
+}
+
 export struct PageItem {
     seq: int,
     title: string,
@@ -324,7 +329,7 @@ component Dropdown inherits Rectangle {
                 width: 12px;
                 height: 12px;
                 y: (parent.height - self.height) / 2;
-                source: @image-url("../../../assets/icons/png/chevron-down.png");
+                source: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/chevron-down.svg") : @image-url("../../../assets/icons/png/chevron-down.png"));
                 image-fit: contain;
                 colorize: Theme.muted;
             }
@@ -625,26 +630,26 @@ export component MainWindow inherits Window {
                 }
                 Rectangle { horizontal-stretch: 1; }
                 IconPill {
-                    icon: @image-url("../../../assets/icons/png/rotate-clockwise.png");
+                    icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/rotate-clockwise.svg") : @image-url("../../../assets/icons/png/rotate-clockwise.png"));
                     has-icon: true;
                     text: root.rotation-degrees == 0 ? root.t-rotate : root.t-rotate + " \{root.rotation-degrees}°";
                     clicked => { root.rotate-preview(); }
                 }
                 IconPill {
-                    icon: @image-url("../../../assets/icons/png/refresh.png");
+                    icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/refresh.svg") : @image-url("../../../assets/icons/png/refresh.png"));
                     has-icon: true;
                     text: root.t-refresh;
                     clicked => { root.refresh-devices(); }
                 }
                 IconPill {
-                    icon: root.recording ? @image-url("../../../assets/icons/png/player-stop.png") : @image-url("../../../assets/icons/png/video.png");
+                    icon: root.recording ? (Assets.svg-icons ? @image-url("../../../assets/icons/svg/player-stop.svg") : @image-url("../../../assets/icons/png/player-stop.png")) : (Assets.svg-icons ? @image-url("../../../assets/icons/svg/video.svg") : @image-url("../../../assets/icons/png/video.png"));
                     has-icon: true;
                     icon-color: root.recording ? #ff453a : Theme.text;
                     text: root.recording ? root.t-record-stop : root.t-record-start;
                     clicked => { root.toggle-record(); }
                 }
                 IconPill {
-                    icon: @image-url("../../../assets/icons/png/camera.png");
+                    icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/camera.svg") : @image-url("../../../assets/icons/png/camera.png"));
                     has-icon: true;
                     text: root.t-capture;
                     primary: true;
@@ -859,13 +864,13 @@ export component MainWindow inherits Window {
 
                         Section {
                             title: root.t-scan-settings;
-                            icon: @image-url("../../../assets/icons/png/settings.png");
+                            icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/settings.svg") : @image-url("../../../assets/icons/png/settings.png"));
                             content-height: 306px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
                                 spacing: 7px;
-                                IconLabel { text: root.t-output-dir; icon: @image-url("../../../assets/icons/png/folder.png"); horizontal-stretch: 1; }
+                                IconLabel { text: root.t-output-dir; icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/folder.svg") : @image-url("../../../assets/icons/png/folder.png")); horizontal-stretch: 1; }
                                 HorizontalLayout {
                                     spacing: 6px;
                                     InputField {
@@ -875,7 +880,7 @@ export component MainWindow inherits Window {
                                     }
                                     PillButton { text: root.t-browse; width: 96px; clicked => { root.browse-output(); } }
                                 }
-                                IconLabel { text: root.t-file-template; icon: @image-url("../../../assets/icons/png/file-text.png"); horizontal-stretch: 1; }
+                                IconLabel { text: root.t-file-template; icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/file-text.svg") : @image-url("../../../assets/icons/png/file-text.png")); horizontal-stretch: 1; }
                                 InputField { text: root.file-template; edited(text) => { root.file-template = text; } }
                                 HorizontalLayout {
                                     spacing: 6px;
@@ -884,7 +889,7 @@ export component MainWindow inherits Window {
                                         clicked => { root.file-template = root.file-template + variable.token; }
                                     }
                                 }
-                                IconLabel { text: root.t-folder-template; icon: @image-url("../../../assets/icons/png/folders.png"); horizontal-stretch: 1; }
+                                IconLabel { text: root.t-folder-template; icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/folders.svg") : @image-url("../../../assets/icons/png/folders.png")); horizontal-stretch: 1; }
                                 InputField { text: root.folder-template; edited(text) => { root.folder-template = text; } }
                                 HorizontalLayout {
                                     spacing: 6px;
@@ -904,14 +909,14 @@ export component MainWindow inherits Window {
 
                         Section {
                             title: root.t-enhance;
-                            icon: @image-url("../../../assets/icons/png/wand.png");
+                            icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/wand.svg") : @image-url("../../../assets/icons/png/wand.png"));
                             // 5 × 28px 开关 + 30px 背景提示 + 24px 强度行 + 6 × 5px 间距
                             content-height: 224px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
                                 spacing: 5px;
-                                ToggleRow { label: root.t-auto-crop; icon: @image-url("../../../assets/icons/png/crop.png"); checked <=> root.auto-crop; }
+                                ToggleRow { label: root.t-auto-crop; icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/crop.svg") : @image-url("../../../assets/icons/png/crop.png")); checked <=> root.auto-crop; }
                                 Text {
                                     text: root.t-clean-hint;
                                     color: Theme.muted;
@@ -920,16 +925,16 @@ export component MainWindow inherits Window {
                                     wrap: word-wrap;
                                     vertical-alignment: center;
                                 }
-                                ToggleRow { label: root.t-auto-deskew; icon: @image-url("../../../assets/icons/png/rotate-clockwise.png"); checked <=> root.auto-deskew; }
-                                ToggleRow { label: root.t-perspective; icon: @image-url("../../../assets/icons/png/perspective.png"); checked <=> root.perspective; }
-                                ToggleRow { label: root.t-remove-shadow; icon: @image-url("../../../assets/icons/png/shadow-off.png"); checked <=> root.remove-shadow; }
-                                ToggleRow { label: root.t-white-background; icon: @image-url("../../../assets/icons/png/contrast.png"); checked <=> root.white-background; }
+                                ToggleRow { label: root.t-auto-deskew; icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/rotate-clockwise.svg") : @image-url("../../../assets/icons/png/rotate-clockwise.png")); checked <=> root.auto-deskew; }
+                                ToggleRow { label: root.t-perspective; icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/perspective.svg") : @image-url("../../../assets/icons/png/perspective.png")); checked <=> root.perspective; }
+                                ToggleRow { label: root.t-remove-shadow; icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/shadow-off.svg") : @image-url("../../../assets/icons/png/shadow-off.png")); checked <=> root.remove-shadow; }
+                                ToggleRow { label: root.t-white-background; icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/contrast.svg") : @image-url("../../../assets/icons/png/contrast.png")); checked <=> root.white-background; }
                                 HorizontalLayout {
                                     spacing: 8px;
                                     height: 24px;
                                     // 交叉轴对齐让标签和数值都按自身高度垂直居中在滑块中线上。
                                     cross-axis-alignment: center;
-                                    IconLabel { text: root.t-strength; icon: @image-url("../../../assets/icons/png/adjustments.png"); width: 72px; }
+                                    IconLabel { text: root.t-strength; icon: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/adjustments.svg") : @image-url("../../../assets/icons/png/adjustments.png")); width: 72px; }
                                     Slider { minimum: 0; maximum: 100; value <=> root.strength; horizontal-stretch: 1; }
                                     Text { text: root.strength; color: Theme.text; width: 28px; horizontal-alignment: right; vertical-alignment: center; }
                                 }
@@ -989,7 +994,7 @@ export component MainWindow inherits Window {
                             Image {
                                 width: 14px;
                                 height: 14px;
-                                source: @image-url("../../../assets/icons/png/alert-triangle.png");
+                                source: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/alert-triangle.svg") : @image-url("../../../assets/icons/png/alert-triangle.png"));
                                 image-fit: contain;
                                 colorize: #f5b800;
                             }
@@ -1043,7 +1048,7 @@ export component MainWindow inherits Window {
                         Image {
                             width: 24px;
                             height: 24px;
-                            source: @image-url("../../../assets/icons/png/alert-triangle.png");
+                            source: (Assets.svg-icons ? @image-url("../../../assets/icons/svg/alert-triangle.svg") : @image-url("../../../assets/icons/png/alert-triangle.png"));
                             image-fit: contain;
                             colorize: #f5b800;
                         }

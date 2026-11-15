@@ -4,13 +4,13 @@
 //! 把 UI 使用的 Tabler SVG 图标预渲染成 PNG。
 //!
 //! 运行：`cargo run --example render_icons -p usbscan-app`
-//! 输出到 `assets/icons/png/`。UI 只引用 PNG，避免在部分 Linux 桌面环境中
-//! SVG 解码失败导致图标空白。
+//! 输出到 `assets/icons/png/`。Windows/macOS 的 UI 直接使用 SVG；
+//! Linux/UOS 使用这些 PNG，避免部分桌面环境 SVG 解码失败导致图标空白。
 
 use std::fs;
 use std::path::Path;
 
-const SIZE: u32 = 96;
+const SIZE: u32 = 32;
 /// 烘焙到 PNG 的中性灰：即使某些渲染后端忽略 `colorize`，图标仍然可见。
 const FALLBACK_COLOR: &str = "#8a8f98";
 

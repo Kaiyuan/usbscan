@@ -402,7 +402,8 @@ export component MainWindow inherits Window {
     in-out property <bool> dark: true;
     in property <[string]> device-options;
     in property <[string]> format-options;
-    in property <[string]> fps-options;
+    // 摄像头报告能力前先占位，避免下拉框空白；打开设备后由 Rust 侧覆盖。
+    in property <[string]> fps-options: ["30 fps"];
     in-out property <int> device-index: 0;
     in-out property <int> format-index: 0;
     in-out property <int> fps-index: 0;
@@ -889,7 +890,8 @@ export component MainWindow inherits Window {
                         Section {
                             title: root.t-enhance;
                             icon: @image-url("../../../assets/icons/svg/wand.svg");
-                            content-height: 214px;
+                            // 5 × 28px 开关 + 5 × 5px 间距 + 24px 强度行
+                            content-height: 189px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
@@ -901,6 +903,9 @@ export component MainWindow inherits Window {
                                 ToggleRow { label: root.t-white-background; icon: @image-url("../../../assets/icons/svg/contrast.svg"); checked <=> root.white-background; }
                                 HorizontalLayout {
                                     spacing: 8px;
+                                    height: 24px;
+                                    // 交叉轴对齐让标签和数值都按自身高度垂直居中在滑块中线上。
+                                    cross-axis-alignment: center;
                                     IconLabel { text: root.t-strength; icon: @image-url("../../../assets/icons/svg/adjustments.svg"); width: 72px; }
                                     Slider { minimum: 0; maximum: 100; value <=> root.strength; horizontal-stretch: 1; }
                                     Text { text: root.strength; color: Theme.text; width: 28px; horizontal-alignment: right; vertical-alignment: center; }

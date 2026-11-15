@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 usbscan contributors
 
-import { LineEdit, Palette, ScrollView, Slider } from "std-widgets.slint";
+import { Palette, ScrollView, Slider } from "std-widgets.slint";
 
 export global Theme {
     in-out property <bool> dark: true;
@@ -138,6 +138,33 @@ component FieldLabel inherits Text {
     color: Theme.muted;
     font-size: 12px;
     vertical-alignment: center;
+}
+
+// 输入框，圆角与按钮保持一致。
+component InputField inherits Rectangle {
+    in property <string> text;
+    in property <bool> read-only: false;
+    callback edited(string);
+
+    height: 30px;
+    border-radius: 7px;
+    background: Theme.control;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.border;
+
+    input := TextInput {
+        x: 9px;
+        width: parent.width - 18px;
+        height: 100%;
+        text: root.text;
+        read-only: root.read-only;
+        single-line: true;
+        wrap: no-wrap;
+        color: Theme.text;
+        font-size: 13px;
+        selection-background-color: Theme.accent;
+        edited => { root.edited(input.text); }
+    }
 }
 
 // 命名模板里可一键插入的变量标签。
@@ -771,7 +798,7 @@ export component MainWindow inherits Window {
                                 FieldLabel { text: root.t-output-dir; }
                                 HorizontalLayout {
                                     spacing: 6px;
-                                    LineEdit {
+                                    InputField {
                                         text: root.output-dir;
                                         edited(text) => { root.output-dir = text; }
                                         horizontal-stretch: 1;
@@ -779,7 +806,7 @@ export component MainWindow inherits Window {
                                     PillButton { text: root.t-browse; width: 96px; clicked => { root.browse-output(); } }
                                 }
                                 FieldLabel { text: root.t-file-template; }
-                                LineEdit { text: root.file-template; edited(text) => { root.file-template = text; } }
+                                InputField { text: root.file-template; edited(text) => { root.file-template = text; } }
                                 HorizontalLayout {
                                     spacing: 6px;
                                     for variable in root.file-variables : VariableChip {
@@ -788,7 +815,7 @@ export component MainWindow inherits Window {
                                     }
                                 }
                                 FieldLabel { text: root.t-folder-template; }
-                                LineEdit { text: root.folder-template; edited(text) => { root.folder-template = text; } }
+                                InputField { text: root.folder-template; edited(text) => { root.folder-template = text; } }
                                 HorizontalLayout {
                                     spacing: 6px;
                                     for variable in root.folder-variables : VariableChip {
@@ -992,7 +1019,7 @@ export component MainWindow inherits Window {
                 padding: 16px;
                 spacing: 10px;
                 Text { text: root.t-rename-title; color: Theme.text; font-size: 15px; font-weight: 600; }
-                LineEdit { text: root.rename-text; edited(text) => { root.rename-text = text; } }
+                InputField { text: root.rename-text; edited(text) => { root.rename-text = text; } }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;

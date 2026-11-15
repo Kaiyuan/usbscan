@@ -199,6 +199,7 @@ pub struct DShowCamera {
     grabber: ISampleGrabber,
     width: u32,
     height: u32,
+    fps_rates: Vec<u32>,
     stride: usize,
     bottom_up: bool,
     buffer: Vec<u8>,
@@ -206,7 +207,7 @@ pub struct DShowCamera {
 
 impl DShowCamera {
     /// 打开 DirectShow 摄像头。
-    pub fn open(info: &CameraInfo, _preferred: Option<(u32, u32)>) -> Result<Self, CaptureError> {
+    pub fn open(info: &CameraInfo) -> Result<Self, CaptureError> {
         let moniker =
             find_moniker(info).ok_or_else(|| CaptureError::DeviceNotFound(info.name.clone()))?;
         // SAFETY: 标准 DirectShow 图构建流程；接口句柄由返回值持有。
@@ -279,6 +280,7 @@ impl DShowCamera {
 
             let mut connected = grabber.connected_media_type()?;
             let (width, height, bottom_up) = parse_video_info(&connected)?;
+            let fps_rates = parse_frame_rate(&connected).map_or_else(|| vec![30], |fps| vec![fps]);
             if !connected.pbFormat.is_null() {
                 CoTaskMemFree(Some(connected.pbFormat.cast()));
             }
@@ -294,6 +296,7 @@ impl DShowCamera {
                 grabber,
                 width,
                 height,
+                fps_rates,
                 stride: ((width as usize * 3 + 3) & !3).max(width as usize * 3),
                 bottom_up,
                 buffer: Vec::new(),
@@ -315,6 +318,12 @@ impl DShowCamera {
     #[must_use]
     pub fn formats(&self) -> Vec<(u32, u32)> {
         vec![(self.width, self.height)]
+    }
+
+    /// DirectShow 兜底路径只报告协商到的当前帧率。
+    #[must_use]
+    pub fn fps_rates(&self) -> Vec<u32> {
+        self.fps_rates.clone()
     }
 
     /// 阻塞读取最新一帧。
@@ -444,6 +453,27 @@ fn first_pin(
             }
         }
     }
+}
+
+/// 从 `VIDEOINFOHEADER` 的平均帧间隔换算帧率。
+fn parse_frame_rate(media_type: &AM_MEDIA_TYPE) -> Option<u32> {
+    let average = if media_type.pbFormat.is_null() {
+        return None;
+    } else if media_type.formattype == FORMAT_VideoInfo {
+        // SAFETY: pbFormat 由 GetConnectedMediaType 分配并至少容纳 VIDEOINFOHEADER。
+        unsafe { (*(media_type.pbFormat.cast::<VIDEOINFOHEADER>())).AvgTimePerFrame }
+    } else if media_type.formattype == FORMAT_VideoInfo2 {
+        // SAFETY: 同上，VIDEOINFOHEADER2 的 AvgTimePerFrame 位置。
+        unsafe { (*(media_type.pbFormat.cast::<VIDEOINFOHEADER2>())).AvgTimePerFrame }
+    } else {
+        return None;
+    };
+    if average <= 0 {
+        return None;
+    }
+    // 100ns 单位；四舍五入到整数帧率，避免 29.97 显示成 29。
+    let fps = (10_000_000 + average / 2) / average;
+    (1..=240).contains(&fps).then_some(fps as u32)
 }
 
 fn parse_video_info(media_type: &AM_MEDIA_TYPE) -> Result<(u32, u32, bool), CaptureError> {

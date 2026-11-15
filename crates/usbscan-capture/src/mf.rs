@@ -157,18 +157,14 @@ fn activation_error(err: windows::core::Error) -> CaptureError {
     }
 }
 
-/// 打开后的采集器、实际输出尺寸、步幅与设备支持的分辨率。
-type OpenReader = (IMFSourceReader, u32, u32, i32, Vec<(u32, u32)>);
+/// 打开后的采集器、实际输出尺寸、步幅、设备支持的分辨率与帧率。
+type OpenReader = (IMFSourceReader, u32, u32, i32, Vec<(u32, u32)>, Vec<u32>);
 
 /// 创建 Source Reader 并协商 RGB32 输出。
 ///
 /// `advanced = false` 时启用旧版 YUV→RGB32 转换路径，用于高级视频处理
 /// 被驱动拒绝（例如 `E_INVALIDARG`）时的回退。
-fn open_reader(
-    source: &IMFMediaSource,
-    advanced: bool,
-    preferred: Option<(u32, u32)>,
-) -> Result<OpenReader, CaptureError> {
+fn open_reader(source: &IMFMediaSource, advanced: bool) -> Result<OpenReader, CaptureError> {
     // SAFETY: source 有效；所有 COM 调用均检查返回值。
     unsafe {
         let mut attributes: Option<IMFAttributes> = None;
@@ -199,17 +195,12 @@ fn open_reader(
         let _ = reader.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false);
         stage("选择视频流", reader.SetStreamSelection(stream, true))?;
 
-        // 逐个尝试原生格式。用户指定分辨率时，优先精确匹配，再按面积接近程度
-        // 回退；未指定时优先 1080p 以内的最高分辨率。
+        // 始终按原生最高分辨率协商采集，输出分辨率由界面单独控制。
         let formats = native_formats(&reader);
         let resolutions = unique_resolutions(&formats);
-        let ordered = if let Some(preferred) = preferred {
-            preferred_format_order(&formats, preferred)
-        } else {
-            preferred_formats(&formats)
-        };
+        let mut fps_rates = native_fps_rates(&formats);
         let mut configured = false;
-        for native in ordered {
+        for native in capture_format_order(&formats) {
             let Ok(media_type) = build_rgb32_type(Some(native)) else {
                 continue;
             };
@@ -257,7 +248,20 @@ fn open_reader(
         let stride = current
             .GetUINT32(&MF_MT_DEFAULT_STRIDE)
             .map_or((width * 4) as i32, |v| v as i32);
-        Ok((reader, width, height, stride, resolutions))
+        if fps_rates.is_empty() {
+            if let Some(rate) = current
+                .GetUINT64(&MF_MT_FRAME_RATE)
+                .ok()
+                .and_then(ratio_to_fps)
+            {
+                fps_rates.push(rate);
+            }
+        }
+        if fps_rates.is_empty() {
+            // 极少数驱动不报告帧率；只保留一个保守选项，避免下拉为空。
+            fps_rates.push(30);
+        }
+        Ok((reader, width, height, stride, resolutions, fps_rates))
     }
 }
 
@@ -269,13 +273,14 @@ pub struct MfCamera {
     height: u32,
     stride: i32,
     formats: Vec<(u32, u32)>,
+    fps_rates: Vec<u32>,
     /// 是否已跳过第一帧（传感器刚上电时常见暗帧）。
     warmup: bool,
 }
 
 impl MfCamera {
     /// 打开指定摄像头并请求 BGRA 输出。
-    pub fn open(info: &CameraInfo, preferred: Option<(u32, u32)>) -> Result<Self, CaptureError> {
+    pub fn open(info: &CameraInfo) -> Result<Self, CaptureError> {
         ensure_platform()?;
         let activates = stage("枚举摄像头", enumerate_activates())?;
         // 先按符号链接精确匹配；老设备或驱动不提供链接时按名称回退。
@@ -291,8 +296,8 @@ impl MfCamera {
 
         let source = activate_media_source(activate)?;
         // 先启用高级视频处理；失败时退回旧版 YUV→RGB32 转换路径。
-        let (reader, width, height, stride, formats) = open_reader(&source, true, preferred)
-            .or_else(|_| open_reader(&source, false, preferred))?;
+        let (reader, width, height, stride, formats, fps_rates) =
+            open_reader(&source, true).or_else(|_| open_reader(&source, false))?;
 
         Ok(Self {
             info: info.clone(),
@@ -301,6 +306,7 @@ impl MfCamera {
             height,
             stride,
             formats,
+            fps_rates,
             warmup: false,
         })
     }
@@ -308,6 +314,12 @@ impl MfCamera {
     #[must_use]
     pub fn formats(&self) -> &[(u32, u32)] {
         &self.formats
+    }
+
+    /// 原生最高分辨率下支持的帧率，供界面过滤 FPS 选项。
+    #[must_use]
+    pub fn fps_rates(&self) -> Vec<u32> {
+        self.fps_rates.clone()
     }
 
     #[must_use]
@@ -416,6 +428,34 @@ fn valid_ratio(ratio: u64) -> bool {
     (ratio >> 32) != 0 && (ratio & 0xFFFF_FFFF) != 0
 }
 
+/// 把 MF 的 `(分子 << 32) | 分母` 比例换算为整数帧率。
+fn ratio_to_fps(ratio: u64) -> Option<u32> {
+    if !valid_ratio(ratio) {
+        return None;
+    }
+    let numerator = ratio >> 32;
+    let denominator = ratio & 0xFFFF_FFFF;
+    let fps = (numerator + denominator / 2) / denominator;
+    (1..=240).contains(&fps).then_some(fps as u32)
+}
+
+/// 摄像头在原生最高分辨率下支持的帧率（取所有像素格式的并集）。
+fn native_fps_rates(formats: &[NativeFormat]) -> Vec<u32> {
+    let max_area = formats
+        .iter()
+        .map(|format| u64::from(format.width) * u64::from(format.height))
+        .max()
+        .unwrap_or(0);
+    let mut rates: Vec<u32> = formats
+        .iter()
+        .filter(|format| u64::from(format.width) * u64::from(format.height) == max_area)
+        .filter_map(|format| format.frame_rate.and_then(ratio_to_fps))
+        .collect();
+    rates.sort_unstable();
+    rates.dedup();
+    rates
+}
+
 /// 枚举摄像头的原生媒体类型。
 fn native_formats(reader: &IMFSourceReader) -> Vec<NativeFormat> {
     let stream = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
@@ -448,36 +488,14 @@ fn native_formats(reader: &IMFSourceReader) -> Vec<NativeFormat> {
     formats
 }
 
-/// 优先顺序：1080p 以内从高到低，然后才是超过 1080p 的格式（从小到大）。
-fn preferred_formats(formats: &[NativeFormat]) -> Vec<&NativeFormat> {
-    let mut within: Vec<_> = formats
-        .iter()
-        .filter(|format| format.width <= 1920 && format.height <= 1080)
-        .collect();
-    within.sort_by_key(|format| Reverse(u64::from(format.width) * u64::from(format.height)));
-
-    let mut over: Vec<_> = formats
-        .iter()
-        .filter(|format| format.width > 1920 || format.height > 1080)
-        .collect();
-    over.sort_by_key(|format| u64::from(format.width) * u64::from(format.height));
-
-    within.extend(over);
-    within
-}
-
-/// 用户指定分辨率时的优先顺序：精确匹配 → 同宽高比最近 → 面积最近。
-fn preferred_format_order(formats: &[NativeFormat], preferred: (u32, u32)) -> Vec<&NativeFormat> {
-    let (preferred_width, preferred_height) = preferred;
+/// 采集协商顺序：原生面积从大到小；同尺寸时帧率从高到低。
+fn capture_format_order(formats: &[NativeFormat]) -> Vec<&NativeFormat> {
     let mut ordered: Vec<&NativeFormat> = formats.iter().collect();
     ordered.sort_by_key(|format| {
-        let exact = format.width == preferred_width && format.height == preferred_height;
-        let same_aspect = u64::from(format.width) * u64::from(preferred_height)
-            == u64::from(format.height) * u64::from(preferred_width);
-        let area_delta = (i64::from(format.width) * i64::from(format.height)
-            - i64::from(preferred_width) * i64::from(preferred_height))
-        .unsigned_abs();
-        (!exact, !same_aspect, area_delta)
+        (
+            Reverse(u64::from(format.width) * u64::from(format.height)),
+            Reverse(format.frame_rate.unwrap_or(0)),
+        )
     });
     ordered
 }
@@ -630,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn prefers_1080p_before_4k() {
+    fn prefers_native_max_resolution() {
         let formats = [
             NativeFormat {
                 width: 640,
@@ -657,13 +675,13 @@ mod tests {
                 pixel_aspect: None,
             },
         ];
-        let order: Vec<_> = preferred_formats(&formats)
+        let order: Vec<_> = capture_format_order(&formats)
             .iter()
             .map(|format| (format.width, format.height))
             .collect();
         assert_eq!(
             order,
-            vec![(1920, 1080), (1280, 720), (640, 480), (3840, 2160)]
+            vec![(3840, 2160), (1920, 1080), (1280, 720), (640, 480)]
         );
     }
 }

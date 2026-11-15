@@ -222,6 +222,65 @@ pub fn thumbnail_bgra(
     Ok((target_width, target_height, out))
 }
 
+/// 把 BGRA 图像缩放到指定尺寸（双线性插值）。
+///
+/// 与 [`thumbnail_bgra`] 不同，这里允许放大，并保证输出恰好是
+/// `target_width × target_height`，用于按用户选择的输出分辨率导出照片和录像。
+#[allow(clippy::cast_precision_loss)]
+pub fn resize_bgra(
+    width: u32,
+    height: u32,
+    bgra: &[u8],
+    target_width: u32,
+    target_height: u32,
+) -> Result<(u32, u32, Vec<u8>), ImagingError> {
+    validate_bgra(width, height, bgra)?;
+    if target_width == 0 || target_height == 0 {
+        return Err(ImagingError::InvalidSize {
+            width: target_width,
+            height: target_height,
+            max_width: 0,
+            max_height: 0,
+        });
+    }
+    if width == target_width && height == target_height {
+        return Ok((
+            width,
+            height,
+            bgra[..width as usize * height as usize * 4].to_vec(),
+        ));
+    }
+
+    let mut out = vec![0u8; target_width as usize * target_height as usize * 4];
+    let scale_x = f64::from(width) / f64::from(target_width);
+    let scale_y = f64::from(height) / f64::from(target_height);
+    for y in 0..target_height {
+        let source_y = ((f64::from(y) + 0.5) * scale_y - 0.5).clamp(0.0, f64::from(height - 1));
+        let y0 = source_y.floor() as usize;
+        let y1 = (y0 + 1).min(height as usize - 1);
+        let fy = source_y - y0 as f64;
+        for x in 0..target_width {
+            let source_x = ((f64::from(x) + 0.5) * scale_x - 0.5).clamp(0.0, f64::from(width - 1));
+            let x0 = source_x.floor() as usize;
+            let x1 = (x0 + 1).min(width as usize - 1);
+            let fx = source_x - x0 as f64;
+            let destination = (y as usize * target_width as usize + x as usize) * 4;
+            for channel in 0..4 {
+                let p00 = f64::from(bgra[(y0 * width as usize + x0) * 4 + channel]);
+                let p10 = f64::from(bgra[(y0 * width as usize + x1) * 4 + channel]);
+                let p01 = f64::from(bgra[(y1 * width as usize + x0) * 4 + channel]);
+                let p11 = f64::from(bgra[(y1 * width as usize + x1) * 4 + channel]);
+                let value = p00 * (1.0 - fx) * (1.0 - fy)
+                    + p10 * fx * (1.0 - fy)
+                    + p01 * (1.0 - fx) * fy
+                    + p11 * fx * fy;
+                out[destination + channel] = value.round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    Ok((target_width, target_height, out))
+}
+
 /// 读取图片为 top-down BGRA8。
 pub fn load_bgra(path: &Path) -> Result<(u32, u32, Vec<u8>), ImagingError> {
     let image = image::open(path)?.to_rgba8();

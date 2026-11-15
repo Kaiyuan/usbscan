@@ -69,18 +69,21 @@ pub enum Camera {
 impl Camera {
     /// 打开摄像头。
     ///
+    /// 所有后端都请求设备的原生最高分辨率；照片和录像的输出尺寸由上层缩放。
+    /// `_preferred` 仅为兼容旧调用保留，不再影响采集分辨率。
+    ///
     /// **Windows**：先尝试 MF，失败后自动降级到 DirectShow。
     ///
     /// **Linux / macOS**：通过 nokhwa 后端（V4L2 / AVFoundation）直接打开。
-    pub fn open(info: &CameraInfo, preferred: Option<(u32, u32)>) -> Result<Self, CaptureError> {
+    pub fn open(info: &CameraInfo, _preferred: Option<(u32, u32)>) -> Result<Self, CaptureError> {
         #[cfg(windows)]
         {
             if info.id.starts_with("dshow:") {
-                return dshow::DShowCamera::open(info, preferred).map(Self::DirectShow);
+                return dshow::DShowCamera::open(info).map(Self::DirectShow);
             }
-            match mf::MfCamera::open(info, preferred) {
+            match mf::MfCamera::open(info) {
                 Ok(camera) => Ok(Self::MediaFoundation(camera)),
-                Err(mf_error) => match dshow::DShowCamera::open(info, preferred) {
+                Err(mf_error) => match dshow::DShowCamera::open(info) {
                     Ok(camera) => Ok(Self::DirectShow(camera)),
                     Err(dshow_error) => Err(CaptureError::BackendFailure {
                         media_foundation: Box::new(mf_error),
@@ -91,7 +94,7 @@ impl Camera {
         }
         #[cfg(not(windows))]
         {
-            unix::UnixCamera::open(info, preferred).map(Self::Unix)
+            unix::UnixCamera::open(info).map(Self::Unix)
         }
     }
 
@@ -105,6 +108,19 @@ impl Camera {
             Self::DirectShow(camera) => camera.formats(),
             #[cfg(not(windows))]
             Self::Unix(camera) => camera.formats(),
+        }
+    }
+
+    /// 当前设备在原生最高分辨率下支持的帧率（去重、升序）。
+    #[must_use]
+    pub fn fps_rates(&self) -> Vec<u32> {
+        match self {
+            #[cfg(windows)]
+            Self::MediaFoundation(camera) => camera.fps_rates(),
+            #[cfg(windows)]
+            Self::DirectShow(camera) => camera.fps_rates(),
+            #[cfg(not(windows))]
+            Self::Unix(camera) => camera.fps_rates(),
         }
     }
 

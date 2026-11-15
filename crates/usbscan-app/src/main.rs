@@ -84,6 +84,8 @@ struct WorkerShared {
     devices_version: u64,
     formats: Vec<(u32, u32)>,
     formats_version: u64,
+    fps_rates: Vec<u32>,
+    fps_rates_version: u64,
     status: String,
     connected: bool,
     corners: Option<[(f64, f64); 4]>,
@@ -91,7 +93,6 @@ struct WorkerShared {
     frame_size: Option<(u32, u32)>,
     selected: Option<String>,
     selected_name: Option<String>,
-    preferred_format: Option<(u32, u32)>,
     auto_crop: bool,
     rotation: u32,
     restart: bool,
@@ -108,6 +109,8 @@ impl Default for WorkerShared {
             devices_version: 0,
             formats: Vec::new(),
             formats_version: 0,
+            fps_rates: Vec::new(),
+            fps_rates_version: 0,
             status: i18n::t("status.detecting").to_string(),
             connected: false,
             corners: None,
@@ -115,7 +118,6 @@ impl Default for WorkerShared {
             frame_size: None,
             selected: None,
             selected_name: None,
-            preferred_format: None,
             auto_crop: true,
             rotation: 0,
             restart: false,
@@ -155,12 +157,6 @@ impl Worker {
         let mut shared = self.lock();
         shared.selected = Some(id);
         shared.selected_name = Some(name);
-        shared.restart = true;
-    }
-
-    fn select_format(&self, format: Option<(u32, u32)>) {
-        let mut shared = self.lock();
-        shared.preferred_format = format;
         shared.restart = true;
     }
 
@@ -236,15 +232,11 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
         };
         publish_devices(shared, &cameras);
 
-        let (selected, selected_name, preferred) = {
+        let (selected, selected_name) = {
             let guard = shared
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            (
-                guard.selected.clone(),
-                guard.selected_name.clone(),
-                guard.preferred_format,
-            )
+            (guard.selected.clone(), guard.selected_name.clone())
         };
         if selected.is_some()
             && cameras
@@ -268,7 +260,7 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
             continue;
         };
 
-        let mut camera = match capture::Camera::open(info, preferred) {
+        let mut camera = match capture::Camera::open(info, None) {
             Ok(camera) => camera,
             Err(err) => {
                 set_status(
@@ -281,8 +273,10 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
             }
         };
         let formats = camera.formats();
+        let fps_rates = camera.fps_rates();
         let (width, height) = camera.size();
         publish_formats(shared, &formats);
+        publish_fps_rates(shared, &fps_rates);
         {
             let mut guard = shared
                 .lock()
@@ -460,6 +454,16 @@ fn publish_formats(shared: &Arc<Mutex<WorkerShared>>, formats: &[(u32, u32)]) {
     }
 }
 
+fn publish_fps_rates(shared: &Arc<Mutex<WorkerShared>>, rates: &[u32]) {
+    let mut guard = shared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.fps_rates != rates {
+        guard.fps_rates = rates.to_vec();
+        guard.fps_rates_version = guard.fps_rates_version.wrapping_add(1);
+    }
+}
+
 fn set_status(shared: &Arc<Mutex<WorkerShared>>, connected: bool, status: String) {
     let mut guard = shared
         .lock()
@@ -505,12 +509,16 @@ struct AppState {
     rule: naming::NamingRule,
     devices: Vec<capture::CameraInfo>,
     formats: Vec<(u32, u32)>,
+    fps_rates: Vec<u32>,
+    /// 照片与录像的目标输出尺寸；`None` 表示使用摄像头原生尺寸。
+    output_format: Option<(u32, u32)>,
     rows: Vec<usize>,
     selected_row: Option<usize>,
     thumb_cache: HashMap<u64, Image>,
     last_sequence: u64,
     last_devices_version: u64,
     last_formats_version: u64,
+    last_fps_rates_version: u64,
     last_status: String,
     last_auto_crop: bool,
     last_connected: bool,
@@ -579,7 +587,7 @@ impl AppState {
         };
         let ui = self.ui();
         let options = self.enhance_options();
-        let enhanced = Self::enhance_frame(&frame, options);
+        let enhanced = self.scale_to_output(Self::enhance_frame(&frame, options));
         let path = self.new_image_path(enhanced.width, enhanced.height);
         if let Some(parent) = path.parent() {
             if let Err(err) = fs::create_dir_all(parent) {
@@ -652,6 +660,38 @@ impl AppState {
         } else {
             original
         }
+    }
+
+    /// 把处理后的图像缩放到界面选择的分辨率（自动模式下保持原生尺寸）。
+    ///
+    /// 旋转 90°/270° 时输出尺寸也随之交换，避免把竖拍页面压回横向。
+    fn scale_to_output(&self, image: imaging::EnhancedImage) -> imaging::EnhancedImage {
+        let Some((target_width, target_height)) = self.output_format else {
+            return image;
+        };
+        let (target_width, target_height) = if self.rotation % 180 == 90 {
+            (target_height, target_width)
+        } else {
+            (target_width, target_height)
+        };
+        if image.width == 0 || image.height == 0 {
+            return image;
+        }
+        let scale = (f64::from(target_width) / f64::from(image.width))
+            .min(f64::from(target_height) / f64::from(image.height));
+        if (scale - 1.0).abs() < f64::EPSILON {
+            return image;
+        }
+        let width = (f64::from(image.width) * scale).round().max(1.0) as u32;
+        let height = (f64::from(image.height) * scale).round().max(1.0) as u32;
+        imaging::resize_bgra(image.width, image.height, &image.bgra, width, height).map_or(
+            image,
+            |(width, height, bgra)| imaging::EnhancedImage {
+                width,
+                height,
+                bgra,
+            },
+        )
     }
 
     fn enhance_options(&self) -> imaging::EnhanceOptions {
@@ -758,6 +798,52 @@ impl AppState {
         image
     }
 
+    fn apply_formats(&mut self, ui: &MainWindow, formats: Vec<(u32, u32)>) {
+        self.formats = formats;
+        let mut names = vec![slint::SharedString::from(i18n::t("ui.auto"))];
+        names.extend(
+            self.formats
+                .iter()
+                .map(|(width, height)| format!("{width} × {height}").into()),
+        );
+        ui.set_format_options(ModelRc::from(Rc::new(VecModel::from(names))));
+        let index = self
+            .output_format
+            .and_then(|output| self.formats.iter().position(|format| *format == output))
+            .map_or(0, |index| index + 1);
+        if index == 0 && self.output_format.is_some() {
+            // 摄像头更换后旧分辨率可能不再可用，界面与行为一起退回自动。
+            self.output_format = None;
+            self.config.capture_width = None;
+            self.config.capture_height = None;
+            self.settings_dirty = true;
+        }
+        ui.set_format_index(index as i32);
+    }
+
+    fn apply_fps_rates(&mut self, ui: &MainWindow, rates: Vec<u32>) {
+        self.fps_rates = rates;
+        let names: Vec<slint::SharedString> = self
+            .fps_rates
+            .iter()
+            .map(|rate| format!("{rate} fps").into())
+            .collect();
+        ui.set_fps_options(ModelRc::from(Rc::new(VecModel::from(names))));
+        let desired = u32::from(self.config.record_fps.unwrap_or(0));
+        let index = self
+            .fps_rates
+            .iter()
+            .position(|rate| *rate == desired)
+            .unwrap_or_else(|| self.fps_rates.len().saturating_sub(1));
+        ui.set_fps_index(index as i32);
+        if let Some(rate) = self.fps_rates.get(index) {
+            if self.config.record_fps != Some(*rate as u8) {
+                self.config.record_fps = Some(*rate as u8);
+                self.settings_dirty = true;
+            }
+        }
+    }
+
     fn poll(&mut self) {
         let Some(ui) = self.ui() else {
             return;
@@ -771,6 +857,8 @@ impl AppState {
             devices_version,
             formats,
             formats_version,
+            fps_rates,
+            fps_rates_version,
             corners,
             corners_frame,
         ) = {
@@ -784,6 +872,8 @@ impl AppState {
                 guard.devices_version,
                 guard.formats.clone(),
                 guard.formats_version,
+                guard.fps_rates.clone(),
+                guard.fps_rates_version,
                 guard.corners,
                 guard.corners_frame,
             )
@@ -801,19 +891,11 @@ impl AppState {
         }
         if formats_version != self.last_formats_version {
             self.last_formats_version = formats_version;
-            self.formats = formats;
-            let mut names = vec![slint::SharedString::from(i18n::t("ui.auto"))];
-            names.extend(
-                self.formats
-                    .iter()
-                    .map(|(width, height)| format!("{width} × {height}").into()),
-            );
-            ui.set_format_options(ModelRc::from(Rc::new(VecModel::from(names))));
-            let preferred = self.worker.lock().preferred_format;
-            let index = preferred
-                .and_then(|preferred| self.formats.iter().position(|format| *format == preferred))
-                .map_or(0, |index| index + 1);
-            ui.set_format_index(index as i32);
+            self.apply_formats(&ui, formats);
+        }
+        if fps_rates_version != self.last_fps_rates_version {
+            self.last_fps_rates_version = fps_rates_version;
+            self.apply_fps_rates(&ui, fps_rates);
         }
         if status != self.last_status {
             self.last_status.clone_from(&status);
@@ -1167,7 +1249,7 @@ impl AppState {
         let format = index
             .checked_sub(1)
             .and_then(|index| self.formats.get(index).copied());
-        self.worker.select_format(format);
+        self.output_format = format;
         self.config.capture_width = format.and_then(|(width, _)| u16::try_from(width).ok());
         self.config.capture_height = format.and_then(|(_, height)| u16::try_from(height).ok());
         self.config.save();
@@ -1183,15 +1265,29 @@ impl AppState {
     }
 
     fn select_fps(&mut self, index: usize) {
-        let fps = match index {
-            1 => 30,
-            2 => 50,
-            3 => 60,
-            _ => 25,
+        let Some(fps) = self
+            .fps_rates
+            .get(index)
+            .copied()
+            .or_else(|| self.fps_rates.last().copied())
+        else {
+            return;
         };
         self.config.record_fps = Some(fps as u8);
         self.config.save();
         self.set_status(&i18n::t_args("status.recordFps", &[&fps.to_string()]));
+    }
+
+    /// 当前配置的录像帧率；摄像头不支持时退回其最高帧率。
+    fn selected_fps(&self) -> u32 {
+        let desired = u32::from(self.config.record_fps.unwrap_or(0));
+        if self.fps_rates.is_empty() {
+            return if desired > 0 { desired } else { 30 };
+        }
+        if desired > 0 && self.fps_rates.contains(&desired) {
+            return desired;
+        }
+        self.fps_rates.last().copied().unwrap_or(30)
     }
 
     fn toggle_record(&mut self) {
@@ -1232,8 +1328,8 @@ impl AppState {
             naming::TimeStamp::now().format("yyyyMMdd_HHmmss")
         );
         let path = unique_path(&directory.join(name));
-        let (record_width, record_height) = recording_size(frame.width, frame.height);
-        let fps = u32::from(self.config.record_fps.unwrap_or(25).clamp(25, 60));
+        let (record_width, record_height) = self.recording_size((frame.width, frame.height));
+        let fps = self.selected_fps();
         let (sender, receiver) = sync_channel(4);
         let recorder = Recorder::start(path, record_width, record_height, fps, receiver);
         self.worker.set_record_sink(Some(sender));
@@ -1252,6 +1348,17 @@ impl AppState {
             ],
         ));
         self.show_toast(i18n::t("toast.recordingStarted"));
+    }
+
+    /// 录像目标尺寸：界面选定分辨率优先，自动模式使用摄像头原生尺寸。
+    fn recording_size(&self, native: (u32, u32)) -> (u32, u32) {
+        self.output_format.map_or(native, |(width, height)| {
+            if self.rotation % 180 == 90 {
+                (height, width)
+            } else {
+                (width, height)
+            }
+        })
     }
 
     /// 刷新预览窗口底部的录像计时。
@@ -2084,12 +2191,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     ui.set_remove_shadow(config.remove_shadow.unwrap_or(false));
     ui.set_white_background(config.white_background.unwrap_or(false));
     ui.set_strength(f32::from(config.enhance_strength.unwrap_or(60)));
-    ui.set_fps_index(match config.record_fps.unwrap_or(25) {
-        30 => 1,
-        50 => 2,
-        60 => 3,
-        _ => 0,
-    });
     ui.set_version_text(format!("v{}", update::CURRENT_VERSION).into());
     ui.set_auto_check_updates(config.auto_check_updates.unwrap_or(true));
     let rotation = u32::from(config.rotation.unwrap_or(0) % 360);
@@ -2101,10 +2202,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         shared.selected.clone_from(&config.last_camera_id);
         shared.selected_name.clone_from(&config.last_camera_name);
         shared.rotation = rotation;
-        shared.preferred_format = match (config.capture_width, config.capture_height) {
-            (Some(width), Some(height)) => Some((u32::from(width), u32::from(height))),
-            _ => None,
-        };
     }
 
     let tessdata_dir = config
@@ -2112,6 +2209,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         .as_ref()
         .map(PathBuf::from)
         .filter(|path| path.is_dir());
+    let output_format = match (config.capture_width, config.capture_height) {
+        (Some(width), Some(height)) => Some((u32::from(width), u32::from(height))),
+        _ => None,
+    };
     let last_auto_crop = config.auto_crop.unwrap_or(true);
     let last_output_dir = output_root.to_string_lossy().into_owned();
     let state = std::rc::Rc::new(std::cell::RefCell::new(AppState {
@@ -2124,12 +2225,15 @@ fn run() -> Result<(), Box<dyn Error>> {
         rule,
         devices: Vec::new(),
         formats: Vec::new(),
+        fps_rates: Vec::new(),
+        output_format,
         rows: Vec::new(),
         selected_row: None,
         thumb_cache: HashMap::new(),
         last_sequence: 0,
         last_devices_version: 0,
         last_formats_version: 0,
+        last_fps_rates_version: 0,
         last_status: String::new(),
         last_auto_crop,
         last_connected: false,
@@ -2606,16 +2710,6 @@ fn unique_path(path: &Path) -> PathBuf {
         }
     }
     path.to_path_buf()
-}
-
-fn recording_size(width: u32, height: u32) -> (u32, u32) {
-    let scale = (1920.0 / f64::from(width.max(1)))
-        .min(1080.0 / f64::from(height.max(1)))
-        .min(1.0);
-    (
-        (f64::from(width) * scale).round().max(1.0) as u32,
-        (f64::from(height) * scale).round().max(1.0) as u32,
-    )
 }
 
 /// 把秒数格式化成录像计时：不足一小时为 `mm:ss`，否则为 `h:mm:ss`。

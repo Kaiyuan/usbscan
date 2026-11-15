@@ -154,6 +154,6 @@ fn prepare_frame(frame: &capture::Frame, width: u32, height: u32) -> Vec<u8> {
     if frame.width == width && frame.height == height {
         return frame.data.clone();
     }
-    imaging::thumbnail_bgra(frame.width, frame.height, &frame.data, width, height)
+    imaging::resize_bgra(frame.width, frame.height, &frame.data, width, height)
         .map_or_else(|_| frame.data.clone(), |(_, _, data)| data)
 }

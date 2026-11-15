@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex};
 use nokhwa::pixel_format::RgbAFormat;
 use nokhwa::utils::{
     ApiBackend, CameraIndex, CameraInfo as NokhwaCameraInfo, RequestedFormat, RequestedFormatType,
-    Resolution,
 };
 use nokhwa::Camera as NokhwaCamera;
 
@@ -59,27 +58,18 @@ pub struct UnixCamera {
     info: CameraInfo,
     width: u32,
     height: u32,
+    fps_rates: Vec<u32>,
 }
 
 impl UnixCamera {
-    /// 打开摄像头。`preferred` 为期望分辨率，不支持时退回到设备默认值。
-    pub fn open(info: &CameraInfo, preferred: Option<(u32, u32)>) -> Result<Self, CaptureError> {
+    /// 打开摄像头，始终请求设备的原生最高分辨率。
+    pub fn open(info: &CameraInfo) -> Result<Self, CaptureError> {
         let index = parse_index(&info.id).ok_or_else(|| {
             CaptureError::DeviceNotFound(format!("无法解析摄像头 ID：{}", info.id))
         })?;
 
-        let requested = preferred.map_or(
-            RequestedFormat::new::<RgbAFormat>(RequestedFormatType::AbsoluteHighestFrameRate),
-            |(w, h)| {
-                RequestedFormat::new::<RgbAFormat>(RequestedFormatType::Closest(
-                    nokhwa::utils::CameraFormat::new(
-                        Resolution::new(w, h),
-                        nokhwa::utils::FrameFormat::RAWRGB,
-                        30,
-                    ),
-                ))
-            },
-        );
+        let requested =
+            RequestedFormat::new::<RgbAFormat>(RequestedFormatType::AbsoluteHighestResolution);
 
         let mut camera = NokhwaCamera::new(index, requested)
             .map_err(|err| CaptureError::Backend(err.to_string()))?;
@@ -91,12 +81,14 @@ impl UnixCamera {
         let res = camera.resolution();
         let width = res.width_x;
         let height = res.height_y;
+        let fps_rates = supported_fps_rates(&mut camera);
 
         Ok(Self {
             inner: Arc::new(Mutex::new(camera)),
             info: info.clone(),
             width,
             height,
+            fps_rates,
         })
     }
 
@@ -124,6 +116,12 @@ impl UnixCamera {
             .collect();
         res_list.sort_by_key(|&(w, h)| std::cmp::Reverse(w * h));
         res_list
+    }
+
+    /// 原生最高分辨率下支持的帧率。
+    #[must_use]
+    pub fn fps_rates(&self) -> Vec<u32> {
+        self.fps_rates.clone()
     }
 
     pub fn info(&self) -> &CameraInfo {
@@ -173,6 +171,35 @@ impl UnixCamera {
 // ---------------------------------------------------------------------------
 // 辅助
 // ---------------------------------------------------------------------------
+
+/// 摄像头在原生最高分辨率下支持的帧率（取所有像素格式的并集）。
+fn supported_fps_rates(camera: &mut NokhwaCamera) -> Vec<u32> {
+    let Ok(formats) = camera.compatible_camera_formats() else {
+        return vec![30];
+    };
+    let max_area = formats
+        .iter()
+        .map(|format| {
+            u64::from(format.resolution().width_x) * u64::from(format.resolution().height_y)
+        })
+        .max()
+        .unwrap_or(0);
+    let mut rates: Vec<u32> = formats
+        .iter()
+        .filter(|format| {
+            u64::from(format.resolution().width_x) * u64::from(format.resolution().height_y)
+                == max_area
+        })
+        .map(nokhwa::utils::CameraFormat::frame_rate)
+        .filter(|rate| (1..=240).contains(rate))
+        .collect();
+    rates.sort_unstable();
+    rates.dedup();
+    if rates.is_empty() {
+        rates.push(30);
+    }
+    rates
+}
 
 /// 选择当前平台最合适的 nokhwa 后端。
 fn preferred_backend() -> ApiBackend {

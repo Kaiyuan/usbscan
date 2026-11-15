@@ -233,6 +233,18 @@
               </div>
               <div class="deps-box">
                 <div class="deps-box-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>
+                  <span data-i18n="download.uosArchTitle">CPU 架构与安装包对应关系</span>
+                </div>
+                <ul>
+                  <li data-i18n-html="download.uosArchX86"><strong>海光 Hygon、兆芯 Zhaoxin、Intel / AMD：</strong>使用 <code>x86_64</code>（amd64），请选择「UOS 20 x86_64 安装包 (.deb)」。</li>
+                  <li data-i18n-html="download.uosArchArm"><strong>飞腾 Phytium、鲲鹏 Kunpeng：</strong>使用 <code>aarch64</code>（arm64），请选择「UOS 20 ARM64 安装包 (.deb)」。</li>
+                  <li data-i18n-html="download.uosArchUnsupported"><strong>龙芯 Loongson（LoongArch）、申威 Sunway（SW64）：</strong>当前发布包暂未覆盖，请在本机从源码构建（<code>./build.sh</code>）。</li>
+                  <li data-i18n-html="download.uosArchCheck"><strong>不确定时：</strong>在终端执行 <code>uname -m</code>；输出 <code>x86_64</code> 选 x86_64 包，<code>aarch64</code> 选 ARM64 包。</li>
+                </ul>
+              </div>
+              <div class="deps-box">
+                <div class="deps-box-title">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
                   <span data-i18n="download.uosOfflineTitle">UOS 离线安装与使用</span>
                 </div>

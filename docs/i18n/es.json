@@ -79,12 +79,17 @@
   "hero.downloadUos": "Descargar para UOS 20 (.deb)",
   "hero.downloadLinux": "Descargar para Linux (.deb)",
   "download.uosHint": "Para UOS 20 / Deepin 20 (base Debian 10). Los usuarios de Debian / Ubuntu estándar deben elegir Linux.",
-  "download.uosDeb": "Descargar paquete UOS 20 (.deb)",
+  "download.uosDeb": "Descargar paquete UOS 20 x86_64 (.deb)",
   "download.uosDebArm64": "UOS 20 ARM64 (.deb)",
   "download.uosTar": "Paquete portátil UOS 20 (.tar.gz)",
   "download.linuxHint": "Para Debian 12+ / Ubuntu 22.04+. Los usuarios de UOS 20 / Deepin 20 deben elegir UOS 20.",
-  "download.linuxDeb": "Descargar paquete Linux (.deb)",
+  "download.linuxDeb": "Descargar paquete Linux x86_64 (.deb)",
   "download.linuxDebArm64": "Linux ARM64 (.deb)",
   "download.linuxTar": "Paquete portátil Linux (.tar.gz)",
-  "hero.chooseLinux": "Elegir distribución de Linux"
+  "hero.chooseLinux": "Elegir distribución de Linux",
+  "download.uosArchTitle": "Arquitectura de CPU y paquete",
+  "download.uosArchX86": "<strong>Hygon, Zhaoxin, Intel / AMD:</strong> usan <code>x86_64</code> (amd64). Elige el «paquete UOS 20 x86_64 (.deb)».",
+  "download.uosArchArm": "<strong>Phytium, Kunpeng:</strong> usan <code>aarch64</code> (arm64). Elige el «paquete UOS 20 ARM64 (.deb)».",
+  "download.uosArchUnsupported": "<strong>Loongson (LoongArch), Sunway (SW64):</strong> aún no hay paquete oficial; si la cadena de herramientas de Rust lo admite, compila desde el código fuente en la máquina (<code>./build.sh</code>).",
+  "download.uosArchCheck": "<strong>¿No estás seguro?</strong> Ejecuta <code>uname -m</code>: <code>x86_64</code> = paquete x86_64, <code>aarch64</code> = paquete ARM64."
 }

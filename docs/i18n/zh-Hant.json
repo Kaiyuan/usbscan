@@ -50,7 +50,7 @@
   "download.setup": "下載安裝版 (.exe)",
   "download.portable": "下載可攜版 (.zip)",
   "download.macosUniversal": "下載通用版 (.app / Universal)",
-  "download.linuxDeb": "下載 Linux 安裝包 (.deb)",
+  "download.linuxDeb": "下載 Linux x86_64 安裝包 (.deb)",
   "download.linuxTar": "Linux 可攜包 (.tar.gz)",
   "download.depsTitle": "依賴與執行環境說明",
   "download.winVcDesc": "<strong>基礎執行庫：</strong>需安裝 <strong>Microsoft Visual C++ 2015–2022 x64</strong> 執行庫。<a href=\"https://aka.ms/vs/17/release/vc_redist.x64.exe\" target=\"_blank\" rel=\"noopener\">點擊官方下載執行庫</a>。",
@@ -93,10 +93,15 @@
   "page.description": "UsbScan 是一款跨平台離線文件掃描軟體：支援 Windows、macOS 與 UOS/Linux，任意 UVC 攝影機、自動裁邊與透視校正、離線 OCR、PDF 匯出與錄影。",
   "hero.downloadUos": "下載 UOS 20 版 (.deb)",
   "download.uosHint": "適用於 UOS 20 / Deepin 20（Debian 10 基礎）。一般 Debian / Ubuntu 請選擇 Linux。",
-  "download.uosDeb": "下載 UOS 20 安裝包 (.deb)",
+  "download.uosDeb": "下載 UOS 20 x86_64 安裝包 (.deb)",
   "download.uosDebArm64": "UOS 20 ARM64 (.deb)",
   "download.uosTar": "UOS 20 可攜包 (.tar.gz)",
   "download.linuxHint": "適用於 Debian 12+ / Ubuntu 22.04+。UOS 20 / Deepin 20 請選擇 UOS 20。",
   "download.linuxDebArm64": "Linux ARM64 (.deb)",
-  "hero.chooseLinux": "選擇 Linux 發行版"
+  "hero.chooseLinux": "選擇 Linux 發行版",
+  "download.uosArchTitle": "CPU 架構與安裝包對應關係",
+  "download.uosArchX86": "<strong>海光 Hygon、兆芯 Zhaoxin、Intel / AMD：</strong>使用 <code>x86_64</code>（amd64），請選擇「UOS 20 x86_64 安裝包 (.deb)」。",
+  "download.uosArchArm": "<strong>飛騰 Phytium、鯤鵬 Kunpeng：</strong>使用 <code>aarch64</code>（arm64），請選擇「UOS 20 ARM64 安裝包 (.deb)」。",
+  "download.uosArchUnsupported": "<strong>龍芯 Loongson（LoongArch）、申威 Sunway（SW64）：</strong>目前發行包暫未涵蓋；如 Rust 工具鏈支援，可在本機從原始碼建置（<code>./build.sh</code>）。",
+  "download.uosArchCheck": "<strong>不確定時：</strong>在終端機執行 <code>uname -m</code>；輸出 <code>x86_64</code> 選 x86_64 套件，<code>aarch64</code> 選 ARM64 套件。"
 }

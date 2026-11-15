@@ -50,7 +50,7 @@
   "download.setup": "インストーラーをダウンロード (.exe)",
   "download.portable": "ポータブル版をダウンロード (.zip)",
   "download.macosUniversal": "ユニバーサル版をダウンロード (.app / Universal)",
-  "download.linuxDeb": "Linux パッケージをダウンロード (.deb)",
+  "download.linuxDeb": "Linux x86_64 パッケージをダウンロード (.deb)",
   "download.linuxTar": "Linux ポータブルパッケージ (.tar.gz)",
   "download.depsTitle": "依存関係と動作環境について",
   "download.winVcDesc": "<strong>ランタイム：</strong> <strong>Microsoft Visual C++ 2015–2022 x64</strong> ランタイムが必要です。<a href=\"https://aka.ms/vs/17/release/vc_redist.x64.exe\" target=\"_blank\" rel=\"noopener\">公式ダウンロードリンク</a>。",
@@ -93,10 +93,15 @@
   "page.description": "UsbScan は Windows、macOS、UOS/Linux に対応したオフラインドキュメントスキャナーです。任意の UVC カメラ、自動トリミング、台形補正、オフライン OCR、PDF 書き出しに対応。",
   "hero.downloadUos": "UOS 20 版をダウンロード (.deb)",
   "download.uosHint": "UOS 20 / Deepin 20（Debian 10 ベース）向けです。通常の Debian / Ubuntu ユーザーは Linux を選択してください。",
-  "download.uosDeb": "UOS 20 パッケージをダウンロード (.deb)",
+  "download.uosDeb": "UOS 20 x86_64 パッケージをダウンロード (.deb)",
   "download.uosDebArm64": "UOS 20 ARM64 (.deb)",
   "download.uosTar": "UOS 20 ポータブルパッケージ (.tar.gz)",
   "download.linuxHint": "Debian 12+ / Ubuntu 22.04+ 向けです。UOS 20 / Deepin 20 ユーザーは UOS 20 を選択してください。",
   "download.linuxDebArm64": "Linux ARM64 (.deb)",
-  "hero.chooseLinux": "Linux ディストリビューションを選択"
+  "hero.chooseLinux": "Linux ディストリビューションを選択",
+  "download.uosArchTitle": "CPU アーキテクチャとパッケージ",
+  "download.uosArchX86": "<strong>Hygon、Zhaoxin、Intel / AMD：</strong><code>x86_64</code>（amd64）です。「UOS 20 x86_64 パッケージ (.deb)」を選択してください。",
+  "download.uosArchArm": "<strong>Phytium、Kunpeng：</strong><code>aarch64</code>（arm64）です。「UOS 20 ARM64 パッケージ (.deb)」を選択してください。",
+  "download.uosArchUnsupported": "<strong>Loongson（LoongArch）、Sunway（SW64）：</strong>公式パッケージは未提供です。Rust ツールチェーンが対応していれば、端末上でソースからビルドしてください（<code>./build.sh</code>）。",
+  "download.uosArchCheck": "<strong>不明な場合：</strong><code>uname -m</code> を実行し、<code>x86_64</code> なら x86_64 パッケージ、<code>aarch64</code> なら ARM64 パッケージを選びます。"
 }

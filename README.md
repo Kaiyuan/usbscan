@@ -59,7 +59,7 @@ Slint 界面在 Windows、macOS 与 Linux（UOS / Deepin / Debian 系）上共�
 | 页面右键菜单 | 系统原生菜单 | 内置菜单（Slint） | 内置菜单（Slint） |
 | 文件对话框 | 系统原生 | `xdg-desktop-portal` | 系统原生 |
 | 离线 OCR | Tesseract 5，可在软件内下载安装 | 系统 Tesseract（包管理器安装） | 系统 Tesseract（Homebrew 安装） |
-| 自动更新 | 下载并启动安装包 | 打开 GitHub Releases 下载对应安装包 | 打开 GitHub Releases 下载 `.dmg` |
+| 自动更新 | 下载并启动安装包 | 下载匹配架构的 `.deb`（UOS 优先 UOS 包）并 `pkexec dpkg -i`；失败时定位安装包 | 下载通用 `.tar.gz` / `.dmg`，解压并显示安装位置 |
 | 系统主题 | 注册表 `AppsUseLightTheme` | `gsettings`（GNOME / UOS） | `NSApp.effectiveAppearance` |
 | 在文件管理器中定位 | Explorer `/select` | `dde-file-manager` / `nautilus` / `dolphin` | Finder `open -R` |
 | 窗口位置与大小记忆 | Win32 客户区尺寸 | Slint 窗口尺寸 | Slint 窗口尺寸 |
@@ -184,7 +184,7 @@ ldd /usr/bin/usbscan | grep "not found"
 
 ## 发布与多平台支持
 
-在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.6`）后，`.github/workflows/release.yml` 会自动构建多平台、多架构产物并上传：
+在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.7`）后，`.github/workflows/release.yml` 会自动构建多平台、多架构产物并上传：
 
 | 平台 | 架构 | 发布产物格式 | 说明 |
 |---|---|---|---|

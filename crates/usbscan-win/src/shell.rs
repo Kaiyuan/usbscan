@@ -199,6 +199,47 @@ mod unix_impl {
         }
     }
 
+    /// 以提升权限运行程序，参数按数组传递，避免路径中的空格被拆分。
+    pub fn run_elevated_command(program: &Path, args: &[&str]) -> Result<u32, ElevatedError> {
+        #[cfg(target_os = "macos")]
+        {
+            let mut command = program.to_string_lossy().into_owned();
+            for arg in args {
+                command.push(' ');
+                command.push_str(&shell_escape(arg));
+            }
+            // AppleScript 字符串内的双引号与反斜杠需要转义。
+            let escaped = command.replace('\\', "\\\\").replace('"', "\\\"");
+            let script = format!(r#"do shell script "{escaped}" with administrator privileges"#);
+            let status = Command::new("osascript")
+                .arg("-e")
+                .arg(&script)
+                .status()
+                .map_err(|err| ElevatedError::Launch(err.to_string()))?;
+            Ok(status.code().unwrap_or(1) as u32)
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let pkexec = which_command("pkexec").ok_or(ElevatedError::NotSupported)?;
+            let status = Command::new(pkexec)
+                .arg(program)
+                .args(args)
+                .status()
+                .map_err(|err| ElevatedError::Launch(err.to_string()))?;
+            let code = status.code().unwrap_or(1);
+            // pkexec 返回 126 / 127 表示用户取消或未授权。
+            if code == 126 || code == 127 {
+                return Err(ElevatedError::Cancelled);
+            }
+            Ok(code as u32)
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            let _ = (program, args);
+            Err(ElevatedError::NotSupported)
+        }
+    }
+
     /// 用系统默认程序打开文件或 URL。
     pub fn open_path(path: &Path) {
         #[cfg(target_os = "macos")]
@@ -294,4 +335,32 @@ pub fn reveal_in_explorer(path: &Path) {
     windows_impl::reveal_in_explorer(path);
     #[cfg(not(windows))]
     unix_impl::reveal_in_explorer(path);
+}
+
+/// 以提升权限运行程序，参数按数组传递（适用于安装本地更新包）。
+///
+/// Windows 使用 UAC，macOS 使用 `osascript`，Linux/UOS 使用 `pkexec`。
+///
+/// # Errors
+///
+/// 用户取消授权、程序无法启动或平台不支持自动提权时返回错误。
+pub fn run_elevated_command(program: &Path, args: &[&str]) -> Result<u32, ElevatedError> {
+    #[cfg(windows)]
+    {
+        let quoted: Vec<String> = args
+            .iter()
+            .map(|arg| {
+                if arg.contains(' ') {
+                    format!("\"{arg}\"")
+                } else {
+                    (*arg).to_string()
+                }
+            })
+            .collect();
+        windows_impl::run_elevated_and_wait(program, &quoted.join(" "))
+    }
+    #[cfg(not(windows))]
+    {
+        unix_impl::run_elevated_command(program, args)
+    }
 }

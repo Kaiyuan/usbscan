@@ -1271,16 +1271,7 @@ impl AppState {
                 ui.set_update_progress(0.0);
             }
             match result {
-                Ok(path) => {
-                    if let Some(ui) = self.ui() {
-                        ui.set_update_text(i18n::t("status.installingUpdate").into());
-                    }
-                    self.session.closed_cleanly = true;
-                    let _ = self.store.save(&self.session);
-                    self.config.save();
-                    let _ = std::process::Command::new(&path).spawn();
-                    std::process::exit(0);
-                }
+                Ok(path) => self.finish_update_install(&path),
                 Err(err) => {
                     self.set_status(&i18n::t_args("status.updateDownloadFailed", &[&err]));
                     if let Some(ui) = self.ui() {
@@ -1288,6 +1279,28 @@ impl AppState {
                     }
                 }
             }
+        }
+    }
+
+    /// 下载完成后的安装步骤：Windows 直接启动安装器，其它平台按包类型处理。
+    fn finish_update_install(&mut self, path: &Path) {
+        let kind = self
+            .update_info
+            .as_ref()
+            .and_then(|info| info.kind)
+            .unwrap_or(update::PackageKind::WindowsSetup);
+        if let Some(ui) = self.ui() {
+            ui.set_update_text(i18n::t("status.installingUpdate").into());
+        }
+        match kind {
+            update::PackageKind::WindowsSetup => {
+                self.persist_before_update();
+                let _ = std::process::Command::new(path).spawn();
+                std::process::exit(0);
+            }
+            update::PackageKind::Deb => self.install_deb_update(path),
+            update::PackageKind::Archive => self.install_archive_update(path),
+            update::PackageKind::Dmg => self.open_update_dmg(path),
         }
     }
 
@@ -1325,6 +1338,93 @@ impl AppState {
                 *guard = Some(result);
             }
         });
+    }
+
+    /// 关闭前持久化会话与配置，供安装/退出前调用。
+    fn persist_before_update(&mut self) {
+        self.session.closed_cleanly = true;
+        let _ = self.store.save(&self.session);
+        self.config.save();
+    }
+
+    /// 通过 `pkexec dpkg -i` 安装 `.deb` 更新包；失败时定位到安装包并提示手动安装。
+    fn install_deb_update(&mut self, path: &Path) {
+        self.persist_before_update();
+        let path_text = path.to_string_lossy().into_owned();
+        match usbscan_win::shell::run_elevated_command(Path::new("dpkg"), &["-i", &path_text]) {
+            Ok(0) => std::process::exit(0),
+            Ok(code) => {
+                self.set_status(&i18n::t_args(
+                    "status.updateInstallFailed",
+                    &[&format!("dpkg {code}")],
+                ));
+                usbscan_win::shell::reveal_in_explorer(path);
+            }
+            Err(
+                usbscan_win::shell::ElevatedError::Cancelled
+                | usbscan_win::shell::ElevatedError::NotSupported,
+            ) => {
+                usbscan_win::shell::reveal_in_explorer(path);
+                self.set_status(&i18n::t_args(
+                    "status.updatePackageReady",
+                    &[&path.display().to_string()],
+                ));
+            }
+            Err(err) => {
+                self.set_status(&i18n::t_args(
+                    "status.updateInstallFailed",
+                    &[&err.to_string()],
+                ));
+                usbscan_win::shell::reveal_in_explorer(path);
+            }
+        }
+    }
+
+    /// 解压便携更新包，并在文件管理器中显示解压结果（macOS 定位到 `.app`）。
+    fn install_archive_update(&mut self, path: &Path) {
+        let directory = std::env::temp_dir()
+            .join("usbscan-update")
+            .join("extracted");
+        let _ = fs::remove_dir_all(&directory);
+        let extracted = fs::create_dir_all(&directory)
+            .map_err(|err| err.to_string())
+            .and_then(|()| {
+                std::process::Command::new("tar")
+                    .arg("-xzf")
+                    .arg(path)
+                    .arg("-C")
+                    .arg(&directory)
+                    .status()
+                    .map_err(|err| err.to_string())
+            })
+            .and_then(|status| {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("tar {}", status.code().unwrap_or(-1)))
+                }
+            });
+        match extracted {
+            Ok(()) => {
+                let app = directory.join("usbscan.app");
+                let reveal = if app.exists() { app } else { directory.clone() };
+                usbscan_win::shell::reveal_in_explorer(&reveal);
+                self.set_status(&i18n::t_args(
+                    "status.updatePackageReady",
+                    &[&directory.display().to_string()],
+                ));
+            }
+            Err(err) => self.set_status(&i18n::t_args("status.updateExtractFailed", &[&err])),
+        }
+    }
+
+    /// 打开 macOS `.dmg`，由系统挂载安装映像。
+    fn open_update_dmg(&mut self, path: &Path) {
+        usbscan_win::shell::open_path(path);
+        self.set_status(&i18n::t_args(
+            "status.updatePackageReady",
+            &[&path.display().to_string()],
+        ));
     }
 
     fn select_device(&mut self, index: usize) {

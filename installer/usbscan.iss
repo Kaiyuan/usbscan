@@ -1,5 +1,5 @@
 ; UsbScan installer (Inno Setup 6)
-; Build with: iscc /DMyAppVersion=0.1.6 installer\usbscan.iss
+; Build with: iscc /DMyAppVersion=0.1.7 installer\usbscan.iss
 ; or set the USBSCAN_VERSION environment variable.
 
 #define MyAppName "UsbScan"

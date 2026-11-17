@@ -58,6 +58,45 @@ component PillButton inherits TouchArea {
     }
 }
 
+// 页面右键菜单的一行。PopupWindow 在 Linux/UOS 上承担原生菜单的职责。
+component MenuEntry inherits Rectangle {
+    in property <string> label;
+    callback activated();
+
+    height: 30px;
+    border-radius: 5px;
+    background: entry-touch.has-hover ? Theme.hover : transparent;
+
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: 100%;
+        text: root.label;
+        color: Theme.text;
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    entry-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.activated(); }
+    }
+}
+
+component MenuSeparator inherits Rectangle {
+    height: 9px;
+
+    Rectangle {
+        x: 6px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 12px;
+        height: 1px;
+        background: Theme.separator;
+    }
+}
+
 component IconPill inherits TouchArea {
     in property <string> glyph;
     in property <string> text;
@@ -491,6 +530,19 @@ export component MainWindow inherits Window {
     in property <string> t-clear-pages: "清空";
     in property <string> t-naming-hint: "点击变量即可插入模板；日期和时间取自拍摄时刻，序号自动递增。";
     in property <string> t-clean-hint: "保持画面背景干净平整，自动裁剪效果更好。";
+    // 页面右键菜单：Windows 使用原生菜单，其它平台用内置弹出菜单。
+    in property <bool> native-page-menu: false;
+    in-out property <length> page-menu-x: 0px;
+    in-out property <length> page-menu-y: 0px;
+    in-out property <int> page-menu-index: -1;
+    in property <string> t-menu-open: "打开";
+    in property <string> t-menu-rename: "重命名";
+    in property <string> t-menu-reveal: "在资源管理器中显示";
+    in property <string> t-menu-auto-crop: "自动裁边";
+    in property <string> t-menu-auto-deskew: "自动纠偏";
+    in property <string> t-menu-ocr: "OCR 识别";
+    in property <string> t-menu-export-jpg: "导出 JPG";
+    in property <string> t-menu-delete: "删除";
     // OCR 结果窗口
     in-out property <bool> show-ocr-result: false;
     in-out property <string> ocr-text;
@@ -527,6 +579,7 @@ export component MainWindow inherits Window {
     callback rename-confirm(string);
     callback rename-cancel();
     callback page-menu(int);
+    callback page-menu-command(int, int);
     callback open-about();
     callback close-about();
     callback open-github();
@@ -731,7 +784,20 @@ export component MainWindow inherits Window {
                                         if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
                                             root.selected-page = index;
                                             root.page-selected(index);
-                                            root.page-menu(index);
+                                            if (root.native-page-menu) {
+                                                root.page-menu(index);
+                                            } else {
+                                                // 菜单宽 200、高 279；贴近窗口边缘时翻到鼠标左侧/上方，
+                                                // 避免被窗口裁掉（winit 后端把弹窗画在主窗口内）。
+                                                root.page-menu-x = page-touch.absolute-position.x + page-touch.mouse-x + 208px <= root.width
+                                                    ? page-touch.absolute-position.x + page-touch.mouse-x
+                                                    : max(0px, page-touch.absolute-position.x + page-touch.mouse-x - 200px);
+                                                root.page-menu-y = page-touch.absolute-position.y + page-touch.mouse-y + 287px <= root.height
+                                                    ? page-touch.absolute-position.y + page-touch.mouse-y
+                                                    : max(0px, page-touch.absolute-position.y + page-touch.mouse-y - 279px);
+                                                root.page-menu-index = index;
+                                                page-menu-popup.show();
+                                            }
                                             return EventResult.accept;
                                         }
                                         EventResult.reject
@@ -1381,5 +1447,66 @@ export component MainWindow inherits Window {
         width: 100%;
         height: 100%;
         background: rgba(0, 0, 0, root.redraw-tick / 255.0);
+    }
+
+    // 页面右键菜单。Windows 走原生菜单（native-page-menu），
+    // Linux/UOS 与 macOS 用这个内置菜单。
+    page-menu-popup := PopupWindow {
+        x: root.page-menu-x;
+        y: root.page-menu-y;
+        width: 200px;
+        height: 6px + 6px + 8 * 30px + 3 * 9px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Theme.card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000066;
+            drop-shadow-offset-y: 4px;
+
+            VerticalLayout {
+                padding: 6px;
+                spacing: 0px;
+
+                MenuEntry {
+                    label: root.t-menu-open;
+                    activated => { page-menu-popup.close(); root.page-menu-command(1, root.page-menu-index); }
+                }
+                MenuEntry {
+                    label: root.t-menu-rename;
+                    activated => { page-menu-popup.close(); root.page-menu-command(2, root.page-menu-index); }
+                }
+                MenuEntry {
+                    label: root.t-menu-reveal;
+                    activated => { page-menu-popup.close(); root.page-menu-command(3, root.page-menu-index); }
+                }
+                MenuSeparator { }
+                MenuEntry {
+                    label: root.t-menu-auto-crop;
+                    activated => { page-menu-popup.close(); root.page-menu-command(4, root.page-menu-index); }
+                }
+                MenuEntry {
+                    label: root.t-menu-auto-deskew;
+                    activated => { page-menu-popup.close(); root.page-menu-command(5, root.page-menu-index); }
+                }
+                MenuSeparator { }
+                MenuEntry {
+                    label: root.t-menu-ocr;
+                    activated => { page-menu-popup.close(); root.page-menu-command(6, root.page-menu-index); }
+                }
+                MenuEntry {
+                    label: root.t-menu-export-jpg;
+                    activated => { page-menu-popup.close(); root.page-menu-command(7, root.page-menu-index); }
+                }
+                MenuSeparator { }
+                MenuEntry {
+                    label: root.t-menu-delete;
+                    activated => { page-menu-popup.close(); root.page-menu-command(8, root.page-menu-index); }
+                }
+            }
+        }
     }
 }

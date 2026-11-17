@@ -18,8 +18,9 @@ pub enum PageMenuCommand {
 }
 
 impl PageMenuCommand {
-    #[allow(dead_code)]
-    fn from_id(id: i32) -> Self {
+    /// 把菜单项编号转换为命令，供内置右键菜单使用。
+    #[must_use]
+    pub fn from_id(id: i32) -> Self {
         match id {
             1 => Self::Open,
             2 => Self::Rename,

@@ -1572,23 +1572,39 @@ impl AppState {
             export_jpg: i18n::t("menu.exportJpg"),
             delete: i18n::t("menu.delete"),
         };
-        match usbscan_win::page_menu::show_page_menu(&labels) {
-            usbscan_win::page_menu::PageMenuCommand::Open => self.open_page(row),
-            usbscan_win::page_menu::PageMenuCommand::Rename => self.rename_page(row),
-            usbscan_win::page_menu::PageMenuCommand::RevealInExplorer => self.reveal_page(row),
-            usbscan_win::page_menu::PageMenuCommand::AutoCrop => self.auto_fix_page(row, true),
-            usbscan_win::page_menu::PageMenuCommand::AutoDeskew => self.auto_fix_page(row, false),
-            usbscan_win::page_menu::PageMenuCommand::Ocr => {
+        let command = usbscan_win::page_menu::show_page_menu(&labels);
+        self.run_page_menu_command(row, command);
+    }
+
+    /// 执行右键菜单命令。Windows 走原生菜单，其它平台走 Slint 内置菜单，
+    /// 两边共用这份分发逻辑。
+    fn run_page_menu_command(
+        &mut self,
+        row: usize,
+        command: usbscan_win::page_menu::PageMenuCommand,
+    ) {
+        use usbscan_win::page_menu::PageMenuCommand;
+        match command {
+            PageMenuCommand::Open => self.open_page(row),
+            PageMenuCommand::Rename => self.rename_page(row),
+            PageMenuCommand::RevealInExplorer => self.reveal_page(row),
+            PageMenuCommand::AutoCrop => self.auto_fix_page(row, true),
+            PageMenuCommand::AutoDeskew => self.auto_fix_page(row, false),
+            PageMenuCommand::Ocr => {
                 self.selected_row = Some(row);
                 self.ocr_page();
             }
-            usbscan_win::page_menu::PageMenuCommand::ExportJpg => {
+            PageMenuCommand::ExportJpg => {
                 self.selected_row = Some(row);
                 self.export_jpg();
             }
-            usbscan_win::page_menu::PageMenuCommand::Delete => self.delete_page(row),
-            usbscan_win::page_menu::PageMenuCommand::None => {}
+            PageMenuCommand::Delete => self.delete_page(row),
+            PageMenuCommand::None => {}
         }
+    }
+
+    fn page_menu_command(&mut self, row: usize, id: i32) {
+        self.run_page_menu_command(row, usbscan_win::page_menu::PageMenuCommand::from_id(id));
     }
 
     fn open_page(&mut self, row: usize) {
@@ -2243,6 +2259,14 @@ fn apply_ui_language(ui: &MainWindow) {
     ui.set_t_clear_pages(i18n::t("ui.clearPages").into());
     ui.set_t_naming_hint(i18n::t("ui.namingHint").into());
     ui.set_t_clean_hint(i18n::t("ui.cleanBackgroundHint").into());
+    ui.set_t_menu_open(i18n::t("menu.open").into());
+    ui.set_t_menu_rename(i18n::t("menu.rename").into());
+    ui.set_t_menu_reveal(i18n::t("menu.reveal").into());
+    ui.set_t_menu_auto_crop(i18n::t("menu.autoCrop").into());
+    ui.set_t_menu_auto_deskew(i18n::t("menu.autoDeskew").into());
+    ui.set_t_menu_ocr(i18n::t("menu.ocr").into());
+    ui.set_t_menu_export_jpg(i18n::t("menu.exportJpg").into());
+    ui.set_t_menu_delete(i18n::t("menu.delete").into());
     ui.set_t_ocr_title(i18n::t("dialog.ocrTitle").into());
     ui.set_t_ocr_copy(i18n::t("ui.copy").into());
     ui.set_tesseract_title(i18n::t("tesseract.title").into());
@@ -2298,6 +2322,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     i18n::set_language(language);
 
     let ui = MainWindow::new()?;
+    // Windows 使用系统原生右键菜单；Linux/UOS 与 macOS 使用界面内置菜单。
+    ui.set_native_page_menu(cfg!(windows));
     apply_ui_language(&ui);
     ui.set_version_text(format!("v{}", env!("CARGO_PKG_VERSION")).into());
     ui.set_status_text(i18n::t("status.detecting").into());
@@ -2595,6 +2621,12 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     {
         let state = std::rc::Rc::clone(state);
         ui.on_page_menu(move |row| state.borrow_mut().show_page_menu(row as usize));
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_page_menu_command(move |row, command| {
+            state.borrow_mut().page_menu_command(row as usize, command);
+        });
     }
     {
         let state = std::rc::Rc::clone(state);

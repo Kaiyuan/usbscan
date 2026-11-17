@@ -1,11 +1,11 @@
 [Desktop Entry]
 Name=usbscan
-Name[zh_CN]=文档扫描 (usbscan)
-Name[zh_TW]=文檔掃描 (usbscan)
+Name[zh_CN]=高拍仪 (usbscan)
+Name[zh_TW]=高拍儀 (usbscan)
 GenericName=Document Scanner
-GenericName[zh_CN]=文档扫描仪
+GenericName[zh_CN]=高拍仪
 Comment=Lightweight USB Document Scanner
-Comment[zh_CN]=轻量高效的 USB 高拍仪与文档扫描工具
+Comment[zh_CN]=轻量高效的 USB 高拍仪，支持自动裁边、离线 OCR 与 PDF 导出
 Exec=usbscan %U
 Icon=usbscan
 Terminal=false

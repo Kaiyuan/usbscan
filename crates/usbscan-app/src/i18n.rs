@@ -199,8 +199,8 @@ static TABLE: &[(&str, [&str; 9])] = &[
     ("ui.cancel", ["取消", "取消", "Cancel", "Abbrechen", "Annuler", "Annulla", "Cancelar", "キャンセル", "취소"]),
     ("ui.save", ["保存", "儲存", "Save", "Speichern", "Enregistrer", "Salva", "Guardar", "保存", "저장"]),
     ("ui.about", [
-        "把任意 USB 摄像头变成文档扫描仪。拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，全程本地完成。",
-        "把任意 USB 攝影機變成文件掃描器。拍攝、自動裁邊、透視校正、離線 OCR 與 PDF 歸檔，全程在本機完成。",
+        "把任意 USB 摄像头变成高拍仪。拍摄、自动裁边、透视校正、离线 OCR 与 PDF 归档，全程本地完成。",
+        "把任意 USB 攝影機變成高拍儀。拍攝、自動裁邊、透視校正、離線 OCR 與 PDF 歸檔，全程在本機完成。",
         "Turn any USB camera into a document scanner. Capture, auto-crop, perspective correction, offline OCR and PDF archiving, all locally.",
         "Jede USB-Kamera wird zum Dokumentenscanner. Aufnehmen, automatisch zuschneiden, Perspektive korrigieren, Offline-OCR und PDF-Archivierung – alles lokal.",
         "Transformez n'importe quelle caméra USB en scanner de documents. Capture, recadrage automatique, correction de perspective, OCR hors ligne et archivage PDF, entièrement en local.",

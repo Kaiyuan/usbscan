@@ -135,8 +135,6 @@ fn open_writer(
     height: u32,
     fps: u32,
 ) -> Result<Box<dyn FrameWriter>, String> {
-    let _com = capture::init_thread();
-    capture::ensure_platform().map_err(|err| err.to_string())?;
     let writer =
         capture::Mp4Writer::create(path, width, height, fps).map_err(|err| err.to_string())?;
     Ok(Box::new(MediaFoundationWriter(writer)))
@@ -297,6 +295,13 @@ fn encode_loop(
     stop: &AtomicBool,
     frames: &AtomicU64,
 ) -> Result<PathBuf, String> {
+    // COM 必须在线程上初始化，并在整个编码期间保持存活。
+    #[cfg(windows)]
+    let _com = {
+        let guard = capture::init_thread();
+        capture::ensure_platform().map_err(|err| err.to_string())?;
+        guard
+    };
     let mut writer = open_writer(path, width, height, fps)?;
 
     let start = Instant::now();

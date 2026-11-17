@@ -1300,6 +1300,7 @@ impl AppState {
         };
         if info.installer_url.is_none() {
             let _ = webbrowser::open(&info.release_url);
+            self.set_status(i18n::t("status.updateManual"));
             return;
         }
         self.update_downloading = true;
@@ -1384,6 +1385,10 @@ impl AppState {
     }
 
     fn toggle_record(&mut self) {
+        if self.recording.is_none() && !usbscan_win::recorder::recording_supported() {
+            self.set_status(i18n::t("status.recordingUnavailable"));
+            return;
+        }
         self.play_sound(RECORD_SOUND);
         if let Some(recorder) = self.recording.take() {
             self.worker.set_record_sink(None);
@@ -1416,9 +1421,10 @@ impl AppState {
             return;
         }
         let name = format!(
-            "{}_{}.mp4",
+            "{}_{}.{}",
             i18n::t("file.recording"),
-            naming::TimeStamp::now().format("yyyyMMdd_HHmmss")
+            naming::TimeStamp::now().format("yyyyMMdd_HHmmss"),
+            usbscan_win::recorder::recording_extension()
         );
         let path = unique_path(&directory.join(name));
         let (record_width, record_height) = self.recording_size((frame.width, frame.height));
@@ -2322,6 +2328,15 @@ fn run() -> Result<(), Box<dyn Error>> {
     i18n::set_language(language);
 
     let ui = MainWindow::new()?;
+    // 界面字体：Windows 保持 Segoe UI；Linux/UOS 与 macOS 交给系统默认字体（含中文回退）。
+    ui.set_ui_font_family(
+        if cfg!(windows) {
+            "Segoe UI Variable Text"
+        } else {
+            ""
+        }
+        .into(),
+    );
     // Windows 使用系统原生右键菜单；Linux/UOS 与 macOS 使用界面内置菜单。
     ui.set_native_page_menu(cfg!(windows));
     apply_ui_language(&ui);
@@ -2477,11 +2492,10 @@ fn run() -> Result<(), Box<dyn Error>> {
                 // 确保关闭前最后 40ms 内的开关/滑块改动也写入配置。
                 app.sync_settings_from_ui();
                 let scale = ui.window().scale_factor();
-                if let Some((width, height)) = usbscan_win::window::client_size() {
-                    app.config.window_width = Some((width as f32 / scale).round().max(1.0) as u32);
-                    app.config.window_height =
-                        Some((height as f32 / scale).round().max(1.0) as u32);
-                }
+                let size = ui.window().size();
+                app.config.window_width = Some((size.width as f32 / scale).round().max(1.0) as u32);
+                app.config.window_height =
+                    Some((size.height as f32 / scale).round().max(1.0) as u32);
                 let position = ui.window().position();
                 app.config.window_x = Some(position.x);
                 app.config.window_y = Some(position.y);

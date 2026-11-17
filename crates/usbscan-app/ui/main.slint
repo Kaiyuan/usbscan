@@ -419,7 +419,7 @@ export component MainWindow inherits Window {
     min-height: 700px;
     background: Theme.bg;
     default-font-size: 13px;
-    default-font-family: "Segoe UI Variable Text";
+    default-font-family: root.ui-font-family;
     init => {
         Theme.dark = root.dark;
         Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
@@ -430,6 +430,8 @@ export component MainWindow inherits Window {
     }
 
     in-out property <bool> dark: true;
+    // 平台默认字体：Windows 用 Segoe UI Variable Text，其它平台留空交给系统字体。
+    in property <string> ui-font-family: "";
     in property <[string]> device-options;
     in property <[string]> format-options;
     // 摄像头报告能力前先占位，避免下拉框空白；打开设备后由 Rust 侧覆盖。
@@ -537,7 +539,7 @@ export component MainWindow inherits Window {
     in-out property <int> page-menu-index: -1;
     in property <string> t-menu-open: "打开";
     in property <string> t-menu-rename: "重命名";
-    in property <string> t-menu-reveal: "在资源管理器中显示";
+    in property <string> t-menu-reveal: "在文件管理器中显示";
     in property <string> t-menu-auto-crop: "自动裁边";
     in property <string> t-menu-auto-deskew: "自动纠偏";
     in property <string> t-menu-ocr: "OCR 识别";

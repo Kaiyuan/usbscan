@@ -224,8 +224,14 @@ mod unix_impl {
         }
         #[cfg(target_os = "linux")]
         {
-            // 尝试 Nautilus（GNOME / UOS 默认）的 --select 选项
-            if which_command("nautilus").is_some() {
+            // UOS / Deepin 的 dde-file-manager 支持 --show-item（选中文件）。
+            if which_command("dde-file-manager").is_some() {
+                let _ = Command::new("dde-file-manager")
+                    .arg("--show-item")
+                    .arg(path)
+                    .spawn();
+            } else if which_command("nautilus").is_some() {
+                // 尝试 Nautilus（GNOME）的 --select 选项
                 let _ = Command::new("nautilus").arg("--select").arg(path).spawn();
             } else if which_command("dolphin").is_some() {
                 let _ = Command::new("dolphin").arg("--select").arg(path).spawn();

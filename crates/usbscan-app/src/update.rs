@@ -70,24 +70,31 @@ pub fn check_latest() -> Result<Option<UpdateInfo>, String> {
     if !is_newer(&version, CURRENT_VERSION) {
         return Ok(None);
     }
-    let installer = release
-        .assets
-        .iter()
-        .find(|asset| {
-            let name = asset.name.to_ascii_lowercase();
-            name.contains("setup")
-                && std::path::Path::new(&asset.name)
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
-        })
-        .or_else(|| {
-            release.assets.iter().find(|asset| {
-                std::path::Path::new(&asset.name)
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+    // 自动下载并启动安装包仅适用于 Windows。
+    // Linux / macOS 的安装包类型不同（.deb / .AppImage / .dmg），
+    // 由界面引导用户到 Releases 页面手动下载。
+    let installer = if cfg!(windows) {
+        release
+            .assets
+            .iter()
+            .find(|asset| {
+                let name = asset.name.to_ascii_lowercase();
+                name.contains("setup")
+                    && std::path::Path::new(&asset.name)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
             })
-        })
-        .map(|asset| asset.browser_download_url.clone());
+            .or_else(|| {
+                release.assets.iter().find(|asset| {
+                    std::path::Path::new(&asset.name)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+                })
+            })
+            .map(|asset| asset.browser_download_url.clone())
+    } else {
+        None
+    };
     Ok(Some(UpdateInfo {
         version,
         release_url: release.html_url,

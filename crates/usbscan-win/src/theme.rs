@@ -193,9 +193,11 @@ mod unix_impl {
     /// **macOS**：读取 `defaults read -g AppleInterfaceStyle`，返回 `"Dark"` 表示深色。
     ///
     /// **Linux / UOS**：
-    ///   1. 尝试 `gsettings get org.gnome.desktop.interface color-scheme`（GNOME 42+ / UOS）
+    ///   1. 尝试 `gsettings get org.gnome.desktop.interface color-scheme`（GNOME 42+）
     ///   2. 尝试 `gsettings get org.gnome.desktop.interface gtk-theme`（GNOME 旧版）
-    ///   3. 失败时默认为浅色。
+    ///   3. 读取 `GTK_THEME`、GTK 的 `settings.ini` 与 KDE `kdeglobals`
+    ///      （UOS / Deepin 不一定会更新 dconf，这一步覆盖 DDE 与 KDE）
+    ///   4. 都失败时默认为浅色。
     pub fn system_uses_dark_mode() -> bool {
         #[cfg(target_os = "macos")]
         {
@@ -230,12 +232,62 @@ mod unix_impl {
                     return true;
                 }
             }
-            false
+            // DDE / KDE 等不经过 dconf 的桌面环境：看环境变量与主题配置文件。
+            config_file_uses_dark()
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             false
         }
+    }
+
+    /// 从 `GTK_THEME`、`~/.config/gtk-3.0/settings.ini`、`~/.config/kdeglobals`
+    /// 判断是否深色主题。用于 UOS/DDE 等不更新 dconf 的桌面。
+    #[cfg(target_os = "linux")]
+    fn config_file_uses_dark() -> bool {
+        if std::env::var("GTK_THEME").is_ok_and(|theme| theme.to_lowercase().contains("dark")) {
+            return true;
+        }
+
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
+            });
+        let Some(config) = config else {
+            return false;
+        };
+
+        if let Ok(text) = std::fs::read_to_string(config.join("gtk-3.0").join("settings.ini")) {
+            let mut prefer_dark = false;
+            let mut theme_is_dark = false;
+            for line in text.lines() {
+                let line = line.trim();
+                if let Some((key, value)) = line.split_once('=') {
+                    let key = key.trim();
+                    let value = value.trim().to_lowercase();
+                    if key == "gtk-application-prefer-dark-theme" {
+                        prefer_dark = value == "1" || value == "true";
+                    } else if key == "gtk-theme-name" && value.contains("dark") {
+                        theme_is_dark = true;
+                    }
+                }
+            }
+            if prefer_dark || theme_is_dark {
+                return true;
+            }
+        }
+
+        if let Ok(text) = std::fs::read_to_string(config.join("kdeglobals")) {
+            if text.lines().any(|line| {
+                let line = line.trim();
+                line.starts_with("ColorScheme=") && line.to_lowercase().contains("dark")
+            }) {
+                return true;
+            }
+        }
+
+        false
     }
 }
 

@@ -344,7 +344,7 @@ Description: Lightweight USB Document Scanner
  A modern, offline document scanning and OCR tool for USB cameras and doc scanners.
  Compatible with Deepin / UnionTech OS (UOS) and Debian-based Linux.
 Depends: $SHLIBS_DEPENDS
-Recommends: libgl1, libegl1, libxkbcommon0, xdg-desktop-portal, poppler-utils
+Recommends: libgl1, libegl1, libxkbcommon0, xdg-desktop-portal, poppler-utils, ffmpeg
 Suggests: tesseract-ocr, tesseract-ocr-chi-sim, tesseract-ocr-eng
 DEB_CONTROL
 

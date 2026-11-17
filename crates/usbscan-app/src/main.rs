@@ -2344,9 +2344,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     let dark = theme_mode.resolve();
     theme::init_process(dark);
     ui.set_dark(dark);
-    // Windows/macOS 使用矢量 SVG（缩放更平滑）；Linux/UOS 使用预渲染 PNG。
-    ui.global::<Assets>()
-        .set_svg_icons(!cfg!(target_os = "linux"));
     ui.set_theme_index(theme_mode.index() as i32);
     ui.set_output_dir(output_root.to_string_lossy().to_string().into());
     ui.set_file_template(rule.template.clone().into());

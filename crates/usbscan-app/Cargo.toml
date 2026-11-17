@@ -43,10 +43,6 @@ sys-locale = "0.3"
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 
-# 仅在生成图标 PNG 时使用（examples/render_icons.rs）。
-[dev-dependencies]
-resvg = "0.48"
-
 [build-dependencies]
 slint-build = "1.18"
 

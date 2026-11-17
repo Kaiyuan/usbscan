@@ -212,6 +212,7 @@
                   <li data-i18n-html="download.macPermDesc"><strong>相机使用权限：</strong>首次开启时，请在系统提示中点击“允许访问摄像头”，或在<strong>“系统设置 → 隐私与安全性 → 摄像头”</strong>中允许 UsbScan。</li>
                   <li data-i18n-html="download.macOcrDesc"><strong>离线 OCR 识别插件：</strong>依赖 <strong>Tesseract</strong> 引擎。推荐使用 Homebrew 安装：<code>brew install tesseract tesseract-lang</code>。</li>
                   <li data-i18n-html="download.macPdfDesc"><strong>PDF 转图片导入插件：</strong>导入多页 PDF 页面功能依赖 <strong>poppler</strong> 工具包：<code>brew install poppler</code>。</li>
+                  <li data-i18n-html="download.recordDesc"><strong>录像：</strong>需要系统 <code>ffmpeg</code>（macOS：<code>brew install ffmpeg</code>）。</li>
                 </ul>
               </div>
             </div>
@@ -252,6 +253,7 @@
                   <li data-i18n-html="download.uosOfflineInstall"><strong>离线安装：</strong>执行 <code>sudo dpkg -i usbscan_*_uos_*.deb</code>。离线时 <code>dpkg</code> 不会自动补齐依赖，请先安装从同版本机器下载的运行库 deb 包。</li>
                   <li data-i18n-html="download.uosOfflineDeps"><strong>运行库检查：</strong>安装后执行 <code>ldd /usr/bin/usbscan | grep "not found"</code>；标准 UOS 20 桌面通常已包含必需库。</li>
                   <li data-i18n-html="download.uosOfflineOcr"><strong>离线 OCR：</strong>请预先安装 <code>tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng</code>；软件会自动识别系统已安装的语言数据。</li>
+                  <li data-i18n-html="download.recordDesc"><strong>录像：</strong>需要系统 <code>ffmpeg</code>（<code>sudo apt install ffmpeg</code>）。</li>
                   <li data-i18n-html="download.uosOfflineExtras"><strong>可选组件：</strong>PDF 页面导入需要 <code>poppler-utils</code>；文件选择框需要 <code>xdg-desktop-portal</code>。摄像头权限：<code>sudo usermod -aG video $USER</code> 后重新登录。</li>
                   <li data-i18n="download.uosOfflineNetwork">检查更新和在线下载语言数据在离线时会失败，但不影响拍照、裁剪、纠偏、导入和导出。</li>
                 </ul>
@@ -282,6 +284,7 @@
                   <li data-i18n-html="download.linuxPermDesc"><strong>摄像头用户权限：</strong>使用 USB 摄像头需将当前用户加入视频组：<code>sudo usermod -aG video $USER</code>，完成后注销重新登录。</li>
                   <li data-i18n-html="download.linuxOcrDesc"><strong>离线 OCR 识别插件：</strong>在终端安装 Tesseract 核心与中英文数据：<code>sudo apt install tesseract-ocr tesseract-ocr-chi-sim</code>。</li>
                   <li data-i18n-html="download.linuxPdfDesc"><strong>PDF 页面导入插件：</strong>导入多页 PDF 页面依赖 Poppler 工具包：<code>sudo apt install poppler-utils</code>。</li>
+                  <li data-i18n-html="download.recordDesc"><strong>录像：</strong>需要系统 <code>ffmpeg</code>（<code>sudo apt install ffmpeg</code>）。</li>
                   <li data-i18n-html="download.linuxDebDesc"><strong>系统运行依赖：</strong>安装包会声明所需的运行库；离线安装前请准备好对应版本的 deb 包，安装后可用 <code>ldd /usr/bin/usbscan | grep "not found"</code> 检查。</li>
                 </ul>
               </div>

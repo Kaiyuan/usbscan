@@ -91,5 +91,6 @@
   "download.uosArchX86": "<strong>Hygon, Zhaoxin, Intel / AMD:</strong> <code>x86_64</code>(amd64)입니다. 'UOS 20 x86_64 패키지 (.deb)'를 선택하세요.",
   "download.uosArchArm": "<strong>Phytium, Kunpeng:</strong> <code>aarch64</code>(arm64)입니다. 'UOS 20 ARM64 패키지 (.deb)'를 선택하세요.",
   "download.uosArchUnsupported": "<strong>Loongson(LoongArch), Sunway(SW64):</strong> 공식 패키지가 아직 없습니다. Rust 도구 체인이 지원한다면 해당 시스템에서 소스로 빌드하세요(<code>./build.sh</code>).",
-  "download.uosArchCheck": "<strong>확실하지 않다면:</strong> <code>uname -m</code>을 실행하세요. <code>x86_64</code>면 x86_64 패키지, <code>aarch64</code>면 ARM64 패키지를 선택합니다."
+  "download.uosArchCheck": "<strong>확실하지 않다면:</strong> <code>uname -m</code>을 실행하세요. <code>x86_64</code>면 x86_64 패키지, <code>aarch64</code>면 ARM64 패키지를 선택합니다.",
+  "download.recordDesc": "<strong>녹화:</strong> 시스템 <code>ffmpeg</code>가 필요합니다(UOS/Linux: <code>sudo apt install ffmpeg</code>, macOS: <code>brew install ffmpeg</code>)."
 }

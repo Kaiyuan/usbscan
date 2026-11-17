@@ -62,6 +62,7 @@
   "download.linuxPermDesc": "<strong>Camera Permissions:</strong> Add your user to the video group for USB cameras: <code>sudo usermod -aG video $USER</code>, then log out and log back in.",
   "download.linuxOcrDesc": "<strong>Offline OCR plugin:</strong> Install Tesseract and language files via terminal: <code>sudo apt install tesseract-ocr tesseract-ocr-chi-sim</code>.",
   "download.linuxPdfDesc": "<strong>PDF Import plugin:</strong> Multi-page PDF rendering requires poppler: <code>sudo apt install poppler-utils</code>.",
+  "download.recordDesc": "<strong>Recording:</strong> requires system <code>ffmpeg</code> (UOS/Linux: <code>sudo apt install ffmpeg</code>; macOS: <code>brew install ffmpeg</code>).",
   "download.linuxDebDesc": "<strong>System dependencies:</strong> The package declares its required runtime libraries. For offline installation, prepare the matching .deb packages first and check with <code>ldd /usr/bin/usbscan | grep \"not found\"</code> after installation.",
   "download.uosOfflineTitle": "UOS offline install and usage",
   "download.uosOfflineInstall": "<strong>Offline install:</strong> run <code>sudo dpkg -i usbscan_*_uos_*.deb</code>. Offline <code>dpkg</code> cannot fetch dependencies; install the runtime-library .deb files downloaded from a matching UOS machine first.",

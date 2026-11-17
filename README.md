@@ -12,7 +12,7 @@ Windows 10 / 11 · macOS · UOS (统信桌面操作系统 / Linux) · Rust · Sl
 
 ## 这是什么
 
-usbscan 是一款面向 Windows 的文档采集软件。插上任一 UVC 摄像头（网络摄像头、高拍仪、工业模组、笔记本内置摄像头），即可完成 **拍摄 → 自动校正 → 增强 → OCR → 归档** 的全流程，输出可直接归档的 PDF 或图片。
+usbscan 是一款跨平台的文档采集软件（Windows / macOS / UOS·Linux）。插上任一 UVC 摄像头（网络摄像头、高拍仪、工业模组、笔记本内置摄像头），即可完成 **拍摄 → 自动校正 → 增强 → OCR → 归档** 的全流程，输出可直接归档的 PDF 或图片。
 
 产品不做云端、不做注册、不做遥测。所有识别与处理都在本机完成。
 
@@ -22,7 +22,7 @@ usbscan 是一款面向 Windows 的文档采集软件。插上任一 UVC 摄像�
 |---|---|
 | 任意摄像头 | Media Foundation 为主、DirectShow 兜底，覆盖杂牌驱动与非标格式；可在界面选择设备支持的分辨率 |
 | 边拍边存 | 每次快门立即生成成品文件，断电崩溃不丢已拍内容 |
-| 连拍 / 定时 / 录像 | 连拍张数与间隔、定时秒数可配置；录像保存为 MP4（H.264），帧率可选 25/30/50/60 fps（默认 25） |
+| 连拍 / 定时 / 录像 | 连拍张数与间隔、定时秒数可配置；录像保存为 MP4（H.264），帧率可选 25/30/50/60 fps（默认 25）；Windows 使用系统 Media Foundation，Linux / macOS 使用系统 `ffmpeg` |
 | 页面管理 | 缩略图按最新优先排列、选择、删除、上移/下移、双击查看、右键菜单操作、在资源管理器中定位、新建文档、打开其他工程；可隐藏左右面板让预览全宽 |
 | 页面编辑 | 顺时针/逆时针旋转、水平镜像、手动裁剪、手写/矩形批注、复制图片到剪贴板、使用保留原图重新处理增强；右键菜单支持重命名、自动裁边纠畸变、自动纠偏；图片编辑支持撤销/重做 |
 | 扫描设置 | 输出目录、文件名/子目录模板、重名策略、JPEG 质量，实时示例预览 |
@@ -45,8 +45,27 @@ usbscan 是一款面向 Windows 的文档采集软件。插上任一 UVC 摄像�
 | 页面操作 | 在页面缩略图上单击右键打开菜单：重命名、删除、自动裁边、自动纠偏、OCR、导出 JPG |
 | 视频裁剪 | 自动识别并裁掉部分 UVC 驱动补出的上下黑边，预览、拍照与录像都不再带黑边 |
 | 图标 | 使用 [Tabler Icons](https://github.com/tabler/tabler-icons) 的 SVG（MIT），并随包保留许可证 |
-| 零依赖 | 静态链接 CRT，不需要 .NET / VC++ 运行时 / WebView2 |
+| 零依赖 | 静态链接 CRT，不需要 .NET / VC++ 运行时 / WebView2；Linux / macOS 录像需系统 `ffmpeg` |
 | 开源 | 代码可审计，可自行构建，可二次开发 |
+
+## 平台支持
+
+Slint 界面在 Windows、macOS 与 Linux（UOS / Deepin / Debian 系）上共用同一套功能，平台差异均由独立后端封装：
+
+| 功能 | Windows | Linux / UOS | macOS |
+|---|---|---|---|
+| 摄像头采集 | Media Foundation（DirectShow 兜底） | V4L2（nokhwa） | AVFoundation（nokhwa） |
+| 录像（H.264 MP4） | Media Foundation | 系统 `ffmpeg` | 系统 `ffmpeg` |
+| 页面右键菜单 | 系统原生菜单 | 内置菜单（Slint） | 内置菜单（Slint） |
+| 文件对话框 | 系统原生 | `xdg-desktop-portal` | 系统原生 |
+| 离线 OCR | Tesseract 5，可在软件内下载安装 | 系统 Tesseract（包管理器安装） | 系统 Tesseract（Homebrew 安装） |
+| 自动更新 | 下载并启动安装包 | 打开 GitHub Releases 下载对应安装包 | 打开 GitHub Releases 下载 `.dmg` |
+| 系统主题 | 注册表 `AppsUseLightTheme` | `gsettings`（GNOME / UOS） | `NSApp.effectiveAppearance` |
+| 在文件管理器中定位 | Explorer `/select` | `dde-file-manager` / `nautilus` / `dolphin` | Finder `open -R` |
+| 窗口位置与大小记忆 | Win32 客户区尺寸 | Slint 窗口尺寸 | Slint 窗口尺寸 |
+| 界面字体 | Segoe UI Variable Text | 系统默认字体 | 系统默认字体 |
+
+Linux / macOS 的录像需要先安装 `ffmpeg`（`sudo apt install ffmpeg` 或 `brew install ffmpeg`）；未安装时点击录像会在状态栏给出安装提示。
 
 ## 文档
 

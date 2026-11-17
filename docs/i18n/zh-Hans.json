@@ -62,6 +62,7 @@
   "download.linuxPermDesc": "<strong>摄像头用户权限：</strong>使用 USB 摄像头需将当前用户加入视频组：<code>sudo usermod -aG video $USER</code>，完成后注销重新登录。",
   "download.linuxOcrDesc": "<strong>离线 OCR 识别插件：</strong>在终端安装 Tesseract 核心与中英文数据：<code>sudo apt install tesseract-ocr tesseract-ocr-chi-sim</code>。",
   "download.linuxPdfDesc": "<strong>PDF 页面导入插件：</strong>导入多页 PDF 页面依赖 Poppler 工具包：<code>sudo apt install poppler-utils</code>。",
+  "download.recordDesc": "<strong>录像：</strong>需要系统 <code>ffmpeg</code>（UOS/Linux：<code>sudo apt install ffmpeg</code>；macOS：<code>brew install ffmpeg</code>）。",
   "download.linuxDebDesc": "<strong>系统运行依赖：</strong>安装包会声明所需的运行库；离线安装前请准备好对应版本的 deb 包，安装后可用 <code>ldd /usr/bin/usbscan | grep \"not found\"</code> 检查。",
   "download.uosOfflineTitle": "UOS 离线安装与使用",
   "download.uosOfflineInstall": "<strong>离线安装：</strong>执行 <code>sudo dpkg -i usbscan_*_uos_*.deb</code>。离线时 <code>dpkg</code> 不会自动补齐依赖，请先安装从同版本机器下载的运行库 deb 包。",

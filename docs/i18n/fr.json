@@ -91,5 +91,6 @@
   "download.uosArchX86": "<strong>Hygon, Zhaoxin, Intel / AMD :</strong> ces processeurs utilisent <code>x86_64</code> (amd64). Choisissez le « paquet UOS 20 x86_64 (.deb) ».",
   "download.uosArchArm": "<strong>Phytium, Kunpeng :</strong> ces processeurs utilisent <code>aarch64</code> (arm64). Choisissez le « paquet UOS 20 ARM64 (.deb) ».",
   "download.uosArchUnsupported": "<strong>Loongson (LoongArch), Sunway (SW64) :</strong> aucun paquet officiel pour l'instant ; si la chaîne d'outils Rust le permet, compilez depuis les sources sur la machine (<code>./build.sh</code>).",
-  "download.uosArchCheck": "<strong>Vous hésitez ?</strong> Exécutez <code>uname -m</code> : <code>x86_64</code> = paquet x86_64, <code>aarch64</code> = paquet ARM64."
+  "download.uosArchCheck": "<strong>Vous hésitez ?</strong> Exécutez <code>uname -m</code> : <code>x86_64</code> = paquet x86_64, <code>aarch64</code> = paquet ARM64.",
+  "download.recordDesc": "<strong>Enregistrement :</strong> nécessite <code>ffmpeg</code> (UOS/Linux : <code>sudo apt install ffmpeg</code> ; macOS : <code>brew install ffmpeg</code>)."
 }

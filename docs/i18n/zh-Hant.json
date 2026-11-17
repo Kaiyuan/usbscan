@@ -62,6 +62,7 @@
   "download.linuxPermDesc": "<strong>攝影機使用者權限：</strong>使用 USB 攝影機需將目前使用者加入視訊群組：<code>sudo usermod -aG video $USER</code>，完成後登出重新登入。",
   "download.linuxOcrDesc": "<strong>離線 OCR 識別外掛：</strong>在終端機安裝 Tesseract 核心與中英文數據：<code>sudo apt install tesseract-ocr tesseract-ocr-chi-sim</code>。",
   "download.linuxPdfDesc": "<strong>PDF 頁面匯入外掛：</strong>匯入多頁 PDF 頁面依賴 Poppler 工具包：<code>sudo apt install poppler-utils</code>。",
+  "download.recordDesc": "<strong>錄影：</strong>需要系統 <code>ffmpeg</code>（UOS/Linux：<code>sudo apt install ffmpeg</code>；macOS：<code>brew install ffmpeg</code>）。",
   "download.linuxDebDesc": "<strong>系統執行依賴：</strong>安裝套件會宣告所需的執行期函式庫；離線安裝前請準備好對應版本的 deb 套件，安裝後可用 <code>ldd /usr/bin/usbscan | grep \"not found\"</code> 檢查。",
   "download.uosOfflineTitle": "UOS 離線安裝與使用",
   "download.uosOfflineInstall": "<strong>離線安裝：</strong>執行 <code>sudo dpkg -i usbscan_*_uos_*.deb</code>。離線時 <code>dpkg</code> 不會自動補齊相依套件，請先安裝從相同版本機器下載的執行期函式庫 deb 套件。",

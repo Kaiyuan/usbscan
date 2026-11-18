@@ -185,7 +185,7 @@ ldd /usr/bin/usbscan | grep "not found"
 
 ## 发布与多平台支持
 
-在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.7`）后，`.github/workflows/release.yml` 会自动构建多平台、多架构产物并上传：
+在 GitHub 创建并发布 Release（tag 与 `Cargo.toml` 的工作区版本一致，例如 `v0.1.8`）后，`.github/workflows/release.yml` 会自动构建多平台、多架构产物并上传：
 
 | 平台 | 架构 | 发布产物格式 | 说明 |
 |---|---|---|---|

@@ -454,6 +454,22 @@ export component MainWindow inherits Window {
     in-out property <string> folder-template;
     in-out property <string> page-count-text: "0 页";
     in-out property <bool> auto-crop: true;
+    in-out property <bool> manual-crop: false;
+    in-out property <float> crop-cx: 0.5;
+    in-out property <float> crop-cy: 0.5;
+    in-out property <float> crop-w: 0.85;
+    in-out property <float> crop-h: 0.85;
+    in-out property <float> crop-angle: 0;
+    // 预览画面宽高比，由 Rust 在每帧到达时更新。
+    in-out property <float> preview-aspect: 1.3333;
+    // 预览区域尺寸（逻辑像素），供裁剪交互换算坐标。
+    out property <length> preview-w: preview-area.width;
+    out property <length> preview-h: preview-area.height;
+    // `image-fit: contain` 时画面在预览区域中的实际显示矩形。
+    property <length> crop-img-w: min(preview-w, preview-h * root.preview-aspect);
+    property <length> crop-img-h: crop-img-w / max(root.preview-aspect, 0.001);
+    property <length> crop-img-x: (preview-w - crop-img-w) / 2;
+    property <length> crop-img-y: (preview-h - crop-img-h) / 2;
     in-out property <bool> auto-deskew: true;
     in-out property <bool> perspective: true;
     in-out property <bool> remove-shadow: false;
@@ -532,6 +548,10 @@ export component MainWindow inherits Window {
     in property <string> t-clear-pages: "清空";
     in property <string> t-naming-hint: "点击变量即可插入模板；日期和时间取自拍摄时刻，序号自动递增。";
     in property <string> t-clean-hint: "保持画面背景干净平整，自动裁剪效果更好。";
+    in property <string> t-manual-crop: "手动裁剪";
+    in property <string> t-manual-crop-hint: "在预览上拖动裁剪框；拖四角改大小，拖顶部圆点旋转。";
+    in property <string> t-crop-reset: "重置裁剪框";
+    in property <string> t-crop-reset-angle: "还原角度";
     // 页面右键菜单：Windows 使用原生菜单，其它平台用内置弹出菜单。
     in property <bool> native-page-menu: false;
     in-out property <length> page-menu-x: 0px;
@@ -582,6 +602,11 @@ export component MainWindow inherits Window {
     callback rename-cancel();
     callback page-menu(int);
     callback page-menu-command(int, int);
+    callback crop-pointer-down(length, length);
+    callback crop-pointer-move(length, length);
+    callback crop-pointer-up();
+    callback crop-reset-rect();
+    callback crop-reset-angle();
     callback open-about();
     callback close-about();
     callback open-github();
@@ -824,7 +849,7 @@ export component MainWindow inherits Window {
                     }
                 }
             }
-            Rectangle {
+            preview-area := Rectangle {
                 background: Theme.dark ? #111113 : #d9d9de;
                 Image {
                     source: root.preview-source;
@@ -848,6 +873,101 @@ export component MainWindow inherits Window {
                     background: #ffffff;
                     opacity: root.flash ? 0.9 : 0.0;
                     animate opacity { duration: 180ms; easing: ease-out; }
+                }
+                // 手动裁剪：全屏交互层 + 可旋转的裁剪框。
+                if (root.manual-crop && root.has-camera) : Rectangle {
+                    crop-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        pointer-event(event) => {
+                            if (event.kind == PointerEventKind.down) {
+                                root.crop-pointer-down(crop-touch.mouse-x, crop-touch.mouse-y);
+                                return EventResult.accept;
+                            }
+                            if (event.kind == PointerEventKind.up) {
+                                root.crop-pointer-up();
+                                return EventResult.accept;
+                            }
+                            EventResult.reject
+                        }
+                        moved => {
+                            root.crop-pointer-move(crop-touch.mouse-x, crop-touch.mouse-y);
+                        }
+                    }
+
+                    crop-box := Rectangle {
+                        x: root.crop-img-x + (root.crop-cx - root.crop-w / 2) * root.crop-img-w;
+                        y: root.crop-img-y + (root.crop-cy - root.crop-h / 2) * root.crop-img-h;
+                        width: root.crop-w * root.crop-img-w;
+                        height: root.crop-h * root.crop-img-h;
+                        border-width: 2px;
+                        border-color: Theme.accent;
+                        background: transparent;
+                        transform-origin: { x: self.width / 2, y: self.height / 2 };
+                        transform-rotation: root.crop-angle * 1deg;
+
+                        // 三分参考线
+                        Rectangle { x: parent.width / 3; width: 1px; height: 100%; background: #ffffff80; }
+                        Rectangle { x: parent.width * 2 / 3; width: 1px; height: 100%; background: #ffffff80; }
+                        Rectangle { y: parent.height / 3; width: 100%; height: 1px; background: #ffffff80; }
+                        Rectangle { y: parent.height * 2 / 3; width: 100%; height: 1px; background: #ffffff80; }
+
+                        // 四角缩放点
+                        Rectangle { x: -6px; y: -6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+                        Rectangle { x: parent.width - 6px; y: -6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+                        Rectangle { x: parent.width - 6px; y: parent.height - 6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+                        Rectangle { x: -6px; y: parent.height - 6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+
+                        // 顶部旋转手柄
+                        Rectangle { x: parent.width / 2 - 1px; y: -19px; width: 2px; height: 19px; background: Theme.accent; }
+                        Rectangle { x: parent.width / 2 - 6px; y: -31px; width: 12px; height: 12px; border-radius: 6px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+                        Text {
+                            y: -52px;
+                            width: 100%;
+                            text: "\{round(root.crop-angle)}°";
+                            color: #ffffff;
+                            font-size: 12px;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                        }
+                    }
+
+                    // 手动裁剪工具栏
+                    Rectangle {
+                        x: root.crop-img-x + 8px;
+                        y: root.crop-img-y + 8px;
+                        width: 320px;
+                        height: 34px;
+                        background: #00000099;
+                        border-radius: 9px;
+
+                        HorizontalLayout {
+                            padding-left: 4px;
+                            padding-right: 8px;
+                            padding-top: 4px;
+                            padding-bottom: 4px;
+                            spacing: 6px;
+                            PillButton {
+                                text: root.t-crop-reset;
+                                height: 26px;
+                                min-width: 88px;
+                                clicked => { root.crop-reset-rect(); }
+                            }
+                            PillButton {
+                                text: root.t-crop-reset-angle;
+                                height: 26px;
+                                min-width: 88px;
+                                clicked => { root.crop-reset-angle(); }
+                            }
+                            Text {
+                                text: "\{round(root.crop-angle)}°";
+                                color: #ffffff;
+                                font-size: 12px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
                 }
                 if (root.show-toast) : Rectangle {
                     x: (parent.width - self.width) / 2;
@@ -964,8 +1084,8 @@ export component MainWindow inherits Window {
                         Section {
                             title: root.t-enhance;
                             icon-name: IconName.wand;
-                            // 5 × 28px 开关 + 30px 背景提示 + 24px 强度行 + 6 × 5px 间距
-                            content-height: 224px;
+                            // 6 × 28px 开关 + 2 × 30px 提示 + 24px 强度行 + 间距
+                            content-height: 288px;
                             VerticalLayout {
                                 padding: 12px;
                                 padding-top: 34px;
@@ -973,6 +1093,15 @@ export component MainWindow inherits Window {
                                 ToggleRow { label: root.t-auto-crop; icon-name: IconName.crop; checked <=> root.auto-crop; }
                                 Text {
                                     text: root.t-clean-hint;
+                                    color: Theme.muted;
+                                    font-size: 11px;
+                                    height: 30px;
+                                    wrap: word-wrap;
+                                    vertical-alignment: center;
+                                }
+                                ToggleRow { label: root.t-manual-crop; icon-name: IconName.crop; checked <=> root.manual-crop; }
+                                Text {
+                                    text: root.t-manual-crop-hint;
                                     color: Theme.muted;
                                     font-size: 11px;
                                     height: 30px;

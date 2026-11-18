@@ -30,6 +30,15 @@ pub struct Config {
     pub jpeg_quality: Option<u8>,
     /// 自动裁边。
     pub auto_crop: Option<bool>,
+    /// 手动裁剪开关（开启时关闭自动裁边）。
+    pub manual_crop: Option<bool>,
+    /// 手动裁剪框：中心与宽高，按 0–1000 归一化保存。
+    pub crop_cx: Option<u16>,
+    pub crop_cy: Option<u16>,
+    pub crop_w: Option<u16>,
+    pub crop_h: Option<u16>,
+    /// 手动裁剪框旋转角度（-45–45 度）。
+    pub crop_angle: Option<i16>,
     /// 自动纠偏。
     pub deskew: Option<bool>,
     /// 自动透视校正。
@@ -115,6 +124,18 @@ impl Config {
                 config.jpeg_quality = Some(value.clamp(1, 100));
             } else if let Some(value) = toml_bool(line, "auto_crop") {
                 config.auto_crop = Some(value);
+            } else if let Some(value) = toml_bool(line, "manual_crop") {
+                config.manual_crop = Some(value);
+            } else if let Some(value) = toml_u16(line, "crop_cx") {
+                config.crop_cx = Some(value.min(1000));
+            } else if let Some(value) = toml_u16(line, "crop_cy") {
+                config.crop_cy = Some(value.min(1000));
+            } else if let Some(value) = toml_u16(line, "crop_w") {
+                config.crop_w = Some(value.clamp(1, 1000));
+            } else if let Some(value) = toml_u16(line, "crop_h") {
+                config.crop_h = Some(value.clamp(1, 1000));
+            } else if let Some(value) = toml_i32(line, "crop_angle") {
+                config.crop_angle = Some(value.clamp(-45, 45) as i16);
             } else if let Some(value) = toml_bool(line, "deskew") {
                 config.deskew = Some(value);
             } else if let Some(value) = toml_bool(line, "perspective") {
@@ -169,6 +190,7 @@ impl Config {
         let _ = self.save_to(&config_path());
     }
 
+    #[allow(clippy::too_many_lines)]
     fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
         let mut text = String::from("# usbscan 配置（自动生成）\n[device]\n");
         push_option_string(&mut text, "last_id", self.last_camera_id.as_deref());
@@ -194,6 +216,7 @@ impl Config {
         }
         for (key, value) in [
             ("auto_crop", self.auto_crop),
+            ("manual_crop", self.manual_crop),
             ("deskew", self.deskew),
             ("perspective", self.perspective),
             ("remove_shadow", self.remove_shadow),
@@ -205,6 +228,24 @@ impl Config {
                 text.push_str(if value { "1" } else { "0" });
                 text.push('\n');
             }
+        }
+        for (key, value) in [
+            ("crop_cx", self.crop_cx),
+            ("crop_cy", self.crop_cy),
+            ("crop_w", self.crop_w),
+            ("crop_h", self.crop_h),
+        ] {
+            if let Some(value) = value {
+                text.push_str(key);
+                text.push_str(" = ");
+                text.push_str(&value.to_string());
+                text.push('\n');
+            }
+        }
+        if let Some(angle) = self.crop_angle {
+            text.push_str("crop_angle = ");
+            text.push_str(&angle.to_string());
+            text.push('\n');
         }
         if let Some(strength) = self.enhance_strength {
             text.push_str("enhance_strength = ");
@@ -457,6 +498,19 @@ mod tests {
         assert_eq!(toml_bool("auto_crop = 0", "auto_crop"), Some(false));
         assert_eq!(toml_bool("auto_crop = true", "auto_crop"), Some(true));
         assert_eq!(toml_bool("auto_crop = 2", "auto_crop"), None);
+    }
+
+    #[test]
+    fn parses_manual_crop_settings() {
+        let config = Config::parse(
+            "manual_crop = 1\ncrop_cx = 420\ncrop_cy = 380\ncrop_w = 610\ncrop_h = 550\ncrop_angle = -12\n",
+        );
+        assert_eq!(config.manual_crop, Some(true));
+        assert_eq!(config.crop_cx, Some(420));
+        assert_eq!(config.crop_cy, Some(380));
+        assert_eq!(config.crop_w, Some(610));
+        assert_eq!(config.crop_h, Some(550));
+        assert_eq!(config.crop_angle, Some(-12));
     }
 
     #[test]

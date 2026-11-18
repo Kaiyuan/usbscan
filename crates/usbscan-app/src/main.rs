@@ -549,6 +549,160 @@ impl ThemeMode {
     }
 }
 
+/// 手动裁剪框：中心点与宽高均相对画面归一化（0–1），角度为顺时针度数。
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CropRect {
+    cx: f32,
+    cy: f32,
+    w: f32,
+    h: f32,
+    angle: f32,
+}
+
+impl Default for CropRect {
+    fn default() -> Self {
+        Self {
+            cx: 0.5,
+            cy: 0.5,
+            w: 0.85,
+            h: 0.85,
+            angle: 0.0,
+        }
+    }
+}
+
+impl CropRect {
+    fn from_config(config: &Config) -> Self {
+        let normalized = |value: Option<u16>, fallback: f32| {
+            value.map_or(fallback, |value| f32::from(value) / 1000.0)
+        };
+        Self {
+            cx: normalized(config.crop_cx, 0.5),
+            cy: normalized(config.crop_cy, 0.5),
+            w: normalized(config.crop_w, 0.85),
+            h: normalized(config.crop_h, 0.85),
+            angle: config.crop_angle.map_or(0.0, f32::from),
+        }
+        .normalized()
+    }
+
+    /// 限制最小尺寸与角度；不考虑画面宽高比。
+    fn normalized(mut self) -> Self {
+        self.w = self.w.clamp(0.05, 1.0);
+        self.h = self.h.clamp(0.05, 1.0);
+        self.angle = self.angle.clamp(-45.0, 45.0);
+        self.cx = self.cx.clamp(0.0, 1.0);
+        self.cy = self.cy.clamp(0.0, 1.0);
+        self
+    }
+
+    /// 按画面像素尺寸限制旋转后的裁剪框，保证四角不越界。
+    fn clamped(mut self, width: f32, height: f32) -> Self {
+        self = self.normalized();
+        if width <= 0.0 || height <= 0.0 {
+            return self;
+        }
+        let (sin, cos) = self.angle.to_radians().sin_cos();
+        let mut pixel_w = self.w * width;
+        let mut pixel_h = self.h * height;
+        let mut extent_x = f32::midpoint(pixel_w * cos.abs(), pixel_h * sin.abs());
+        let mut extent_y = f32::midpoint(pixel_w * sin.abs(), pixel_h * cos.abs());
+        let scale = (0.49 * width / extent_x.max(f32::EPSILON))
+            .min(0.49 * height / extent_y.max(f32::EPSILON))
+            .min(1.0);
+        if scale < 1.0 {
+            pixel_w *= scale;
+            pixel_h *= scale;
+            extent_x *= scale;
+            extent_y *= scale;
+        }
+        self.cx = (self.cx * width).clamp(extent_x, width - extent_x) / width;
+        self.cy = (self.cy * height).clamp(extent_y, height - extent_y) / height;
+        self.w = pixel_w / width;
+        self.h = pixel_h / height;
+        self
+    }
+
+    /// 返回左上、右上、右下、左下四个角（像素坐标）。
+    fn corners(self, width: u32, height: u32) -> [(f64, f64); 4] {
+        let width = f64::from(width);
+        let height = f64::from(height);
+        let center_x = f64::from(self.cx) * width;
+        let center_y = f64::from(self.cy) * height;
+        let half_w = f64::from(self.w) * width / 2.0;
+        let half_h = f64::from(self.h) * height / 2.0;
+        let (sin, cos) = f64::from(self.angle).to_radians().sin_cos();
+        let point = |dx: f64, dy: f64| {
+            (
+                center_x + dx * cos - dy * sin,
+                center_y + dx * sin + dy * cos,
+            )
+        };
+        [
+            point(-half_w, -half_h),
+            point(half_w, -half_h),
+            point(half_w, half_h),
+            point(-half_w, half_h),
+        ]
+    }
+}
+
+/// 预览画面在交互区域中的实际显示矩形。
+#[derive(Clone, Copy, Debug)]
+struct CropView {
+    width: f32,
+    height: f32,
+    left: f32,
+    top: f32,
+}
+
+/// 手动裁剪拖拽模式。
+#[derive(Clone, Copy, Debug)]
+enum CropDragMode {
+    Move,
+    Resize { corner: (f32, f32) },
+    Rotate { start_angle: f32 },
+    NewRect,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CropDrag {
+    mode: CropDragMode,
+    view: CropView,
+    start: (f32, f32),
+    origin: CropRect,
+}
+
+/// 判断指针落在移动区域、四角缩放手柄、旋转手柄还是空白处。
+fn crop_hit_test(view: &CropView, crop: &CropRect, x: f32, y: f32) -> CropDragMode {
+    let center_x = view.left + crop.cx * view.width;
+    let center_y = view.top + crop.cy * view.height;
+    let (sin, cos) = crop.angle.to_radians().sin_cos();
+    let dx = x - center_x;
+    let dy = y - center_y;
+    let local_x = dx * cos + dy * sin;
+    let local_y = -dx * sin + dy * cos;
+    let half_w = crop.w * view.width / 2.0;
+    let half_h = crop.h * view.height / 2.0;
+    let radius2 = 14.0_f32.powi(2);
+
+    if local_x.powi(2) + (local_y + half_h + 22.0).powi(2) <= radius2 {
+        return CropDragMode::Rotate {
+            start_angle: dy.atan2(dx).to_degrees(),
+        };
+    }
+    for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        if (local_x - sx * half_w).powi(2) + (local_y - sy * half_h).powi(2) <= radius2 {
+            return CropDragMode::Resize { corner: (sx, sy) };
+        }
+    }
+    if local_x.abs() <= half_w && local_y.abs() <= half_h {
+        CropDragMode::Move
+    } else {
+        CropDragMode::NewRect
+    }
+}
+
 #[allow(clippy::struct_excessive_bools)]
 struct AppState {
     ui: slint::Weak<MainWindow>,
@@ -574,6 +728,9 @@ struct AppState {
     last_fps_rates_version: u64,
     last_status: String,
     last_auto_crop: bool,
+    manual_crop: bool,
+    crop: CropRect,
+    crop_drag: Option<CropDrag>,
     last_connected: bool,
     last_recording: bool,
     last_output_dir: String,
@@ -608,6 +765,161 @@ impl AppState {
         self.worker.lock().frame.clone()
     }
 
+    /// 计算预览画面的显示矩形（与 Slint 侧 `image-fit: contain` 一致）。
+    fn crop_view(&self) -> Option<CropView> {
+        let ui = self.ui()?;
+        let frame = self.frame()?;
+        let area_width = ui.get_preview_w();
+        let area_height = ui.get_preview_h();
+        if area_width <= 0.0 || area_height <= 0.0 || frame.width == 0 || frame.height == 0 {
+            return None;
+        }
+        let aspect = frame.width as f32 / frame.height as f32;
+        let (width, height) = if area_width / area_height > aspect {
+            (area_height * aspect, area_height)
+        } else {
+            (area_width, area_width / aspect)
+        };
+        Some(CropView {
+            width,
+            height,
+            left: (area_width - width) / 2.0,
+            top: (area_height - height) / 2.0,
+        })
+    }
+
+    fn push_crop(&self) {
+        if let Some(ui) = self.ui() {
+            ui.set_crop_cx(self.crop.cx);
+            ui.set_crop_cy(self.crop.cy);
+            ui.set_crop_w(self.crop.w);
+            ui.set_crop_h(self.crop.h);
+            ui.set_crop_angle(self.crop.angle);
+        }
+    }
+
+    fn remember_crop(&mut self) {
+        self.config.manual_crop = Some(self.manual_crop);
+        self.config.crop_cx = Some((self.crop.cx * 1000.0).round().clamp(0.0, 1000.0) as u16);
+        self.config.crop_cy = Some((self.crop.cy * 1000.0).round().clamp(0.0, 1000.0) as u16);
+        self.config.crop_w = Some((self.crop.w * 1000.0).round().clamp(1.0, 1000.0) as u16);
+        self.config.crop_h = Some((self.crop.h * 1000.0).round().clamp(1.0, 1000.0) as u16);
+        self.config.crop_angle = Some(self.crop.angle.round().clamp(-45.0, 45.0) as i16);
+        self.settings_dirty = true;
+    }
+
+    fn crop_pointer_down(&mut self, x: f32, y: f32) {
+        if !self.manual_crop {
+            return;
+        }
+        let Some(view) = self.crop_view() else {
+            return;
+        };
+        let mode = crop_hit_test(&view, &self.crop, x, y);
+        self.crop_drag = Some(CropDrag {
+            mode,
+            view,
+            start: (x, y),
+            origin: self.crop,
+        });
+    }
+
+    fn crop_pointer_move(&mut self, x: f32, y: f32) {
+        let Some(drag) = self.crop_drag else {
+            return;
+        };
+        let view = drag.view;
+        let (sin, cos) = drag.origin.angle.to_radians().sin_cos();
+        let next = match drag.mode {
+            CropDragMode::Move => {
+                let mut crop = drag.origin;
+                crop.cx += (x - drag.start.0) / view.width;
+                crop.cy += (y - drag.start.1) / view.height;
+                crop
+            }
+            CropDragMode::Resize { corner: (sx, sy) } => {
+                let delta_x = x - drag.start.0;
+                let delta_y = y - drag.start.1;
+                let local_x = delta_x * cos + delta_y * sin;
+                let local_y = -delta_x * sin + delta_y * cos;
+                let origin_w = drag.origin.w * view.width;
+                let origin_h = drag.origin.h * view.height;
+                let new_w = (origin_w + 2.0 * sx * local_x).clamp(32.0, view.width);
+                let new_h = (origin_h + 2.0 * sy * local_y).clamp(32.0, view.height);
+                // 固定对角，中心随尺寸变化移动一半。
+                let shift_x = sx * (new_w - origin_w) / 2.0;
+                let shift_y = sy * (new_h - origin_h) / 2.0;
+                let mut crop = drag.origin;
+                crop.cx += (shift_x * cos - shift_y * sin) / view.width;
+                crop.cy += (shift_x * sin + shift_y * cos) / view.height;
+                crop.w = new_w / view.width;
+                crop.h = new_h / view.height;
+                crop
+            }
+            CropDragMode::Rotate { start_angle } => {
+                let center_x = view.left + drag.origin.cx * view.width;
+                let center_y = view.top + drag.origin.cy * view.height;
+                let angle = (y - center_y).atan2(x - center_x).to_degrees();
+                let mut crop = drag.origin;
+                crop.angle = (drag.origin.angle + angle - start_angle).clamp(-45.0, 45.0);
+                crop
+            }
+            CropDragMode::NewRect => {
+                let left = drag.start.0.min(x).max(view.left);
+                let right = drag.start.0.max(x).min(view.left + view.width);
+                let top = drag.start.1.min(y).max(view.top);
+                let bottom = drag.start.1.max(y).min(view.top + view.height);
+                CropRect {
+                    cx: (f32::midpoint(left, right) - view.left) / view.width,
+                    cy: (f32::midpoint(top, bottom) - view.top) / view.height,
+                    w: (right - left) / view.width,
+                    h: (bottom - top) / view.height,
+                    angle: 0.0,
+                }
+            }
+        }
+        .normalized()
+        .clamped(view.width, view.height);
+        if next != self.crop {
+            self.crop = next;
+            self.push_crop();
+            self.remember_crop();
+        }
+    }
+
+    fn crop_pointer_up(&mut self) {
+        let Some(drag) = self.crop_drag.take() else {
+            return;
+        };
+        // 轻点空白处会生成一个极小的框；恢复原裁剪框。
+        if matches!(drag.mode, CropDragMode::NewRect)
+            && (self.crop.w * drag.view.width < 24.0 || self.crop.h * drag.view.height < 24.0)
+        {
+            self.crop = drag.origin;
+            self.push_crop();
+            self.remember_crop();
+        }
+    }
+
+    fn crop_reset_rect(&mut self) {
+        let (width, height) = self
+            .crop_view()
+            .map_or((4.0, 3.0), |view| (view.width, view.height));
+        self.crop = CropRect::default().clamped(width, height);
+        self.push_crop();
+        self.remember_crop();
+    }
+
+    fn crop_reset_angle(&mut self) {
+        let (width, height) = self
+            .crop_view()
+            .map_or((4.0, 3.0), |view| (view.width, view.height));
+        self.crop.angle = 0.0;
+        self.crop = self.crop.clamped(width, height);
+        self.push_crop();
+        self.remember_crop();
+    }
+
     fn capture_feedback(&mut self) -> bool {
         if self.frame().is_none() {
             self.set_status(i18n::t("status.noFrameCapture"));
@@ -639,7 +951,17 @@ impl AppState {
             return;
         };
         let ui = self.ui();
-        let options = self.enhance_options();
+        let frame = if self.manual_crop {
+            crop_frame(&frame, self.crop)
+        } else {
+            (*frame).clone()
+        };
+        let mut options = self.enhance_options();
+        if self.manual_crop {
+            // 手动裁剪已经确定边界与角度，不再叠加自动检测。
+            options.auto_crop = false;
+            options.perspective = false;
+        }
         let enhanced = self.scale_to_output(Self::enhance_frame(&frame, options));
         let path = self.new_image_path(enhanced.width, enhanced.height);
         if let Some(parent) = path.parent() {
@@ -967,6 +1289,17 @@ impl AppState {
         if sequence != self.last_sequence {
             self.last_sequence = sequence;
             if let Some(frame) = frame {
+                let aspect = frame.width as f32 / frame.height.max(1) as f32;
+                if (ui.get_preview_aspect() - aspect).abs() > 1e-4 {
+                    ui.set_preview_aspect(aspect);
+                }
+                if self.manual_crop {
+                    let clamped = self.crop.clamped(frame.width as f32, frame.height as f32);
+                    if clamped != self.crop {
+                        self.crop = clamped;
+                        self.push_crop();
+                    }
+                }
                 let overlay = if ui.get_auto_crop() { corners } else { None };
                 ui.set_preview_source(preview_image(&frame, overlay, corners_frame));
             }
@@ -1014,6 +1347,26 @@ impl AppState {
             self.last_auto_crop = auto_crop;
             self.config.auto_crop = Some(auto_crop);
             self.worker.set_auto_crop(auto_crop);
+            changed = true;
+        }
+        let manual_crop = ui.get_manual_crop();
+        if manual_crop != self.manual_crop {
+            self.manual_crop = manual_crop;
+            self.config.manual_crop = Some(manual_crop);
+            if manual_crop {
+                // 手动裁剪优先：打开后立即关闭自动裁边。
+                self.last_auto_crop = false;
+                self.config.auto_crop = Some(false);
+                self.worker.set_auto_crop(false);
+                ui.set_auto_crop(false);
+            }
+            changed = true;
+        }
+        if self.manual_crop && ui.get_auto_crop() {
+            // 用户重新打开自动裁边时退出手动裁剪，两者互斥。
+            self.manual_crop = false;
+            self.config.manual_crop = Some(false);
+            ui.set_manual_crop(false);
             changed = true;
         }
         let deskew = ui.get_auto_deskew();
@@ -2365,6 +2718,10 @@ fn apply_ui_language(ui: &MainWindow) {
     ui.set_t_clear_pages(i18n::t("ui.clearPages").into());
     ui.set_t_naming_hint(i18n::t("ui.namingHint").into());
     ui.set_t_clean_hint(i18n::t("ui.cleanBackgroundHint").into());
+    ui.set_t_manual_crop(i18n::t("ui.manualCrop").into());
+    ui.set_t_manual_crop_hint(i18n::t("ui.manualCropHint").into());
+    ui.set_t_crop_reset(i18n::t("ui.cropReset").into());
+    ui.set_t_crop_reset_angle(i18n::t("ui.cropResetAngle").into());
     ui.set_t_menu_open(i18n::t("menu.open").into());
     ui.set_t_menu_rename(i18n::t("menu.rename").into());
     ui.set_t_menu_reveal(i18n::t("menu.reveal").into());
@@ -2419,7 +2776,7 @@ fn apply_naming_variables(ui: &MainWindow) {
 
 #[allow(clippy::too_many_lines)]
 fn run() -> Result<(), Box<dyn Error>> {
-    let config = Config::load();
+    let mut config = Config::load();
     let language = config
         .language
         .as_deref()
@@ -2489,7 +2846,23 @@ fn run() -> Result<(), Box<dyn Error>> {
     ui.set_output_dir(output_root.to_string_lossy().to_string().into());
     ui.set_file_template(rule.template.clone().into());
     ui.set_folder_template(rule.folder.clone().into());
-    ui.set_auto_crop(config.auto_crop.unwrap_or(true));
+    let manual_crop = config.manual_crop.unwrap_or(false);
+    let crop = CropRect::from_config(&config);
+    // 手动裁剪与自动裁边互斥：配置里同时开启时以手动裁剪为准。
+    let auto_crop = if manual_crop {
+        false
+    } else {
+        config.auto_crop.unwrap_or(true)
+    };
+    config.auto_crop = Some(auto_crop);
+    ui.set_auto_crop(auto_crop);
+    ui.set_manual_crop(manual_crop);
+    ui.set_crop_cx(crop.cx);
+    ui.set_crop_cy(crop.cy);
+    ui.set_crop_w(crop.w);
+    ui.set_crop_h(crop.h);
+    ui.set_crop_angle(crop.angle);
+    ui.set_preview_aspect(4.0 / 3.0);
     ui.set_auto_deskew(config.deskew.unwrap_or(true));
     ui.set_perspective(config.perspective.unwrap_or(true));
     ui.set_remove_shadow(config.remove_shadow.unwrap_or(false));
@@ -2506,6 +2879,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         shared.selected.clone_from(&config.last_camera_id);
         shared.selected_name.clone_from(&config.last_camera_name);
         shared.rotation = rotation;
+        shared.auto_crop = auto_crop;
     }
 
     let tessdata_dir = config
@@ -2517,7 +2891,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         (Some(width), Some(height)) => Some((u32::from(width), u32::from(height))),
         _ => None,
     };
-    let last_auto_crop = config.auto_crop.unwrap_or(true);
+    let last_auto_crop = auto_crop;
     let last_output_dir = output_root.to_string_lossy().into_owned();
     let state = std::rc::Rc::new(std::cell::RefCell::new(AppState {
         ui: ui.as_weak(),
@@ -2542,6 +2916,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         last_fps_rates_version: 0,
         last_status: String::new(),
         last_auto_crop,
+        manual_crop,
+        crop,
+        crop_drag: None,
         last_connected: false,
         last_recording: false,
         last_output_dir,
@@ -2744,6 +3121,26 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     }
     {
         let state = std::rc::Rc::clone(state);
+        ui.on_crop_pointer_down(move |x, y| state.borrow_mut().crop_pointer_down(x, y));
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_crop_pointer_move(move |x, y| state.borrow_mut().crop_pointer_move(x, y));
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_crop_pointer_up(move || state.borrow_mut().crop_pointer_up());
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_crop_reset_rect(move || state.borrow_mut().crop_reset_rect());
+    }
+    {
+        let state = std::rc::Rc::clone(state);
+        ui.on_crop_reset_angle(move || state.borrow_mut().crop_reset_angle());
+    }
+    {
+        let state = std::rc::Rc::clone(state);
         ui.on_delete_page(move |row| state.borrow_mut().delete_page(row as usize));
     }
     {
@@ -2872,6 +3269,23 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
 // ---------------------------------------------------------------------------
 // 图像与文件辅助
 // ---------------------------------------------------------------------------
+
+/// 按手动裁剪框（可旋转）提取画面。裁剪框已归一化，输出为直边矩形。
+fn crop_frame(frame: &capture::Frame, crop: CropRect) -> capture::Frame {
+    let corners = crop
+        .clamped(frame.width as f32, frame.height as f32)
+        .corners(frame.width, frame.height);
+    match imaging::perspective_from_corners(frame.width, frame.height, &frame.data, &corners) {
+        Ok((width, height, data)) => capture::Frame {
+            width,
+            height,
+            format: capture::PixelFormat::Bgra8,
+            data,
+            timestamp: frame.timestamp,
+        },
+        Err(_) => frame.clone(),
+    }
+}
 
 fn preview_image(
     frame: &capture::Frame,
@@ -3057,4 +3471,86 @@ fn format_elapsed(total: u64) -> String {
 
 fn default_output_root() -> PathBuf {
     usbscan_win::paths::default_output_root()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{crop_frame, crop_hit_test, CropDragMode, CropRect, CropView};
+    use usbscan_capture as capture;
+
+    fn solid_frame(width: u32, height: u32) -> capture::Frame {
+        capture::Frame {
+            width,
+            height,
+            format: capture::PixelFormat::Bgra8,
+            data: vec![255; width as usize * height as usize * 4],
+            timestamp: 0,
+        }
+    }
+
+    #[test]
+    fn rotated_crop_stays_inside_the_frame() {
+        let crop = CropRect {
+            cx: 0.05,
+            cy: 0.95,
+            w: 0.9,
+            h: 0.9,
+            angle: 40.0,
+        }
+        .clamped(1000.0, 800.0);
+        let corners = crop.corners(1000, 800);
+        for (x, y) in corners {
+            assert!((-0.5..=1000.5).contains(&x), "x={x}");
+            assert!((-0.5..=800.5).contains(&y), "y={y}");
+        }
+    }
+
+    #[test]
+    fn manual_crop_extracts_the_selected_area() {
+        let frame = solid_frame(100, 80);
+        let crop = CropRect {
+            cx: 0.5,
+            cy: 0.5,
+            w: 0.5,
+            h: 0.5,
+            angle: 0.0,
+        };
+        let output = crop_frame(&frame, crop);
+        assert!(output.width.abs_diff(50) <= 1, "width={}", output.width);
+        assert!(output.height.abs_diff(40) <= 1, "height={}", output.height);
+        assert!(output.data.iter().all(|&value| value == 255));
+    }
+
+    #[test]
+    fn crop_hit_test_finds_handles_and_body() {
+        let view = CropView {
+            width: 400.0,
+            height: 300.0,
+            left: 0.0,
+            top: 0.0,
+        };
+        let crop = CropRect {
+            cx: 0.5,
+            cy: 0.5,
+            w: 0.5,
+            h: 0.5,
+            angle: 0.0,
+        };
+        assert!(matches!(
+            crop_hit_test(&view, &crop, 200.0, 150.0),
+            CropDragMode::Move
+        ));
+        assert!(matches!(
+            crop_hit_test(&view, &crop, 100.0, 75.0),
+            CropDragMode::Resize { .. }
+        ));
+        assert!(matches!(
+            crop_hit_test(&view, &crop, 200.0, 55.0),
+            CropDragMode::Rotate { .. }
+        ));
+        assert!(matches!(
+            crop_hit_test(&view, &crop, 10.0, 10.0),
+            CropDragMode::NewRect
+        ));
+    }
 }

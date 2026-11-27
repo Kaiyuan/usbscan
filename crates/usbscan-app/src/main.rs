@@ -842,6 +842,16 @@ impl CropQuad {
         }
         commands
     }
+
+    /// 生成“外框减四边形”的遮罩路径（even-odd），用于压暗选区之外的画面。
+    fn mask_commands(self) -> String {
+        let scale = |point: (f32, f32)| (point.0 * 100.0, point.1 * 100.0);
+        let [p0, p1, p2, p3] = self.points.map(scale);
+        format!(
+            "M0 0 L100 0 L100 100 L0 100 Z M{:.2} {:.2} L{:.2} {:.2} L{:.2} {:.2} L{:.2} {:.2} Z",
+            p0.0, p0.1, p1.0, p1.1, p2.0, p2.1, p3.0, p3.1
+        )
+    }
 }
 
 /// 预览画面在交互区域中的实际显示矩形。
@@ -1036,6 +1046,7 @@ impl AppState {
             ui.set_crop_p3x(self.quad.points[3].0);
             ui.set_crop_p3y(self.quad.points[3].1);
             ui.set_crop_free_path(self.quad.path_commands().into());
+            ui.set_crop_free_mask(self.quad.mask_commands().into());
             ui.set_crop_free_valid(self.quad.is_valid());
         }
     }
@@ -3320,6 +3331,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     ui.set_crop_p3x(quad.points[3].0);
     ui.set_crop_p3y(quad.points[3].1);
     ui.set_crop_free_path(quad.path_commands().into());
+    ui.set_crop_free_mask(quad.mask_commands().into());
     ui.set_crop_free_valid(quad.is_valid());
     ui.set_preview_aspect(4.0 / 3.0);
     ui.set_auto_deskew(config.deskew.unwrap_or(true));
@@ -4094,6 +4106,19 @@ mod tests {
             assert!((0.0..=1.0).contains(&y), "y={y}");
         }
         assert!(quad.is_valid());
+    }
+
+    #[test]
+    fn quad_path_commands_match_the_normalized_points() {
+        let quad = CropQuad {
+            points: [(0.1, 0.2), (0.8, 0.25), (0.9, 0.75), (0.05, 0.9)],
+        };
+        assert!(quad
+            .path_commands()
+            .starts_with("M10.00 20.00 L80.00 25.00 L90.00 75.00 L5.00 90.00 Z"));
+        assert!(quad
+            .mask_commands()
+            .starts_with("M0 0 L100 0 L100 100 L0 100 Z M10.00 20.00"));
     }
 
     #[test]

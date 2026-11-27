@@ -471,6 +471,7 @@ export component MainWindow inherits Window {
     in-out property <float> crop-p3x: 0.04;
     in-out property <float> crop-p3y: 0.96;
     in-out property <string> crop-free-path: "";
+    in-out property <string> crop-free-mask: "";
     in-out property <bool> crop-free-valid: true;
     // 预览画面宽高比，由 Rust 在每帧到达时更新。
     in-out property <float> preview-aspect: 1.3333;
@@ -921,10 +922,26 @@ export component MainWindow inherits Window {
                             height: root.crop-img-h;
                             viewbox-width: 100;
                             viewbox-height: 100;
+                            fit: ImageFit.fill;
+                            commands: root.crop-free-mask;
+                            fill: #00000059;
+                            fill-rule: evenodd;
+                            stroke-width: 0px;
+                        }
+
+                        Path {
+                            x: root.crop-img-x;
+                            y: root.crop-img-y;
+                            width: root.crop-img-w;
+                            height: root.crop-img-h;
+                            viewbox-width: 100;
+                            viewbox-height: 100;
+                            fit: ImageFit.fill;
                             commands: root.crop-free-path;
                             fill: root.crop-free-valid ? #0a84ff1a : #ff453a1a;
                             stroke: root.crop-free-valid ? Theme.accent : #ff453a;
-                            stroke-width: 0.4px;
+                            stroke-width: 2px;
+                            stroke-line-join: round;
                         }
 
                         // 四个自由角点

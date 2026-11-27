@@ -129,6 +129,26 @@ impl ISampleGrabber {
     }
 }
 
+/// 把 DirectShow moniker 转换成统一的设备信息。
+///
+/// `GetDisplayName` 在多数系统上返回 `@device:pnp:\\?\usb#...` 这样的
+/// 设备路径；把它保留在 id 里，合并 Media Foundation 列表时就能按设备
+/// 实例键去重，而不会把同名的第二个镜头误删。
+fn moniker_camera(moniker: &IMoniker, index: usize) -> CameraInfo {
+    let display = display_name(moniker).unwrap_or_default();
+    let name = if display.is_empty() || display.starts_with("@device:") {
+        format!("DirectShow 摄像头 {}", index + 1)
+    } else {
+        display.clone()
+    };
+    let id = if display.is_empty() {
+        format!("dshow:{index}:{name}")
+    } else {
+        format!("dshow:{display}")
+    };
+    CameraInfo { id, name }
+}
+
 /// 枚举 DirectShow 视频输入设备。
 pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
     let mut cameras = Vec::new();
@@ -160,16 +180,7 @@ pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
         let Some(moniker) = monikers[0].take() else {
             break;
         };
-        let display = display_name(&moniker).unwrap_or_default();
-        let name = if display.is_empty() || display.starts_with("@device:") {
-            format!("DirectShow 摄像头 {}", index + 1)
-        } else {
-            display
-        };
-        cameras.push(CameraInfo {
-            id: format!("dshow:{index}:{name}"),
-            name,
-        });
+        cameras.push(moniker_camera(&moniker, index));
         index += 1;
     }
     Ok(cameras)
@@ -408,6 +419,8 @@ fn find_moniker(info: &CameraInfo) -> Option<IMoniker> {
             .ok()?;
     }
     let class_enum = class_enum?;
+    let wanted_key = crate::pnp_key(&info.id).or_else(|| crate::pnp_key(&info.name));
+    let mut by_name: Option<IMoniker> = None;
     let mut index = 0usize;
     loop {
         let mut monikers = [None];
@@ -415,21 +428,27 @@ fn find_moniker(info: &CameraInfo) -> Option<IMoniker> {
         // SAFETY: 输出数组有效。
         let result = unsafe { class_enum.Next(&mut monikers, Some(&mut fetched)) };
         if result.0 < 0 || fetched == 0 {
-            return None;
+            break;
         }
-        let moniker = monikers[0].take()?;
-        let display = display_name(&moniker).unwrap_or_default();
-        let wanted = crate::pnp_key(&info.id).or_else(|| crate::pnp_key(&info.name));
-        if info.id == format!("dshow:{index}:{display}")
-            || info.name == display
-            || wanted
+        let Some(moniker) = monikers[0].take() else {
+            break;
+        };
+        let candidate = moniker_camera(&moniker, index);
+        // 优先精确匹配 id / 设备实例键，避免两台同名摄像头打开错的那台。
+        if candidate.id == info.id
+            || wanted_key
                 .as_ref()
-                .is_some_and(|key| crate::pnp_key(&display).as_ref() == Some(key))
+                .is_some_and(|key| crate::pnp_key(&candidate.id).as_ref() == Some(key))
         {
             return Some(moniker);
         }
+        if by_name.is_none() && candidate.name == info.name {
+            by_name = Some(moniker);
+        }
         index += 1;
     }
+    // 旧配置里保存的是 `dshow:{index}:{name}`，没有可用的设备键时按名字回退。
+    by_name
 }
 
 fn first_pin(

@@ -39,6 +39,10 @@ pub struct Config {
     pub crop_h: Option<u16>,
     /// 手动裁剪框旋转角度（-45–45 度）。
     pub crop_angle: Option<i16>,
+    /// 自由裁剪（四点透视校正）。
+    pub crop_free: Option<bool>,
+    /// 自由裁剪四点：`x0,y0;x1,y1;x2,y2;x3,y3`（0–1000 归一化）。
+    pub crop_quad: Option<String>,
     /// 自动纠偏。
     pub deskew: Option<bool>,
     /// 自动透视校正。
@@ -136,6 +140,10 @@ impl Config {
                 config.crop_h = Some(value.clamp(1, 1000));
             } else if let Some(value) = toml_i32(line, "crop_angle") {
                 config.crop_angle = Some(value.clamp(-45, 45) as i16);
+            } else if let Some(value) = toml_bool(line, "crop_free") {
+                config.crop_free = Some(value);
+            } else if let Some(value) = toml_string(line, "crop_quad") {
+                config.crop_quad = Some(value);
             } else if let Some(value) = toml_bool(line, "deskew") {
                 config.deskew = Some(value);
             } else if let Some(value) = toml_bool(line, "perspective") {
@@ -217,6 +225,7 @@ impl Config {
         for (key, value) in [
             ("auto_crop", self.auto_crop),
             ("manual_crop", self.manual_crop),
+            ("crop_free", self.crop_free),
             ("deskew", self.deskew),
             ("perspective", self.perspective),
             ("remove_shadow", self.remove_shadow),
@@ -247,6 +256,7 @@ impl Config {
             text.push_str(&angle.to_string());
             text.push('\n');
         }
+        push_option_string(&mut text, "crop_quad", self.crop_quad.as_deref());
         if let Some(strength) = self.enhance_strength {
             text.push_str("enhance_strength = ");
             text.push_str(&strength.to_string());
@@ -503,7 +513,7 @@ mod tests {
     #[test]
     fn parses_manual_crop_settings() {
         let config = Config::parse(
-            "manual_crop = 1\ncrop_cx = 420\ncrop_cy = 380\ncrop_w = 610\ncrop_h = 550\ncrop_angle = -12\n",
+            "manual_crop = 1\ncrop_cx = 420\ncrop_cy = 380\ncrop_w = 610\ncrop_h = 550\ncrop_angle = -12\ncrop_free = 1\ncrop_quad = \"40,40;960,40;960,960;40,960\"\n",
         );
         assert_eq!(config.manual_crop, Some(true));
         assert_eq!(config.crop_cx, Some(420));
@@ -511,6 +521,11 @@ mod tests {
         assert_eq!(config.crop_w, Some(610));
         assert_eq!(config.crop_h, Some(550));
         assert_eq!(config.crop_angle, Some(-12));
+        assert_eq!(config.crop_free, Some(true));
+        assert_eq!(
+            config.crop_quad.as_deref(),
+            Some("40,40;960,40;960,960;40,960")
+        );
     }
 
     #[test]

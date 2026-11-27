@@ -5252,7 +5252,7 @@ checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "usbscan-app"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "native-tls",
  "rfd",
@@ -5276,7 +5276,7 @@ dependencies = [
 
 [[package]]
 name = "usbscan-capture"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "image",
  "nokhwa",
@@ -5285,39 +5285,39 @@ dependencies = [
 
 [[package]]
 name = "usbscan-doc"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "usbscan-export"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "usbscan-imaging",
 ]
 
 [[package]]
 name = "usbscan-imaging"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "image",
 ]
 
 [[package]]
 name = "usbscan-naming"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "usbscan-ocr"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "usbscan-pdf"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "usbscan-imaging",
  "windows 0.61.3",
@@ -5325,7 +5325,7 @@ dependencies = [
 
 [[package]]
 name = "usbscan-win"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "usbscan-capture",
  "usbscan-doc",

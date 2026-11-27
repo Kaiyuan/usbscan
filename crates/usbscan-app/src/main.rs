@@ -70,6 +70,9 @@ impl Audio {
 }
 
 const DETECT_INTERVAL: Duration = Duration::from_millis(300);
+/// 采集过程中重新枚举设备的间隔：双摄高拍仪的两个镜头可能先后枚举完成，
+/// 或在使用中才被系统识别；定期刷新才能让第二个镜头出现在下拉列表里。
+const DEVICE_SCAN_INTERVAL: Duration = Duration::from_secs(5);
 const PREVIEW_MAX_SIDE: u32 = 1024;
 const DETECT_MAX_SIDE: u32 = 480;
 
@@ -291,7 +294,20 @@ fn worker_loop(shared: &Arc<Mutex<WorkerShared>>, stop: &AtomicBool) {
             guard.corners_frame = Some((width, height));
         }
 
+        let mut last_device_scan = Instant::now();
         while !stop.load(Ordering::SeqCst) {
+            // 定期重新枚举：双摄设备常有两个先后就绪的 UVC 接口，插拔后
+            // 也无需用户手动点“刷新”才能看到第二个摄像头。
+            if last_device_scan.elapsed() >= DEVICE_SCAN_INTERVAL {
+                last_device_scan = Instant::now();
+                if let Ok(cameras) = capture::list_cameras() {
+                    // 枚举偶尔会在 USB 重新枚举的瞬间返回空列表；此时保留
+                    // 已有设备，避免下拉框短暂变空。
+                    if !cameras.is_empty() {
+                        publish_devices(shared, &cameras);
+                    }
+                }
+            }
             let restart = {
                 let mut guard = shared
                     .lock()
@@ -435,12 +451,26 @@ fn maybe_detect(shared: &Arc<Mutex<WorkerShared>>, frame: &capture::Frame) {
 }
 
 fn publish_devices(shared: &Arc<Mutex<WorkerShared>>, cameras: &[capture::CameraInfo]) {
-    let mut guard = shared
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if guard.devices != cameras {
-        guard.devices = cameras.to_vec();
-        guard.devices_version = guard.devices_version.wrapping_add(1);
+    let changed = {
+        let mut guard = shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if guard.devices == cameras {
+            false
+        } else {
+            guard.devices = cameras.to_vec();
+            guard.devices_version = guard.devices_version.wrapping_add(1);
+            true
+        }
+    };
+    if changed {
+        // 记下系统实际枚举到的设备，排查“双摄只看到一个”时可以直接对比。
+        let list = cameras
+            .iter()
+            .map(|camera| format!("{} [{}]", camera.name, camera.id))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        startup_log(&format!("摄像头列表：{list}"));
     }
 }
 
@@ -470,6 +500,30 @@ fn set_status(shared: &Arc<Mutex<WorkerShared>>, connected: bool, status: String
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     guard.connected = connected;
     guard.status = status;
+}
+
+/// 生成摄像头下拉列表的显示名。
+///
+/// 双摄高拍仪的两个镜头通常使用同一个友好名（例如两台都叫
+/// “USB2.0 Camera”）。这里给同名项追加序号，用户才能分辨并选中第二个。
+fn device_labels(devices: &[capture::CameraInfo]) -> Vec<String> {
+    let mut totals: HashMap<&str, usize> = HashMap::new();
+    for device in devices {
+        *totals.entry(device.name.as_str()).or_insert(0) += 1;
+    }
+    let mut seen: HashMap<&str, usize> = HashMap::new();
+    devices
+        .iter()
+        .map(|device| {
+            if totals.get(device.name.as_str()).copied().unwrap_or(0) > 1 {
+                let count = seen.entry(device.name.as_str()).or_insert(0);
+                *count += 1;
+                format!("{} ({count})", device.name)
+            } else {
+                device.name.clone()
+            }
+        })
+        .collect()
 }
 
 fn select_camera<'a>(
@@ -647,6 +701,149 @@ impl CropRect {
     }
 }
 
+/// 自由裁剪：四个角点均相对画面归一化（0–1），顺序为左上、右上、右下、左下。
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CropQuad {
+    points: [(f32, f32); 4],
+}
+
+impl Default for CropQuad {
+    fn default() -> Self {
+        Self {
+            points: [(0.04, 0.04), (0.96, 0.04), (0.96, 0.96), (0.04, 0.96)],
+        }
+    }
+}
+
+impl CropQuad {
+    fn from_config(config: &Config) -> Self {
+        config
+            .crop_quad
+            .as_deref()
+            .and_then(Self::parse)
+            .unwrap_or_default()
+            .normalized()
+    }
+
+    /// 解析 `x0,y0;x1,y1;x2,y2;x3,y3`（0–1000 归一化整数）。
+    fn parse(text: &str) -> Option<Self> {
+        let mut points = [(0.0f32, 0.0f32); 4];
+        let mut count = 0usize;
+        for part in text.split(';') {
+            if count == 4 {
+                return None;
+            }
+            let (x, y) = part.split_once(',')?;
+            let x: f32 = x.trim().parse().ok()?;
+            let y: f32 = y.trim().parse().ok()?;
+            if !x.is_finite() || !y.is_finite() {
+                return None;
+            }
+            points[count] = (x / 1000.0, y / 1000.0);
+            count += 1;
+        }
+        (count == 4).then_some(Self { points })
+    }
+
+    fn to_config(self) -> String {
+        let value = |v: f32| (v * 1000.0).round().clamp(0.0, 1000.0) as u16;
+        self.points
+            .iter()
+            .map(|(x, y)| format!("{},{}", value(*x), value(*y)))
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
+    fn normalized(mut self) -> Self {
+        for point in &mut self.points {
+            point.0 = point.0.clamp(0.0, 1.0);
+            point.1 = point.1.clamp(0.0, 1.0);
+        }
+        self
+    }
+
+    /// 由当前（可旋转的）矩形裁剪框推导四个角点。
+    fn from_rect(crop: CropRect, width: u32, height: u32) -> Self {
+        let width = width.max(1);
+        let height = height.max(1);
+        let corners = crop.corners(width, height);
+        Self {
+            points: corners.map(|(x, y)| {
+                (
+                    (x / f64::from(width)) as f32,
+                    (y / f64::from(height)) as f32,
+                )
+            }),
+        }
+        .normalized()
+    }
+
+    fn corners(self, width: u32, height: u32) -> [(f64, f64); 4] {
+        self.points.map(|(x, y)| {
+            (
+                f64::from(x) * f64::from(width),
+                f64::from(y) * f64::from(height),
+            )
+        })
+    }
+
+    /// 四个点是否构成凸的、面积足够的四边形。
+    ///
+    /// 拖动时允许暂时越界；这里用于实时提示（边框变红）和拍摄前的校验。
+    fn is_valid(self) -> bool {
+        let points = self.points;
+        let mut sign: Option<bool> = None;
+        for index in 0..4 {
+            let a = points[index];
+            let b = points[(index + 1) % 4];
+            let c = points[(index + 2) % 4];
+            let cross = (b.0 - a.0) * (c.1 - b.1) - (b.1 - a.1) * (c.0 - b.0);
+            if cross.abs() < 1e-4 {
+                return false;
+            }
+            let positive = cross > 0.0;
+            if sign.is_some_and(|sign| sign != positive) {
+                return false;
+            }
+            sign = Some(positive);
+        }
+        let mut area = 0.0f32;
+        for index in 0..4 {
+            let (x1, y1) = points[index];
+            let (x2, y2) = points[(index + 1) % 4];
+            area += x1 * y2 - x2 * y1;
+        }
+        area.abs() / 2.0 >= 0.01
+    }
+
+    /// 生成 Slint `Path` 命令（100×100 坐标系）：轮廓 + 三分参考线。
+    fn path_commands(self) -> String {
+        use std::fmt::Write as _;
+
+        let scale = |point: (f32, f32)| (point.0 * 100.0, point.1 * 100.0);
+        let [p0, p1, p2, p3] = self.points.map(scale);
+        let mut commands = format!(
+            "M{:.2} {:.2} L{:.2} {:.2} L{:.2} {:.2} L{:.2} {:.2} Z",
+            p0.0, p0.1, p1.0, p1.1, p2.0, p2.1, p3.0, p3.1
+        );
+        let lerp =
+            |a: (f32, f32), b: (f32, f32), t: f32| (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+        for t in [1.0 / 3.0, 2.0 / 3.0] {
+            // 按四边形做双线性插值，帮助用户判断透视是否贴合纸张。
+            let top = lerp(p0, p1, t);
+            let bottom = lerp(p3, p2, t);
+            let left = lerp(p0, p3, t);
+            let right = lerp(p1, p2, t);
+            let _ = write!(
+                commands,
+                " M{:.2} {:.2} L{:.2} {:.2} M{:.2} {:.2} L{:.2} {:.2}",
+                top.0, top.1, bottom.0, bottom.1, left.0, left.1, right.0, right.1
+            );
+        }
+        commands
+    }
+}
+
 /// 预览画面在交互区域中的实际显示矩形。
 #[derive(Clone, Copy, Debug)]
 struct CropView {
@@ -663,6 +860,8 @@ enum CropDragMode {
     Resize { corner: (f32, f32) },
     Rotate { start_angle: f32 },
     NewRect,
+    FreeCorner { index: usize },
+    FreeMove,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -671,6 +870,7 @@ struct CropDrag {
     view: CropView,
     start: (f32, f32),
     origin: CropRect,
+    origin_quad: CropQuad,
 }
 
 /// 判断指针落在移动区域、四角缩放手柄、旋转手柄还是空白处。
@@ -703,6 +903,35 @@ fn crop_hit_test(view: &CropView, crop: &CropRect, x: f32, y: f32) -> CropDragMo
     }
 }
 
+/// 自由裁剪命中测试：四角手柄优先，其次是四边形内部；空白处不响应，
+/// 避免误触把已经贴合好的四点重置。
+fn quad_hit_test(view: &CropView, quad: &CropQuad, x: f32, y: f32) -> Option<CropDragMode> {
+    let points = quad
+        .points
+        .map(|(px, py)| (view.left + px * view.width, view.top + py * view.height));
+    let radius2 = 16.0_f32.powi(2);
+    for (index, (px, py)) in points.iter().enumerate() {
+        if (x - px).powi(2) + (y - py).powi(2) <= radius2 {
+            return Some(CropDragMode::FreeCorner { index });
+        }
+    }
+    point_in_polygon(&points, x, y).then_some(CropDragMode::FreeMove)
+}
+
+fn point_in_polygon(points: &[(f32, f32); 4], x: f32, y: f32) -> bool {
+    let mut inside = false;
+    let mut j = 3;
+    for index in 0..4 {
+        let (xi, yi) = points[index];
+        let (xj, yj) = points[j];
+        if ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = index;
+    }
+    inside
+}
+
 #[allow(clippy::struct_excessive_bools)]
 struct AppState {
     ui: slint::Weak<MainWindow>,
@@ -729,7 +958,9 @@ struct AppState {
     last_status: String,
     last_auto_crop: bool,
     manual_crop: bool,
+    crop_free: bool,
     crop: CropRect,
+    quad: CropQuad,
     crop_drag: Option<CropDrag>,
     last_connected: bool,
     last_recording: bool,
@@ -795,17 +1026,47 @@ impl AppState {
             ui.set_crop_w(self.crop.w);
             ui.set_crop_h(self.crop.h);
             ui.set_crop_angle(self.crop.angle);
+            ui.set_crop_free(self.crop_free);
+            ui.set_crop_p0x(self.quad.points[0].0);
+            ui.set_crop_p0y(self.quad.points[0].1);
+            ui.set_crop_p1x(self.quad.points[1].0);
+            ui.set_crop_p1y(self.quad.points[1].1);
+            ui.set_crop_p2x(self.quad.points[2].0);
+            ui.set_crop_p2y(self.quad.points[2].1);
+            ui.set_crop_p3x(self.quad.points[3].0);
+            ui.set_crop_p3y(self.quad.points[3].1);
+            ui.set_crop_free_path(self.quad.path_commands().into());
+            ui.set_crop_free_valid(self.quad.is_valid());
         }
     }
 
     fn remember_crop(&mut self) {
         self.config.manual_crop = Some(self.manual_crop);
+        self.config.crop_free = Some(self.crop_free);
+        self.config.crop_quad = Some(self.quad.to_config());
         self.config.crop_cx = Some((self.crop.cx * 1000.0).round().clamp(0.0, 1000.0) as u16);
         self.config.crop_cy = Some((self.crop.cy * 1000.0).round().clamp(0.0, 1000.0) as u16);
         self.config.crop_w = Some((self.crop.w * 1000.0).round().clamp(1.0, 1000.0) as u16);
         self.config.crop_h = Some((self.crop.h * 1000.0).round().clamp(1.0, 1000.0) as u16);
         self.config.crop_angle = Some(self.crop.angle.round().clamp(-45.0, 45.0) as i16);
         self.settings_dirty = true;
+    }
+
+    /// 切换矩形/自由裁剪。第一次进入自由模式时，从当前矩形框生成四点，
+    /// 避免用户看到一个与刚才选区无关的默认四边形。
+    fn set_crop_free(&mut self, free: bool) {
+        if free == self.crop_free {
+            return;
+        }
+        if free && self.quad == CropQuad::default() {
+            if let Some(frame) = self.frame() {
+                self.quad = CropQuad::from_rect(self.crop, frame.width, frame.height);
+            }
+        }
+        self.crop_free = free;
+        self.crop_drag = None;
+        self.push_crop();
+        self.remember_crop();
     }
 
     fn crop_pointer_down(&mut self, x: f32, y: f32) {
@@ -815,12 +1076,20 @@ impl AppState {
         let Some(view) = self.crop_view() else {
             return;
         };
-        let mode = crop_hit_test(&view, &self.crop, x, y);
+        let mode = if self.crop_free {
+            let Some(mode) = quad_hit_test(&view, &self.quad, x, y) else {
+                return;
+            };
+            mode
+        } else {
+            crop_hit_test(&view, &self.crop, x, y)
+        };
         self.crop_drag = Some(CropDrag {
             mode,
             view,
             start: (x, y),
             origin: self.crop,
+            origin_quad: self.quad,
         });
     }
 
@@ -828,9 +1097,14 @@ impl AppState {
         let Some(drag) = self.crop_drag else {
             return;
         };
+        if self.crop_free {
+            self.drag_free(x, y, drag);
+            return;
+        }
         let view = drag.view;
         let (sin, cos) = drag.origin.angle.to_radians().sin_cos();
         let next = match drag.mode {
+            CropDragMode::FreeCorner { .. } | CropDragMode::FreeMove => return,
             CropDragMode::Move => {
                 let mut crop = drag.origin;
                 crop.cx += (x - drag.start.0) / view.width;
@@ -887,6 +1161,41 @@ impl AppState {
         }
     }
 
+    fn drag_free(&mut self, x: f32, y: f32, drag: CropDrag) {
+        let view = drag.view;
+        let mut quad = drag.origin_quad;
+        match drag.mode {
+            CropDragMode::FreeCorner { index } => {
+                if let Some(point) = quad.points.get_mut(index) {
+                    point.0 = ((x - view.left) / view.width).clamp(0.0, 1.0);
+                    point.1 = ((y - view.top) / view.height).clamp(0.0, 1.0);
+                }
+            }
+            CropDragMode::FreeMove => {
+                let dx = (x - drag.start.0) / view.width;
+                let dy = (y - drag.start.1) / view.height;
+                let min = |values: [f32; 4]| values.iter().copied().fold(f32::INFINITY, f32::min);
+                let max =
+                    |values: [f32; 4]| values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let xs = quad.points.map(|point| point.0);
+                let ys = quad.points.map(|point| point.1);
+                let dx = dx.clamp(-min(xs), 1.0 - max(xs));
+                let dy = dy.clamp(-min(ys), 1.0 - max(ys));
+                for point in &mut quad.points {
+                    point.0 += dx;
+                    point.1 += dy;
+                }
+            }
+            _ => return,
+        }
+        quad = quad.normalized();
+        if quad != self.quad {
+            self.quad = quad;
+            self.push_crop();
+            self.remember_crop();
+        }
+    }
+
     fn crop_pointer_up(&mut self) {
         let Some(drag) = self.crop_drag.take() else {
             return;
@@ -902,6 +1211,12 @@ impl AppState {
     }
 
     fn crop_reset_rect(&mut self) {
+        if self.crop_free {
+            self.quad = CropQuad::default();
+            self.push_crop();
+            self.remember_crop();
+            return;
+        }
         let (width, height) = self
             .crop_view()
             .map_or((4.0, 3.0), |view| (view.width, view.height));
@@ -952,7 +1267,16 @@ impl AppState {
         };
         let ui = self.ui();
         let frame = if self.manual_crop {
-            crop_frame(&frame, self.crop)
+            if self.crop_free {
+                if self.quad.is_valid() {
+                    crop_frame_quad(&frame, self.quad)
+                } else {
+                    self.set_status(i18n::t("status.cropQuadInvalid"));
+                    (*frame).clone()
+                }
+            } else {
+                crop_frame(&frame, self.crop)
+            }
         } else {
             (*frame).clone()
         };
@@ -1256,13 +1580,21 @@ impl AppState {
         if devices_version != self.last_devices_version {
             self.last_devices_version = devices_version;
             self.devices = devices;
-            let names: Vec<slint::SharedString> = self
-                .devices
-                .iter()
-                .map(|camera| camera.name.clone().into())
-                .collect();
-            ui.set_device_options(ModelRc::from(Rc::new(VecModel::from(names))));
-            ui.set_device_index(0);
+            let names = device_labels(&self.devices);
+            ui.set_device_options(ModelRc::from(Rc::new(VecModel::from(
+                names
+                    .into_iter()
+                    .map(slint::SharedString::from)
+                    .collect::<Vec<_>>(),
+            ))));
+            // 列表变化（例如双摄的第二个镜头刚刚就绪）时保持当前选择，
+            // 不能一律跳回第 0 项，否则用户会觉得“选不了第二个摄像头”。
+            let selected = self.worker.lock().selected.clone();
+            let index = selected
+                .as_deref()
+                .and_then(|id| self.devices.iter().position(|camera| camera.id == id))
+                .unwrap_or(0);
+            ui.set_device_index(index as i32);
         }
         if formats_version != self.last_formats_version {
             self.last_formats_version = formats_version;
@@ -2831,6 +3163,8 @@ fn apply_ui_language(ui: &MainWindow) {
     ui.set_t_manual_crop_hint(i18n::t("ui.manualCropHint").into());
     ui.set_t_crop_reset(i18n::t("ui.cropReset").into());
     ui.set_t_crop_reset_angle(i18n::t("ui.cropResetAngle").into());
+    ui.set_t_crop_mode_rect(i18n::t("ui.cropModeRect").into());
+    ui.set_t_crop_mode_free(i18n::t("ui.cropModeFree").into());
     ui.set_t_menu_open(i18n::t("menu.open").into());
     ui.set_t_menu_rename(i18n::t("menu.rename").into());
     ui.set_t_menu_reveal(i18n::t("menu.reveal").into());
@@ -2960,6 +3294,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     ui.set_folder_template(rule.folder.clone().into());
     let manual_crop = config.manual_crop.unwrap_or(false);
     let crop = CropRect::from_config(&config);
+    let crop_free = config.crop_free.unwrap_or(false);
+    let quad = CropQuad::from_config(&config);
     // 手动裁剪与自动裁边互斥：配置里同时开启时以手动裁剪为准。
     let auto_crop = if manual_crop {
         false
@@ -2974,6 +3310,17 @@ fn run() -> Result<(), Box<dyn Error>> {
     ui.set_crop_w(crop.w);
     ui.set_crop_h(crop.h);
     ui.set_crop_angle(crop.angle);
+    ui.set_crop_free(crop_free);
+    ui.set_crop_p0x(quad.points[0].0);
+    ui.set_crop_p0y(quad.points[0].1);
+    ui.set_crop_p1x(quad.points[1].0);
+    ui.set_crop_p1y(quad.points[1].1);
+    ui.set_crop_p2x(quad.points[2].0);
+    ui.set_crop_p2y(quad.points[2].1);
+    ui.set_crop_p3x(quad.points[3].0);
+    ui.set_crop_p3y(quad.points[3].1);
+    ui.set_crop_free_path(quad.path_commands().into());
+    ui.set_crop_free_valid(quad.is_valid());
     ui.set_preview_aspect(4.0 / 3.0);
     ui.set_auto_deskew(config.deskew.unwrap_or(true));
     ui.set_perspective(config.perspective.unwrap_or(true));
@@ -3029,7 +3376,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         last_status: String::new(),
         last_auto_crop,
         manual_crop,
+        crop_free,
         crop,
+        quad,
         crop_drag: None,
         last_connected: false,
         last_recording: false,
@@ -3257,6 +3606,10 @@ fn wire_callbacks(ui: &MainWindow, state: &std::rc::Rc<std::cell::RefCell<AppSta
     }
     {
         let state = std::rc::Rc::clone(state);
+        ui.on_crop_set_free(move |free| state.borrow_mut().set_crop_free(free));
+    }
+    {
+        let state = std::rc::Rc::clone(state);
         ui.on_delete_page(move |row| state.borrow_mut().delete_page(row as usize));
     }
     {
@@ -3391,6 +3744,21 @@ fn crop_frame(frame: &capture::Frame, crop: CropRect) -> capture::Frame {
     let corners = crop
         .clamped(frame.width as f32, frame.height as f32)
         .corners(frame.width, frame.height);
+    match imaging::perspective_from_corners(frame.width, frame.height, &frame.data, &corners) {
+        Ok((width, height, data)) => capture::Frame {
+            width,
+            height,
+            format: capture::PixelFormat::Bgra8,
+            data,
+            timestamp: frame.timestamp,
+        },
+        Err(_) => frame.clone(),
+    }
+}
+
+/// 按自由四点提取画面并纠正透视形变（输出为拉直后的矩形）。
+fn crop_frame_quad(frame: &capture::Frame, quad: CropQuad) -> capture::Frame {
+    let corners = quad.normalized().corners(frame.width, frame.height);
     match imaging::perspective_from_corners(frame.width, frame.height, &frame.data, &corners) {
         Ok((width, height, data)) => capture::Frame {
             width,
@@ -3591,7 +3959,10 @@ fn default_output_root() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{crop_frame, crop_hit_test, CropDragMode, CropRect, CropView};
+    use super::{
+        crop_frame, crop_frame_quad, crop_hit_test, device_labels, quad_hit_test, CropDragMode,
+        CropQuad, CropRect, CropView,
+    };
     use usbscan_capture as capture;
 
     fn solid_frame(width: u32, height: u32) -> capture::Frame {
@@ -3668,5 +4039,104 @@ mod tests {
             crop_hit_test(&view, &crop, 10.0, 10.0),
             CropDragMode::NewRect
         ));
+    }
+
+    #[test]
+    fn quad_roundtrips_through_the_config_string() {
+        let quad = CropQuad::parse("40,40;960,40;960,960;40,960").expect("parse");
+        assert!((quad.points[2].0 - 0.96).abs() < 1e-6);
+        assert_eq!(CropQuad::parse(&quad.to_config()), Some(quad));
+        assert!(CropQuad::parse("1,2;3,4").is_none());
+        assert!(CropQuad::parse("a,b;1,2;3,4;5,6").is_none());
+    }
+
+    #[test]
+    fn quad_validity_rejects_crossed_corners() {
+        let convex = CropQuad {
+            points: [(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)],
+        };
+        assert!(convex.is_valid());
+        // 蝴蝶结：左上→右下→右上→左下，边相交。
+        let crossed = CropQuad {
+            points: [(0.1, 0.1), (0.9, 0.9), (0.9, 0.1), (0.1, 0.9)],
+        };
+        assert!(!crossed.is_valid());
+        let collapsed = CropQuad {
+            points: [(0.5, 0.5), (0.5, 0.5), (0.5, 0.5), (0.5, 0.5)],
+        };
+        assert!(!collapsed.is_valid());
+    }
+
+    #[test]
+    fn free_crop_extracts_and_straightens_the_quad() {
+        let frame = solid_frame(100, 80);
+        let quad = CropQuad {
+            points: [(0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75)],
+        };
+        let output = crop_frame_quad(&frame, quad);
+        assert!(output.width.abs_diff(50) <= 1, "width={}", output.width);
+        assert!(output.height.abs_diff(40) <= 1, "height={}", output.height);
+        assert!(output.data.iter().all(|&value| value == 255));
+    }
+
+    #[test]
+    fn from_rect_keeps_a_rotated_selection_inside_the_frame() {
+        let crop = CropRect {
+            cx: 0.5,
+            cy: 0.5,
+            w: 0.8,
+            h: 0.8,
+            angle: 30.0,
+        };
+        let quad = CropQuad::from_rect(crop, 1000, 800);
+        for (x, y) in quad.points {
+            assert!((0.0..=1.0).contains(&x), "x={x}");
+            assert!((0.0..=1.0).contains(&y), "y={y}");
+        }
+        assert!(quad.is_valid());
+    }
+
+    #[test]
+    fn quad_hit_test_finds_corners_and_interior() {
+        let view = CropView {
+            width: 400.0,
+            height: 300.0,
+            left: 0.0,
+            top: 0.0,
+        };
+        let quad = CropQuad {
+            points: [(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)],
+        };
+        assert!(matches!(
+            quad_hit_test(&view, &quad, 40.0, 30.0),
+            Some(CropDragMode::FreeCorner { index: 0 })
+        ));
+        assert!(matches!(
+            quad_hit_test(&view, &quad, 200.0, 150.0),
+            Some(CropDragMode::FreeMove)
+        ));
+        assert!(quad_hit_test(&view, &quad, 5.0, 5.0).is_none());
+    }
+
+    #[test]
+    fn device_labels_disambiguate_identical_camera_names() {
+        let devices = vec![
+            capture::CameraInfo {
+                id: "a".into(),
+                name: "USB2.0 Camera".into(),
+            },
+            capture::CameraInfo {
+                id: "b".into(),
+                name: "USB2.0 Camera".into(),
+            },
+            capture::CameraInfo {
+                id: "c".into(),
+                name: "HD Camera".into(),
+            },
+        ];
+        assert_eq!(
+            device_labels(&devices),
+            vec!["USB2.0 Camera (1)", "USB2.0 Camera (2)", "HD Camera"]
+        );
     }
 }

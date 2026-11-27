@@ -189,18 +189,27 @@ pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
         let mut cameras = mf::list_cameras().unwrap_or_default();
         let dshow_cameras = dshow::list_cameras().unwrap_or_default();
         for camera in dshow_cameras {
-            let key = pnp_key(&camera.name);
+            // 只按设备实例键去重。不能只按友好名：双摄高拍仪的两个镜头
+            // 经常同名，按名字去重会把第二个镜头吞掉。
+            let key = pnp_key(&camera.id);
             let duplicate = cameras.iter().any(|existing| {
-                existing.name == camera.name
-                    || existing.id == camera.id
-                    || key
-                        .as_ref()
-                        .is_some_and(|key| pnp_key(&existing.id).as_ref() == Some(key))
+                existing.id == camera.id
+                    || key.as_ref().map_or_else(
+                        || existing.name == camera.name,
+                        |key| pnp_key(&existing.id).as_ref() == Some(key),
+                    )
             });
             if !duplicate {
                 cameras.push(camera);
             }
         }
+        // 枚举顺序在不同驱动/热插拔后可能变化；固定排序让下拉列表稳定。
+        cameras.sort_by(|a, b| {
+            a.name
+                .to_lowercase()
+                .cmp(&b.name.to_lowercase())
+                .then_with(|| a.id.cmp(&b.id))
+        });
         Ok(cameras)
     }
     #[cfg(not(windows))]
@@ -220,6 +229,9 @@ pub fn ensure_backends() -> Result<(), CaptureError> {
 // ---------------------------------------------------------------------------
 
 /// 从设备符号链接/显示名中提取稳定的 PNP 设备键。（仅 Windows）
+///
+/// 只有真正的设备实例路径（`usb#vid_...#...`）才会返回键；普通友好名
+/// 返回 `None`，避免把两台同名但不同的摄像头误判成同一台。
 #[cfg(windows)]
 pub(crate) fn pnp_key(value: &str) -> Option<String> {
     let value = value
@@ -231,7 +243,7 @@ pub(crate) fn pnp_key(value: &str) -> Option<String> {
     let value = value.strip_prefix(r"\\?\").unwrap_or(value);
     let end = value.find("#{").unwrap_or(value.len());
     let key = &value[..end];
-    if key.is_empty() {
+    if key.is_empty() || !key.contains('#') {
         None
     } else {
         Some(key.to_ascii_lowercase())
@@ -267,5 +279,13 @@ mod tests {
             Some("usb#vid_1234#5&abc&0&1".to_string())
         );
         assert!(pnp_key("@device:sw:{860BB310-5D01-11D0-BD3B-00A0C911CE86}\\{A3FCE0F5}").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pnp_key_rejects_friendly_names_and_old_dshow_ids() {
+        // 友好名不是设备实例路径：返回 None，避免同名摄像头被误判为同一台。
+        assert!(pnp_key("USB2.0 Camera").is_none());
+        assert!(pnp_key("dshow:0:USB2.0 Camera").is_none());
     }
 }

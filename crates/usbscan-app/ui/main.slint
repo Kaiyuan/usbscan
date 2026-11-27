@@ -460,6 +460,18 @@ export component MainWindow inherits Window {
     in-out property <float> crop-w: 0.85;
     in-out property <float> crop-h: 0.85;
     in-out property <float> crop-angle: 0;
+    // 自由裁剪：四个角点（归一化）与是否构成有效四边形。
+    in-out property <bool> crop-free: false;
+    in-out property <float> crop-p0x: 0.04;
+    in-out property <float> crop-p0y: 0.04;
+    in-out property <float> crop-p1x: 0.96;
+    in-out property <float> crop-p1y: 0.04;
+    in-out property <float> crop-p2x: 0.96;
+    in-out property <float> crop-p2y: 0.96;
+    in-out property <float> crop-p3x: 0.04;
+    in-out property <float> crop-p3y: 0.96;
+    in-out property <string> crop-free-path: "";
+    in-out property <bool> crop-free-valid: true;
     // 预览画面宽高比，由 Rust 在每帧到达时更新。
     in-out property <float> preview-aspect: 1.3333;
     // 预览区域尺寸（逻辑像素），供裁剪交互换算坐标。
@@ -552,6 +564,8 @@ export component MainWindow inherits Window {
     in property <string> t-manual-crop-hint: "在预览上拖动裁剪框；拖四角改大小，拖顶部圆点旋转。";
     in property <string> t-crop-reset: "重置裁剪框";
     in property <string> t-crop-reset-angle: "还原角度";
+    in property <string> t-crop-mode-rect: "矩形";
+    in property <string> t-crop-mode-free: "自由";
     // 页面右键菜单：Windows 使用原生菜单，其它平台用内置弹出菜单。
     in property <bool> native-page-menu: false;
     in-out property <length> page-menu-x: 0px;
@@ -607,6 +621,7 @@ export component MainWindow inherits Window {
     callback crop-pointer-up();
     callback crop-reset-rect();
     callback crop-reset-angle();
+    callback crop-set-free(bool);
     callback open-about();
     callback close-about();
     callback open-github();
@@ -895,48 +910,73 @@ export component MainWindow inherits Window {
                         }
                     }
 
-                    crop-box := Rectangle {
-                        x: root.crop-img-x + (root.crop-cx - root.crop-w / 2) * root.crop-img-w;
-                        y: root.crop-img-y + (root.crop-cy - root.crop-h / 2) * root.crop-img-h;
-                        width: root.crop-w * root.crop-img-w;
-                        height: root.crop-h * root.crop-img-h;
-                        border-width: 2px;
-                        border-color: Theme.accent;
-                        background: transparent;
-                        transform-origin: { x: self.width / 2, y: self.height / 2 };
-                        transform-rotation: root.crop-angle * 1deg;
+                    if (root.crop-free) : Rectangle {
+                        width: 100%;
+                        height: 100%;
 
-                        // 三分参考线
-                        Rectangle { x: parent.width / 3; width: 1px; height: 100%; background: #ffffff80; }
-                        Rectangle { x: parent.width * 2 / 3; width: 1px; height: 100%; background: #ffffff80; }
-                        Rectangle { y: parent.height / 3; width: 100%; height: 1px; background: #ffffff80; }
-                        Rectangle { y: parent.height * 2 / 3; width: 100%; height: 1px; background: #ffffff80; }
+                        Path {
+                            x: root.crop-img-x;
+                            y: root.crop-img-y;
+                            width: root.crop-img-w;
+                            height: root.crop-img-h;
+                            viewbox-width: 100;
+                            viewbox-height: 100;
+                            commands: root.crop-free-path;
+                            fill: root.crop-free-valid ? #0a84ff1a : #ff453a1a;
+                            stroke: root.crop-free-valid ? Theme.accent : #ff453a;
+                            stroke-width: 0.4px;
+                        }
 
-                        // 四角缩放点
-                        Rectangle { x: -6px; y: -6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
-                        Rectangle { x: parent.width - 6px; y: -6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
-                        Rectangle { x: parent.width - 6px; y: parent.height - 6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
-                        Rectangle { x: -6px; y: parent.height - 6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+                        // 四个自由角点
+                        Rectangle { x: root.crop-img-x + root.crop-p0x * root.crop-img-w - 7px; y: root.crop-img-y + root.crop-p0y * root.crop-img-h - 7px; width: 14px; height: 14px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: root.crop-free-valid ? Theme.accent : #ff453a; }
+                        Rectangle { x: root.crop-img-x + root.crop-p1x * root.crop-img-w - 7px; y: root.crop-img-y + root.crop-p1y * root.crop-img-h - 7px; width: 14px; height: 14px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: root.crop-free-valid ? Theme.accent : #ff453a; }
+                        Rectangle { x: root.crop-img-x + root.crop-p2x * root.crop-img-w - 7px; y: root.crop-img-y + root.crop-p2y * root.crop-img-h - 7px; width: 14px; height: 14px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: root.crop-free-valid ? Theme.accent : #ff453a; }
+                        Rectangle { x: root.crop-img-x + root.crop-p3x * root.crop-img-w - 7px; y: root.crop-img-y + root.crop-p3y * root.crop-img-h - 7px; width: 14px; height: 14px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: root.crop-free-valid ? Theme.accent : #ff453a; }
+                    }
+                    if (!root.crop-free) : Rectangle {
+                        crop-box := Rectangle {
+                            x: root.crop-img-x + (root.crop-cx - root.crop-w / 2) * root.crop-img-w;
+                            y: root.crop-img-y + (root.crop-cy - root.crop-h / 2) * root.crop-img-h;
+                            width: root.crop-w * root.crop-img-w;
+                            height: root.crop-h * root.crop-img-h;
+                            border-width: 2px;
+                            border-color: Theme.accent;
+                            background: transparent;
+                            transform-origin: { x: self.width / 2, y: self.height / 2 };
+                            transform-rotation: root.crop-angle * 1deg;
 
-                        // 顶部旋转手柄
-                        Rectangle { x: parent.width / 2 - 1px; y: -19px; width: 2px; height: 19px; background: Theme.accent; }
-                        Rectangle { x: parent.width / 2 - 6px; y: -31px; width: 12px; height: 12px; border-radius: 6px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
-                        Text {
-                            y: -52px;
-                            width: 100%;
-                            text: "\{round(root.crop-angle)}°";
-                            color: #ffffff;
-                            font-size: 12px;
-                            font-weight: 600;
-                            horizontal-alignment: center;
+                            // 三分参考线
+                            Rectangle { x: parent.width / 3; width: 1px; height: 100%; background: #ffffff80; }
+                            Rectangle { x: parent.width * 2 / 3; width: 1px; height: 100%; background: #ffffff80; }
+                            Rectangle { y: parent.height / 3; width: 100%; height: 1px; background: #ffffff80; }
+                            Rectangle { y: parent.height * 2 / 3; width: 100%; height: 1px; background: #ffffff80; }
+
+                            // 四角缩放点
+                            Rectangle { x: -6px; y: -6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+                            Rectangle { x: parent.width - 6px; y: -6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+                            Rectangle { x: parent.width - 6px; y: parent.height - 6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+                            Rectangle { x: -6px; y: parent.height - 6px; width: 12px; height: 12px; border-radius: 3px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+
+                            // 顶部旋转手柄
+                            Rectangle { x: parent.width / 2 - 1px; y: -19px; width: 2px; height: 19px; background: Theme.accent; }
+                            Rectangle { x: parent.width / 2 - 6px; y: -31px; width: 12px; height: 12px; border-radius: 6px; background: #ffffff; border-width: 2px; border-color: Theme.accent; }
+                            Text {
+                                y: -52px;
+                                width: 100%;
+                                text: "\{round(root.crop-angle)}°";
+                                color: #ffffff;
+                                font-size: 12px;
+                                font-weight: 600;
+                                horizontal-alignment: center;
+                            }
                         }
                     }
 
-                    // 手动裁剪工具栏
+                    // 手动裁剪工具栏：放在预览底部中央，避开四角手柄。
                     Rectangle {
-                        x: root.crop-img-x + 8px;
-                        y: root.crop-img-y + 8px;
-                        width: 320px;
+                        x: root.crop-img-x + (root.crop-img-w - self.width) / 2;
+                        y: root.crop-img-y + root.crop-img-h - 42px;
+                        width: root.crop-free ? 236px : 400px;
                         height: 34px;
                         background: #00000099;
                         border-radius: 9px;
@@ -948,18 +988,32 @@ export component MainWindow inherits Window {
                             padding-bottom: 4px;
                             spacing: 6px;
                             PillButton {
+                                text: root.t-crop-mode-rect;
+                                primary: !root.crop-free;
+                                height: 26px;
+                                min-width: 52px;
+                                clicked => { root.crop-set-free(false); }
+                            }
+                            PillButton {
+                                text: root.t-crop-mode-free;
+                                primary: root.crop-free;
+                                height: 26px;
+                                min-width: 52px;
+                                clicked => { root.crop-set-free(true); }
+                            }
+                            PillButton {
                                 text: root.t-crop-reset;
                                 height: 26px;
                                 min-width: 88px;
                                 clicked => { root.crop-reset-rect(); }
                             }
-                            PillButton {
+                            if (!root.crop-free) : PillButton {
                                 text: root.t-crop-reset-angle;
                                 height: 26px;
                                 min-width: 88px;
                                 clicked => { root.crop-reset-angle(); }
                             }
-                            Text {
+                            if (!root.crop-free) : Text {
                                 text: "\{round(root.crop-angle)}°";
                                 color: #ffffff;
                                 font-size: 12px;

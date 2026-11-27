@@ -1,0 +1,10 @@
+# Windows 发布构建统一使用静态 CRT
+#
+# * 静态链接 VC++ 运行库，exe 不再依赖 VCRUNTIME140.dll。
+#   国产整机（兆芯 / 海光等）的 Windows 10 镜像经常没有安装
+#   VC++ 2015-2022 运行库，动态链接会导致程序双击后直接退出。
+# * target-cpu 固定为 x86-64 基线，避免构建机上的
+#   `target-cpu=native` 把 AVX2 / AVX-512 指令带进发行版，
+#   保证在只支持 x86-64-v2 的兆芯开先 KX-6000/6900 上也能启动。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "target-cpu=x86-64"]

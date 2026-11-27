@@ -68,6 +68,10 @@ Slint 界面在 Windows、macOS 与 Linux（UOS / Deepin / Debian 系）上共�
 
 Linux / macOS 的录像需要先安装 `ffmpeg`（`sudo apt install ffmpeg` 或 `brew install ffmpeg`）；未安装时点击录像会在状态栏给出安装提示。
 
+Windows 版按 x86-64 基线指令集编译并静态链接 CRT，不依赖 VC++ 运行库，可在兆芯开先 KX-6000/6900、海光等国产 x86 平台上直接启动。
+
+若个别显卡驱动的 OpenGL 实现异常导致界面无法显示，程序会自动改用 Slint 软件渲染重试一次；也可手动设置环境变量 `SLINT_BACKEND=software` 启动。启动失败时请查看 `%LOCALAPPDATA%\usbscan\startup.log`。
+
 ## 文档
 
 | 文档 | 内容 |

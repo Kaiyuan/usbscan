@@ -53,7 +53,7 @@
   "download.linuxDeb": "Download Linux x86_64 Package (.deb)",
   "download.linuxTar": "Linux Portable Package (.tar.gz)",
   "download.depsTitle": "Dependencies & Environment Requirements",
-  "download.winVcDesc": "<strong>Runtime:</strong> Requires <strong>Microsoft Visual C++ 2015–2022 x64</strong> runtime. <a href=\"https://aka.ms/vs/17/release/vc_redist.x64.exe\" target=\"_blank\" rel=\"noopener\">Download official runtime</a>.",
+  "download.winCompatDesc": "<strong>Compatibility:</strong> Statically linked runtime — no VC++ redistributable, .NET, or WebView2 needed. Runs on Intel, AMD, and domestic x86 CPUs such as Zhaoxin KaiXian KX-6000/6900.",
   "download.winOcrDesc": "<strong>Offline OCR plugin:</strong> Depends on <strong>Tesseract 5</strong>. The app has a built-in one-click installer wizard that automatically fetches language packs.",
   "download.winPdfDesc": "<strong>PDF page import:</strong> Built-in Windows.Data.Pdf engine, no extra plugins needed.",
   "download.macPermDesc": "<strong>Camera Permission:</strong> On first launch, grant camera access when prompted, or allow it under <strong>System Settings → Privacy & Security → Camera</strong>.",

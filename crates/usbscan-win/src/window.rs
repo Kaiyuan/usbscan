@@ -19,8 +19,8 @@ mod windows_impl {
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetClientRect, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
-        IsIconic, IsWindowVisible, LoadIconW, SendMessageW, SetWindowPos, ICON_BIG, ICON_SMALL,
-        SWP_NOACTIVATE, SWP_NOZORDER, WM_SETICON,
+        IsIconic, IsWindowVisible, LoadIconW, MessageBoxW, SendMessageW, SetWindowPos, ICON_BIG,
+        ICON_SMALL, MB_ICONERROR, MB_OK, SWP_NOACTIVATE, SWP_NOZORDER, WM_SETICON,
     };
 
     struct Search {
@@ -92,6 +92,24 @@ mod windows_impl {
                 SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icon as isize);
                 SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, icon as isize);
             }
+        }
+    }
+
+    /// 弹出系统原生错误对话框。
+    ///
+    /// GUI 子系统没有控制台，启动失败时必须让用户看到原因，
+    /// 而不是双击后毫无反应。
+    pub fn show_error_dialog(title: &str, text: &str) {
+        let title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let text: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: 传入的都是 NUL 结尾的 UTF-16 字符串。
+        unsafe {
+            MessageBoxW(
+                std::ptr::null_mut(),
+                text.as_ptr(),
+                title.as_ptr(),
+                MB_OK | MB_ICONERROR,
+            );
         }
     }
 
@@ -184,6 +202,10 @@ mod unix_impl {
     }
 
     pub fn set_window_icon() {}
+
+    pub fn show_error_dialog(_title: &str, text: &str) {
+        eprintln!("{text}");
+    }
 
     pub fn is_minimized(_hwnd: HWND) -> bool {
         false

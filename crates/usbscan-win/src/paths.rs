@@ -233,6 +233,24 @@ pub fn app_data_dir() -> PathBuf {
     }
 }
 
+/// 启动日志目录。
+///
+/// Windows 使用 `%LOCALAPPDATA%\usbscan`，不往“文档”目录写日志；
+/// macOS / Linux 与应用数据目录相同。
+#[must_use]
+pub fn log_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .map_or_else(app_data_dir, |base| base.join("usbscan"))
+    }
+    #[cfg(not(windows))]
+    {
+        app_data_dir()
+    }
+}
+
 /// 默认的扫描输出目录：`<图片>/usbscan`。
 #[must_use]
 pub fn default_output_root() -> PathBuf {
@@ -263,6 +281,15 @@ mod tests {
     #[test]
     fn app_data_dir_ends_with_usbscan() {
         let path = app_data_dir();
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("usbscan")
+        );
+    }
+
+    #[test]
+    fn log_dir_ends_with_usbscan() {
+        let path = log_dir();
         assert_eq!(
             path.file_name().and_then(|name| name.to_str()),
             Some("usbscan")

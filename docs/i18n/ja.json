@@ -53,7 +53,7 @@
   "download.linuxDeb": "Linux x86_64 パッケージをダウンロード (.deb)",
   "download.linuxTar": "Linux ポータブルパッケージ (.tar.gz)",
   "download.depsTitle": "依存関係と動作環境について",
-  "download.winVcDesc": "<strong>ランタイム：</strong> <strong>Microsoft Visual C++ 2015–2022 x64</strong> ランタイムが必要です。<a href=\"https://aka.ms/vs/17/release/vc_redist.x64.exe\" target=\"_blank\" rel=\"noopener\">公式ダウンロードリンク</a>。",
+  "download.winCompatDesc": "<strong>互換性：</strong>ランタイムは静的リンク済みで、VC++ 再頒布可能パッケージ / .NET / WebView2 は不要です。Intel / AMD に加え、兆芯開先 KX-6000/6900 などの国産 x86 CPU でも動作します。",
   "download.winOcrDesc": "<strong>オフライン OCR プラグイン：</strong> <strong>Tesseract 5</strong> に依存します。アプリ内のウィザードから自動取得可能で、言語パックも自動補完されます。",
   "download.winPdfDesc": "<strong>PDF ページ取り込み：</strong> システム標準の Windows.Data.Pdf を使用するため追加プラグインは不要です。",
   "download.macPermDesc": "<strong>カメラ権限：</strong> 初回起動時にカメラ許可ダイアログを承認するか、<strong>「システム設定 → プライバシーとセキュリティ → カメラ」</strong>で許可してください。",

@@ -2665,11 +2665,120 @@ fn update_download_text(progress: update::DownloadProgress) -> String {
     )
 }
 
+/// 进程启动时刻，用于在启动日志里记录相对时间。
+static STARTUP_ORIGIN: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+/// 启动日志路径：`%LOCALAPPDATA%\usbscan\startup.log`（Windows）
+/// 或应用数据目录下的 `startup.log`。
+fn startup_log_path() -> PathBuf {
+    paths::log_dir().join("startup.log")
+}
+
+/// 追加一条启动日志。
+///
+/// Windows 使用 `windows_subsystem = "windows"`，没有控制台；
+/// 启动失败时 `eprintln!` 的内容会全部丢失。日志文件是排查
+/// “双击没反应”类问题的唯一线索。
+fn startup_log(message: &str) {
+    use std::io::Write as _;
+
+    let origin = STARTUP_ORIGIN.get_or_init(Instant::now);
+    let path = startup_log_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(file, "[{:>6} ms] {message}", origin.elapsed().as_millis());
+    }
+}
+
+/// 每次启动重写日志，避免历史记录无限增长。
+fn reset_startup_log() {
+    let path = startup_log_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let renderer = std::env::var("SLINT_BACKEND").unwrap_or_else(|_| "default".into());
+    let header = format!(
+        "usbscan {} ({}-{}, renderer={renderer})\n",
+        update::CURRENT_VERSION,
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    let _ = fs::write(&path, header);
+    STARTUP_ORIGIN.get_or_init(Instant::now);
+}
+
+/// panic 也要写进日志（释放构建使用 `panic = "abort"`，控制台看不到）。
+fn install_startup_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        startup_log(&format!("panic: {info}"));
+        default_hook(info);
+    }));
+}
+
+/// 首次启动失败时，用 Slint 软件渲染器再试一次。
+///
+/// 部分国产集显/显卡驱动的 OpenGL 实现不完整，FemtoVG 无法创建
+/// 上下文；软件渲染器只用 GDI，可以正常显示界面。
+#[cfg(windows)]
+fn restart_with_software_renderer() -> bool {
+    const RETRY_ENV: &str = "USBSCAN_SOFTWARE_RENDERING";
+    if std::env::var_os(RETRY_ENV).is_some() {
+        return false;
+    }
+    let Ok(executable) = std::env::current_exe() else {
+        return false;
+    };
+    let mut command = std::process::Command::new(executable);
+    command.env(RETRY_ENV, "1");
+    command.env("SLINT_BACKEND", "software");
+    command.args(std::env::args_os().skip(1));
+    match command.spawn() {
+        Ok(_) => {
+            startup_log("已使用软件渲染器重新启动");
+            true
+        }
+        Err(err) => {
+            startup_log(&format!("无法以软件渲染器重新启动：{err}"));
+            false
+        }
+    }
+}
+
 fn main() {
+    reset_startup_log();
+    install_startup_panic_hook();
+    startup_log("启动");
+
     if let Err(err) = run() {
+        startup_log(&format!("启动失败：{err}"));
+
+        // OpenGL 初始化失败时换软件渲染器重试一次。
+        #[cfg(windows)]
+        {
+            if restart_with_software_renderer() {
+                return;
+            }
+        }
+
+        let log = startup_log_path();
+        startup_log(&format!("日志位置：{}", log.display()));
         eprintln!("usbscan 启动失败：{err}");
+        #[cfg(windows)]
+        {
+            usbscan_win::window::show_error_dialog(
+                "UsbScan 启动失败",
+                &format!(
+                    "UsbScan 无法启动：\n{err}\n\n详细信息已写入：\n{}\n\n请将该文件发送给开发者。",
+                    log.display()
+                ),
+            );
+        }
         std::process::exit(1);
     }
+    startup_log("正常退出");
 }
 
 fn apply_ui_language(ui: &MainWindow) {
@@ -2776,6 +2885,7 @@ fn apply_naming_variables(ui: &MainWindow) {
 
 #[allow(clippy::too_many_lines)]
 fn run() -> Result<(), Box<dyn Error>> {
+    startup_log("run: 载入配置");
     let mut config = Config::load();
     let language = config
         .language
@@ -2784,7 +2894,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(i18n::Lang::from_system);
     i18n::set_language(language);
 
+    startup_log("run: 创建界面");
     let ui = MainWindow::new()?;
+    startup_log("run: 界面对象已创建");
     // 界面字体：Windows 保持 Segoe UI；Linux/UOS 与 macOS 交给系统默认字体（含中文回退）。
     ui.set_ui_font_family(
         if cfg!(windows) {
@@ -2959,7 +3071,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         state.borrow_mut().start_update_check(false);
     }
 
+    startup_log("run: 显示窗口");
     ui.show()?;
+    startup_log("run: 窗口已显示");
     {
         let weak = ui.as_weak();
         let state_close = std::rc::Rc::clone(&state);
@@ -3058,7 +3172,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         state.borrow_mut().timer = Some(timer);
     }
 
+    startup_log("run: 进入事件循环");
     slint::run_event_loop()?;
+    startup_log("run: 事件循环结束");
     state.borrow_mut().shutdown();
     Ok(())
 }

@@ -53,7 +53,7 @@
   "download.linuxDeb": "下载 Linux x86_64 安装包 (.deb)",
   "download.linuxTar": "Linux 便携包 (.tar.gz)",
   "download.depsTitle": "依赖与运行环境说明",
-  "download.winVcDesc": "<strong>基础运行库：</strong>需安装 <strong>Microsoft Visual C++ 2015–2022 x64</strong> 运行库。<a href=\"https://aka.ms/vs/17/release/vc_redist.x64.exe\" target=\"_blank\" rel=\"noopener\">点击官方下载运行库</a>。",
+  "download.winCompatDesc": "<strong>兼容性：</strong>静态链接运行库，无需安装 VC++ 运行库、.NET 或 WebView2；兼容 Intel / AMD 以及兆芯开先 KX-6000/6900 等国产 x86 处理器。",
   "download.winOcrDesc": "<strong>离线 OCR 识别插件：</strong>依赖 <strong>Tesseract 5</strong>。软件内自带一键下载安装向导，并会自动补齐所需语言数据；无需手动配置。",
   "download.winPdfDesc": "<strong>PDF 页面导入：</strong>调用系统 Windows.Data.Pdf 引擎，无需安装额外插件。",
   "download.macPermDesc": "<strong>相机使用权限：</strong>首次开启时，请在系统提示中点击“允许访问摄像头”，或在<strong>“系统设置 → 隐私与安全性 → 摄像头”</strong>中允许 UsbScan。",
